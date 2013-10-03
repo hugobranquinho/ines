@@ -1,0 +1,41 @@
+<tal:html metal:define-macro="main"
+          define="layout request.api.layout;
+                  locale request._LOCALE_"><tal:doctype content="structure layout.doctype" />
+<html lang="${locale}">
+<head>
+  <title metal:define-slot="title">${layout.title}</title>
+
+  <tal:meta metal:define-slot="meta"></tal:meta>
+  <tal:style metal:define-slot="style"></tal:style>
+
+  <script type="text/javascript">
+    window.ines.locale = '${locale}';
+  </script>
+  <tal:script metal:define-slot="script"></tal:script>
+</head>
+
+<body>
+<tal:body metal:define-slot="body">
+  <tal:main metal:define-slot="main">
+    <section
+      metal:define-slot="menu"
+      tal:condition="layout.with_sidebar"
+      tal:content="structure layout.menu"></section>
+
+    <section>
+      <div metal:define-slot="heading" tal:omit-tag=""></div>
+
+      <div
+        tal:repeat="message request.session.pop_flash('status_message')">
+        <div class="rounded ${message['class']}" tal:content="structure message['message']" />
+      </div>
+
+      <div metal:define-slot="content" tal:omit-tag=""></div>
+    </section>
+  </tal:main>
+
+  <div metal:define-slot="end_page_slot" tal:omit-tag=""></div>
+</tal:body>
+</body>
+</html>
+</tal:html>
