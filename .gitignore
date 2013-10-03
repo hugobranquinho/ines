@@ -1,14 +1,3 @@
-
-dist/ines-0.1.tar.gz
-
-ines.egg-info/PKG-INFO
-
-ines.egg-info/SOURCES.txt
-
-ines.egg-info/dependency_links.txt
-
-ines.egg-info/not-zip-safe
-
-ines.egg-info/requires.txt
-
-ines.egg-info/top_level.txt
+build/
+dist/
+ines.egg-info/
