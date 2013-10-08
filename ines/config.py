@@ -22,7 +22,6 @@ from ines.convert import force_unicode
 from ines.i18n import get_translation_factory
 from ines.i18n import get_translation_paths
 from ines.path import find_package_name
-from ines.path import find_package_version
 from ines.registry import inesRegistry
 from ines.request import RootFactory
 from ines.request import inesRequest
