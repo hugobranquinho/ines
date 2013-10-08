@@ -1,3 +1,4 @@
 build/
 dist/
 ines.egg-info/
+*.pyc
