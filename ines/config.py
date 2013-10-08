@@ -72,7 +72,6 @@ def initialize_configuration(global_settings, application_settings):
         keys_to_mask_on_log = set(k.lower() for k in keys_to_mask_on_log)
 
     settings.update({
-        'version': find_package_version(package_name),
         'debug': debug,
         'environment_profile': environment_profile,
         'production_environment': production_environment,
