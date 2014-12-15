@@ -1,250 +1,225 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) Hugo Branquinho. All rights reserved.
-# 
+#
 # @author Hugo Branquinho <hugobranq@gmail.com>
-# 
-# $Id$
 
-import datetime
 from importlib import import_module
-from pkg_resources import get_distribution
-from pkg_resources import resource_filename
 
+from pkg_resources import get_distribution
+from pyramid.compat import is_nonstr_iter
 from pyramid.config import Configurator
-from pyramid.session import UnencryptedCookieSessionFactoryConfig
+from pyramid.decorator import reify
+from pyramid.httpexceptions import HTTPException
+from pyramid.path import caller_package
+from pyramid.renderers import JSONP
+from pyramid.security import Authenticated
+from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
 from pyramid.static import static_view
 
-from ines import DEFAULT_EXTENSIONS
-from ines import PACKAGES
-from ines import STATIC_CACHE_AGE
-from ines.convert import force_unicode
-from ines.i18n import get_translation_factory
-from ines.i18n import get_translation_paths
-from ines.path import find_package_name
-from ines.registry import inesRegistry
-from ines.request import RootFactory
-from ines.request import inesRequest
-from ines.utils import cache_property
-from ines.route import check_if_route_exists
-from ines.utils import find_class_on_module
-from ines.utils import find_settings
-from ines.utils import get_method
-from ines.utils import InfiniteDict
+from ines import APPLICATIONS
+from ines.api import BaseSession
+from ines.api import BaseSessionClass
+from ines.authentication import ApplicationHeaderAuthenticationPolicy
+from ines.authorization import INES_POLICY
+from ines.authorization import TokenAuthorizationPolicy
+from ines.path import find_class_on_module
+from ines.request import InesRequest
+from ines.route import RootFactory
+from ines.utils import WarningDict
 
 
-TIMEDELTA = datetime.timedelta
+class APIConfigurator(Configurator):
+    def __init__(
+            self,
+            application_name=None,
+            global_settings=None,
+            **kwargs):
 
+        if 'registry' in kwargs:
+            for application_config in APPLICATIONS.values():
+                if application_config.registry is kwargs['registry']:
+                    # Nothing to do where. .scan() Configuration
+                    return super(APIConfigurator, self).__init__(**kwargs)
 
-def initialize_configuration(global_settings, application_settings):
-    settings = global_settings.copy()
-    settings.update(application_settings)
+        if 'package' not in kwargs:
+            kwargs['package'] = caller_package()
 
-    application_url = settings.get('url')
-    if not application_url:
-        raise ValueError('Missing application URL. Use "url" key.')
-    elif not application_url.startswith('/'):
-        raise ValueError('Application URL must start with "/"')
+        settings = kwargs['settings'] = dict(kwargs.get('settings') or {})
+        kwargs['settings'].update(global_settings or {})
 
-    package_name = find_package_name()
-    config = inesConfigurator(package=package_name, registry=object())
-    config.registry = inesRegistry(package_name)
-    PACKAGES[package_name] = config
+        # Define pyramid debugs
+        settings['debug'] = asbool(settings.get('debug', False))
+        if 'reload_all' not in settings:
+            settings['reload_all'] = settings['debug']
+        if 'debug_all' not in settings:
+            settings['debug_all'] = settings['debug']
+        if 'reload_templates' not in settings:
+            settings['reload_templates'] = settings['debug']
 
-    config.setup_registry(
-        settings=settings,
-        root_factory=RootFactory,
-        session_factory=UnencryptedCookieSessionFactoryConfig(package_name),
-        request_factory=inesRequest)
-    settings = config.registry.settings
+        if 'root_factory' not in kwargs:
+            kwargs['root_factory'] = RootFactory
+        if 'request_factory' not in kwargs:
+            kwargs['request_factory'] = InesRequest
 
-    # Define debug modes
-    debug = asbool(settings.get('debug', False))
-    log_warning_seconds = int(settings.get('log_warning_seconds', 86400))
+        super(APIConfigurator, self).__init__(**kwargs)
+        self.registry.config = self
+        # @@TODO: remove this on pyramid >= 1.6
+        self.registry.package_name = self.registry.__name__
 
-    environment_profile = settings.get('environment_profile') or 'development'
-    environment_profile = environment_profile.lower()
-    production_environment = environment_profile == 'production'
+        # Define application_name
+        self.application_name = application_name or self.package_name
+        self.registry.application_name = self.application_name
 
-    keys_to_mask_on_log = set(settings.get('keys_to_mask_on_log', '').split())
-    if keys_to_mask_on_log:
-        keys_to_mask_on_log = set(k.lower() for k in keys_to_mask_on_log)
+        # Find extensions on settings
+        bases = WarningDict('Duplicate name "{key}" for API Class')
+        sessions = WarningDict('Duplicate name "{key}" for API Session')
+        for key, value in self.settings.items():
+            if key.startswith('api.extension.'):
+                options = key.split('.', 3)[2:]
+                if len(options) == 1:
+                    name, option = options, 'session_path'
+                else:
+                    name, option = options
 
-    settings.update({
-        'debug': debug,
-        'environment_profile': environment_profile,
-        'production_environment': production_environment,
-        'cache': InfiniteDict(),
-        'log_warning_time': TIMEDELTA(seconds=log_warning_seconds),
-        'keys_to_mask_on_log': keys_to_mask_on_log})
+                if option == 'session_path':
+                    sessions[name] = get_method(value)
+                elif option == 'class_path':
+                    bases[name] = get_method(value)
 
-    # Configure translate options
-    translation_factory, domain = get_translation_factory(package_name)
-    languages = set(settings.get('languages', '').split())
-    languages.add(settings['default_locale_name'])
-    settings.update({
-        'translation_factory': translation_factory,
-        'translation_domain': domain,
-        'languages': languages})
+        # Find sessions on module
+        for session in find_class_on_module(self.package, BaseSession):
+            sessions[session.__api_name__] = session
 
-    # Define application API
-    api_module = import_module('%s.api' % package_name)
-    api_session_path = settings.get('api_session_path')
-    if api_session_path:
-        api_session = get_method(api_session_path)
-    else:
-        from ines.api import BaseAPISession
-        api_session = find_class_on_module(api_module, BaseAPISession)
-        if not api_session:
-            message = 'Missing APISession class'
-            raise NotImplementedError(message)
+        # Find class on module
+        for session_class in find_class_on_module(
+                self.package,
+                BaseSessionClass):
+            bases[session_class.__api_name__] = session_class
 
-    api_class_path = settings.get('api_class_path')
-    api_class = get_method(api_class_path, ignore=True) or \
-                api_session._base_class
-    settings['api'] = api_class(config, api_session, package_name)
+        # Find default sessions
+        for session in find_class_on_module('ines.api', BaseSession):
+            if session.__api_name__ not in sessions:
+                sessions[session.__api_name__] = session
 
-    # Create default extensions, if defined
-    extensions = [] 
-    if settings.has_key('extensions'):
-        for extension in settings['extensions'].split():
-            extensions.append(extension.split(':', 1))
-    extensions.extend(DEFAULT_EXTENSIONS)
+        # Find default session class
+        for session_class in find_class_on_module(
+                'ines.api',
+                BaseSessionClass):
+            if session_class.__api_name__ not in bases:
+                bases[session_class.__api_name__] = session_class
 
-    settings['extensions'] = {}
-    for name, session_class_path in extensions:
-        session_path_key = '%s_session_path' % name
-        session_path = settings.get(session_path_key)
-        if session_path:
-            session = get_method(session_path)
-        else:
-            module_path, class_name = session_class_path.split(':', 1)
-            session_module = import_module(module_path)
-            base_session_class = getattr(session_module, class_name)
-            session = find_class_on_module(api_module, base_session_class)
+        # Define extensions
+        self.extensions = WarningDict('Duplicate name "{key}" for API Session')
+        for api_name, session in sessions.items():
+            session_class = bases.get(api_name, BaseSessionClass)
+            self.extensions[api_name] = session_class(self, session)
 
-        if session:
-            class_path_key = '%s_class_path' % name
-            class_path = settings.get(class_path_key)
-            class_ = get_method(class_path, ignore=True) or session._base_class
-            extension = class_(config, session, package_name)
-            settings['extensions'][name] = extension
+        # Register package
+        APPLICATIONS[self.application_name] = self
 
-    # reCaptcha factory
-    recaptcha_public_key = settings.get('recaptcha_public_key')
-    recaptcha_private_key = settings.get('recaptcha_private_key')
-    if recaptcha_public_key and recaptcha_private_key:
-        disable_recaptcha = asbool(settings.get('disable_recaptcha'))
+    @reify
+    def settings(self):
+        return self.registry.settings
 
-        from ines.modules.captcha import reCaptcha
-        recaptcha = reCaptcha(
-                        recaptcha_public_key,
-                        recaptcha_private_key,
-                        disable_recaptcha=disable_recaptcha,
-                        html_code=settings.get('recaptcha_html'))
+    @reify
+    def debug(self):
+        return self.settings.get('debug')
 
-        settings.update({
-            'recaptcha': recaptcha})
+    def add_apidocjs_view(
+            self, pattern='docs', cache_max_age=86400,
+            resource_name='apidocjs'):
 
-    # Set translations dirs
-    config.set_translation_dirs()
+        static_func = static_view(
+            '%s:%s/' % (self.package_name, resource_name),
+            package_name=self.package_name,
+            use_subpath=True,
+            cache_max_age=cache_max_age)
 
-    # Define required keys
-    settings.update({
-        'static_views': {},
-        'home_route': settings.get('home_route') or 'home',
-        })
+        self.add_route(resource_name, pattern='%s*subpath' % pattern)
+        self.add_view(
+            route_name=resource_name,
+            view=static_func,
+            permission=INES_POLICY)
 
-    return config
-
-
-class inesConfigurator(Configurator):
-    use_pyramid_chameleon = False
-    use_pyramid_mako = False
-
-    @cache_property
+    @reify
     def version(self):
-        version = get_distribution(self.package_name).version
-        return force_unicode(version)
-
-    def registry_static_path(self, name, package_name, path):
-        dir_path = resource_filename(package_name, path)
-        self.registry.settings['static_views'][name] = dir_path
-
-    def add_view(self, *args, **kwargs):
-        view = kwargs.get('view')
-        route_name = kwargs.get('route_name')
-        if route_name and view and isinstance(view, static_view):
-            self.registry_static_path(route_name,
-                                      view.package_name,
-                                      view.docroot)
-
-        return Configurator.add_view(self, *args, **kwargs)
+        return get_distribution(self.package_name).version
 
     def add_routes(self, *routes):
         for arguments in routes:
-            if isinstance(arguments, dict):
+            if not arguments:
+                raise ValueError('Define some arguments')
+            elif isinstance(arguments, dict):
                 self.add_route(**arguments)
+            elif not is_nonstr_iter(arguments):
+                self.add_route(arguments)
             else:
-                name, path = arguments
-                self.add_route(name, path)
+                length = len(arguments)
+                kwargs = {'name': arguments[0]}
+                if length > 1:
+                    kwargs['pattern'] = arguments[1]
 
-        # Scan for all application routes
-        views_path = '%s.views' % self.package_name
-        self.scan(views_path)
+                self.add_route(**kwargs)
 
-        # Check for home route
-        home_route = self.registry.settings['home_route']
-        if not check_if_route_exists(self.registry, home_route):
-            message = 'Missing home route "%s" on "%s"' \
-                      % (home_route, self.package_name)
-            raise NotImplementedError(message)
+    def add_view(self, *args, **kwargs):
+        if 'permission' not in kwargs:
+            # Force permission validation
+            kwargs['permission'] = INES_POLICY
+        return super(APIConfigurator, self).add_view(*args, **kwargs)
 
-    def add_static_route(self,
-                         name,
-                         path='static/*subpath',
-                         view_path=None,
-                         use_subpath=True,
-                         cache_max_age=STATIC_CACHE_AGE):
+    def make_wsgi_app(self, install_middlewares=True):
+        # Scan all package routes
+        self.scan(self.package_name, categories=['pyramid'])
+        app = super(APIConfigurator, self).make_wsgi_app()
 
-        # Define default view path
-        if view_path is None:
-            view_path = '%s:static/' % self.package_name
+        if install_middlewares:
+            middlewares = []
+            for extension in self.extensions.values():
+                if hasattr(extension, '__middlewares__'):
+                    middlewares.extend(extension.__middlewares__)
 
-        # Registry static view path
-        self.registry_static_path(name, *view_path.split(':', 1))
+            if middlewares:
+                middlewares.sort()
 
-        static_func = static_view(view_path,
-                                  use_subpath=use_subpath,
-                                  cache_max_age=cache_max_age)
+                for order, middleware, kwargs in middlewares:
+                    app = middleware(app, **kwargs)
 
-        self.add_route(name, path)
-        self.add_view(route_name=name, view=static_func)
+        return app
 
-    def set_translation_dirs(self):
-        translation_paths = get_translation_paths(self)
-        self.add_translation_dirs(*translation_paths)
+    def add_errors_handler(self):
+        # Set JSON handler
+        self.add_view(
+            view='ines.views.errors_json_view',
+            context=HTTPException,
+            permission=NO_PERMISSION_REQUIRED)
+        self.add_view(
+            view='ines.views.errors_json_view',
+            context=Exception,
+            permission=NO_PERMISSION_REQUIRED)
 
-    def add_translation_dirs(self, *dirs):
-        if dirs:
-            Configurator.add_translation_dirs(self, *dirs)
+    def set_token_policy(
+            self,
+            application_name=None,
+            header_key='Authorization'):
 
-        # Get translation full paths
-        translation_dirs = self.registry.find_translation_dirs()
+        # Authentication Policy
+        application_name = (
+            application_name
+            or self.settings['policy.application_name'])
 
-        # Update translation dirs in other packages
-        for config in PACKAGES.values():
-            package_dirs = config.registry.find_translation_dirs()
+        authentication_policy = ApplicationHeaderAuthenticationPolicy(
+            application_name,
+            header_key=header_key)
+        self.set_authentication_policy(authentication_policy)
 
-            update_dirs = set(translation_dirs).difference(package_dirs)
-            if update_dirs:
-                package_dirs.extend(update_dirs)
-                config.registry.update_translation_dirs(package_dirs)
+        authorization_policy = TokenAuthorizationPolicy(application_name)
+        self.set_authorization_policy(authorization_policy)
 
-    def make_wsgi_app(self):
-        if self.use_pyramid_chameleon:
-            self.include('pyramid_chameleon')
-        if self.use_pyramid_mako:
-            self.include('pyramid_mako')
-
-        return Configurator.make_wsgi_app(self)
+    def set_ines_defaults(self):
+        # Add services documentation
+        self.add_apidocjs_view()
+        # Add errors handler
+        self.add_errors_handler()
+        # Add header token authentication
+        self.set_token_policy()

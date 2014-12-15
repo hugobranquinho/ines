@@ -1,307 +1,188 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) Hugo Branquinho. All rights reserved.
-# 
+#
 # @author Hugo Branquinho <hugobranq@gmail.com>
-# 
-# $Id$
 
-import transaction
-
+from pyramid.decorator import reify
 from pyramid.settings import asbool
-from sqlalchemy import Column
+from repoze.tm import default_commit_veto
+from repoze.tm import TM as RepozeTM
 from sqlalchemy import create_engine
-from sqlalchemy import desc
-from sqlalchemy import event
 from sqlalchemy import MetaData
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.ext.declarative import DeclarativeMeta
-from sqlalchemy.ext.declarative.api import _as_declarative
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 from zope.sqlalchemy import ZopeTransactionExtension
+import transaction
 
-from ines.api.database import BaseDatabaseClass
-from ines.api.database import BaseDatabaseSession
-from ines.cleaner import clean_percentage
-from ines.convert import force_unicode
-from ines.path import find_package_name
-from ines.utils import cache_property
-from ines.utils import find_settings
-from ines.utils import get_method
-from ines.utils import Options
+from ines.api import BaseSession
+from ines.api import BaseSessionClass
+from ines.utils import MissingDict
 
 
-DATABASES = {}
+SQL_DBS = MissingDict()
 
 
-class BaseSQLClass(BaseDatabaseClass):
-    def __init__(self, config, session, package_name):
-        BaseDatabaseClass.__init__(self, config, session, package_name)
+class BaseDatabaseSessionClass(BaseSessionClass):
+    __api_name__ = 'database'
+    __middlewares__ = [(0, RepozeTM, {'commit_veto': default_commit_veto})]
 
-        sql_module_path = session.__module__
-        sql_module = get_method(sql_module_path)
-        sql_module  # pyflakes
+    def __init__(self, *args, **kwargs):
+        super(BaseDatabaseSessionClass, self).__init__(*args, **kwargs)
 
-        # Define required sql settings
-        default_debug = self.settings['debug']
-        create_tables = asbool(self.settings.get('sql_create_tables', True))
-        self.settings.update({
-            'sql_path': self.settings['sql_path'],
-            'sql_debug': asbool(self.settings.get('sql_debug', default_debug)),
-            'sql_encoding': self.settings.get('sql_encoding', 'utf8'),
-            'sql_create_tables': create_tables})
+        settings = self.config.settings
+        sql_path = settings['sql.path']
 
-        # Initialize SQLALchemy DBSession
-        options = find_settings(self.settings, 'sql_')
-        config = get_sql_config(package_name)
-        config.configure(**options)
-        self.settings['sql_session'] = config.session
+        kwargs = {
+            'encoding': settings.get('sql.encoding', 'utf8')}
+
+        if sql_path.startswith('mysql://'):
+            kwargs['mysql_engine'] = settings.get('sql.mysql_engine', 'InnoDB')
+
+        if 'sql.debug' in settings:
+            kwargs['debug'] = asbool(settings['sql.debug'])
+        else:
+            kwargs['debug'] = self.config.debug
+
+        self.db_session = initialize_sql(
+            self.config.application_name,
+            sql_path,
+            **kwargs)
 
 
-class BaseSQLSession(BaseDatabaseSession):
-    _base_class = BaseSQLClass
+class BaseDatabaseSession(BaseSession):
+    __api_name__ = 'database'
 
     def flush(self):
-        session = getattr(self, '_session', None)
-        if session is not None:
-            session.flush()
-            transaction.commit()
-            del self._session
+        self.session.flush()
+        transaction.commit()
 
-    @cache_property
+    @reify
     def session(self):
-        return self.settings['sql_session']()
+        return self.api_session_class.db_session()
 
     def rollback(self):
-        session = getattr(self, '_session', None)
-        if session is not None:
-            transaction.abort()
-            del self._session
+        transaction.abort()
 
-    def break_to_like(self, column, value):
-        value = force_unicode(value)
-        value = u'%'.join(value.split())
-        value = clean_percentage(u'%' + value + u'%')
-        value = force_unicode(value)
-        return column.like(value)
-
-
-class TableConfig(object):
-    def __init__(self, sql_config, table_name, table, table_arguments):
-        self.sql_config = sql_config
-        self.table_name = table_name
-        self.table = table
-        self.table_arguments = table_arguments
-        self.is_configurated = False
-
-    @property
-    def table_args(self):
-        table_args = getattr(self.table, '__table_args__', None)
-        if table_args is None:
-            table_args = {}
-            self.table.__table_args__ = table_args
-
-        return table_args
-
-    def set_argument(self, key, value):
-        if isinstance(self.table_args, dict):
-            if not self.table_args.has_key(key):
-                self.table_args[key] = value
-
-        elif isinstance(self.table_args, tuple):
-            table_dict = None
-            table_args = list(self.table_args)
-            for arg in table_args:
-                if isinstance(arg, dict):
-                    table_dict = arg
-                    if arg.has_key(key):
-                        break
+    def direct_insert(self, obj):
+        values = {}
+        for column in obj.__table__.c:
+            name = column.name
+            value = getattr(obj, name, None)
+            if value is None and column.default:
+                values[name] = column.default.execute()
             else:
-                if table_dict is None:
-                    table_args.append({key: value})
-                else:
-                    table_dict[key] = value
+                values[name] = value
 
-                self.table.__table_args__ = tuple(table_args)
+        return (
+            obj.__table__
+            .insert(values)
+            .execute(autocommit=True))
 
-    def configure(self):
-        if self.is_configurated:
-            # Already configurated
-            return
+    def direct_delete(self, obj, query):
+        return bool(
+            obj.__table__
+            .delete(query)
+            .execute(autocommit=True)
+            .rowcount)
 
-        self.table._decl_class_registry = self.sql_config.class_registry
-        self.table.metadata = self.sql_config.metadata
+    def direct_update(self, obj, query, values):
+        for column in obj.__table__.c:
+            name = column.name
+            if name not in values and column.onupdate:
+                values[name] = column.onupdate.execute()
 
-        if self.sql_config.mysql_engine:
-            self.set_argument('mysql_engine', self.sql_config.mysql_engine)
-
-        if self.sql_config.encoding:
-            self.set_argument('mysql_charset', self.sql_config.encoding)
-
-        _as_declarative(self.table, self.table_name, self.table_arguments)
-
-        # DDL configuration
-        if hasattr(self.table, '_ddl'):
-            for ddl_key, ddl_method in ctablels._ddl:
-                event.listen(self.table.__table__, ddl_key, ddl_method)
+        return (
+            obj.__table__
+            .update(query)
+            .values(values)
+            .execute(autocommit=True))
 
 
-class SQLConfig(object):
-    def __init__(self, package_name):
-        self.package_name = package_name
-        self.tables = {}
-        self.class_registry = {}
+def initialize_sql(
+        application_name,
+        sql_path,
+        encoding='utf8',
+        mysql_engine='InnoDB',
+        debug=False):
 
-        self.path = None
-        self.mysql_engine = None
-        self.encoding = None
-        self.debug = False
-        self.engine = None
-        self.session = None
+    sql_path = '%s?charset=%s' % (sql_path, encoding)
+    SQL_DBS[application_name]['sql_path'] = sql_path
+    is_mysql = sql_path.lower().startswith('mysql://')
 
-        self.metadata = MetaData()
-        self.metadata.package_name = package_name
-        self.base = declarative_base(metadata=self.metadata,
-                                     metaclass=inesDeclarativeMeta,
-                                     class_registry=self.class_registry)
+    if is_mysql:
+        base = SQL_DBS[application_name].get('base')
+        if base is not None:
+            append_arguments(base, 'mysql_charset', encoding)
 
-    def add_table(self, table, table_name, table_arguments):
-        self.tables[table_name] = TableConfig(self,
-                                              table_name,
-                                              table,
-                                              table_arguments)
+    metadata = SQL_DBS[application_name].get('metadata')
 
-    def configure(self,
-                  path,
-                  debug=False,
-                  encoding=None,
-                  mysql_engine=None,
-                  pool_size=100,
-                  pool_recycle=7200,
-                  create_tables=True):
+    # Set defaults for MySQL tables
+    if is_mysql and metadata:
+        for table in metadata.sorted_tables:
+            append_arguments(table, 'mysql_engine', mysql_engine)
+            append_arguments(table, 'mysql_charset', encoding)
 
-        self.path = path
-        self.debug = debug
-        self.mysql_engine = mysql_engine
-        self.pool_size = int(pool_size)
-        self.pool_recycle = int(pool_recycle)
+    SQL_DBS[application_name]['engine'] = engine = create_engine(
+        sql_path,
+        echo=debug,
+        poolclass=NullPool,
+        encoding=encoding)
 
-        self.encoding = encoding
-        if self.encoding:
-            self.path = '%s?charset=%s' % (self.path, self.encoding)
-            if not hasattr(self.base, '__table_args__'):
-                self.base.__table_args__ = {}
-            self.base.__table_args__['mysql_charset'] = self.encoding
+    session_maker = sessionmaker(extension=ZopeTransactionExtension())
+    session = scoped_session(session_maker)
+    session.configure(bind=engine)
+    SQL_DBS[application_name]['session'] = session
 
-        for table_config in self.tables.values():
-            table_config.configure()
+    if metadata is not None:
+        metadata.bind = engine
+        metadata.create_all(engine)
 
-        self.engine = create_engine(self.path,
-                                    echo=self.debug,
-                                    encoding=self.encoding,
-                                    poolclass=NullPool)
+        # Force indexes creation
+        for table in metadata.sorted_tables:
+            if table.indexes:
+                for index in table.indexes:
+                    try:
+                        index.create()
+                    except OperationalError:
+                        pass
 
-        session_maker = sessionmaker(extension=ZopeTransactionExtension())
-        self.session = scoped_session(session_maker)
-        self.session.configure(bind=self.engine)
-
-        self.metadata.bind = self.engine
-        if create_tables:
-            self.metadata.create_all(self.engine)
+    return session
 
 
-def get_sql_config(package_name=None):
-    package_name = package_name or find_package_name(level=1)
-    config = DATABASES.get(package_name)
-    if config is None:
-        config = SQLConfig(package_name)
-        DATABASES[package_name] = config
+def sql_declarative_base(application_name, encoding='utf8'):
+    metadata = MetaData()
+    metadata.application_name = application_name
+    SQL_DBS[application_name]['metadata'] = metadata
 
-    return config
-
-
-class inesDeclarativeMeta(DeclarativeMeta):
-    def __init__(cls, classname, bases, dict_):
-        if '_decl_class_registry' not in cls.__dict__:
-            config = get_sql_config()
-            config.add_table(cls, classname, dict_)
-
-            # Lets change the classname to prevent duplications
-            classname = '%s_%s' % (config.package_name, classname)
-
-        type.__init__(cls, classname, bases, dict_)
+    base = declarative_base(metadata=metadata)
+    SQL_DBS[application_name]['base'] = base
+    return base
 
 
-def create_declarative_base(package_name=None, encoding='utf8'):
-    config = get_sql_config(package_name)
-    return config.base
+def append_arguments(obj, key, value):
+    arguments = getattr(obj, '__table_args__', None)
+    if arguments is None:
+        arguments = obj.__table_args__ = {key: value}
 
+    elif isinstance(arguments, dict):
+        if key not in arguments:
+            arguments[key] = value
 
-class TablesSet(set):
-    def have(self, table):
-        return table in self
-
-    def __contains__(self, table):
-        table = getattr(table, '__table__', None)
-        if table is not None:
-            return set.__contains__(self, table)
+    elif isinstance(arguments, tuple):
+        last_arguments_dict = None
+        new_arguments = list(arguments)
+        for argument in new_arguments:
+            if isinstance(argument, dict):
+                last_arguments_dict = argument
+                if key in argument:
+                    break
         else:
-            return False
-
-
-class SQLOptions(Options):
-    def add_sql(self, attribute, column):
-        self.add_attribute_value(attribute, 'column', column)
-
-    def get_columns(self, attributes=None, with_tables=False):
-        if not attributes:
-            attributes = self.keys()
-            ignore_not_found = True
-        else:
-            ignore_not_found = False
-
-        columns = []
-        if with_tables:
-            tables = TablesSet()
-            def add_column(column):
-                columns.append(column)
-                if isinstance(column, Column):
-                    table = column.table
-                else:
-                    table = column._element.table
-                tables.add(table)
-        else:
-            add_column = columns.append
-
-        for attribute in attributes:
-            if attribute is not None:
-                if not ignore_not_found:
-                    add_column(self[attribute]['column'])
-                else:
-                    column = self[attribute].get('column')
-                    if column is not None:
-                        add_column(column)
-
-        if with_tables:
-            return columns, tables
-        else:
-            return columns
-
-    def structure_order_by(self, *arguments):
-        result = []
-        add_order = result.append
-        for argument in arguments:
-            if isinstance(argument, (tuple, list)):
-                column_name, reverse = argument
+            if last_arguments_dict is None:
+                new_arguments.append({key: value})
             else:
-                column_name = argument
-                reverse = False
+                last_arguments_dict[key] = value
 
-            column = self[column_name]['column']
-            if reverse:
-                add_order(desc(column))
-            else:
-                add_order(column)
-
-        return result
+            obj.__table_args__ = tuple(new_arguments)
