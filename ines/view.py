@@ -29,7 +29,13 @@ class api_config(view_config):
             if settings.get('attr') is None:
                 settings['attr'] = wrapped.__name__
             if 'request_method' not in settings:
-                settings['request_method'] = wrapped.__name__.upper()
+                request_method = wrapped.__name__.upper()
+                if request_method == 'ADD':
+                    request_method = 'POST'
+                elif request_method == 'UPDATE':
+                    request_method = 'PUT'
+
+                settings['request_method'] = request_method
 
         settings['_info'] = info.codeinfo # fbo "action_method"
         return wrapped

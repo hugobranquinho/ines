@@ -5,6 +5,8 @@
 
 import datetime
 from os import getpid
+from os import stat as os_stat
+from os.path import isfile
 from uuid import uuid4
 import warnings
 
@@ -70,3 +72,8 @@ def make_unique_hash():
         str(NOW_DATE()),
         str(PROCESS_ID)))
     return make_sha256(key)
+
+
+def last_read_file_time(path):
+    if isfile(path):
+        return int(os_stat(path).st_atime)

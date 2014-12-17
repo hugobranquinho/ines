@@ -43,12 +43,9 @@ except IOError:
 
 requires = [
     'setuptools',
-    'pyramid >= 1.0',
-    'Babel >= 0.9.6',
-    'WebOb >= 1.2b3',
-    'translationstring >= 0.4',
-    'Beaker >= 1.6.4',
-    ]
+    'pyramid',
+    'Babel',
+    'translationstring']
 
 python_version = sys.version_info[:2]
 if python_version <= (2, 6):
