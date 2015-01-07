@@ -6,6 +6,7 @@
 from pyramid.httpexceptions import HTTPException
 
 from ines.exceptions import Error
+from ines.utils import format_json_response_values
 
 
 def errors_json_view(context, request):
@@ -22,17 +23,9 @@ def errors_json_view(context, request):
         key = context.title.lower().replace(' ', '_')
         message = context.title
     else:
-        status = 500
-        key = 'internal_server_error'
-        message = 'Internal server error'
-
         raise
 
-    values = {
-        'status': status,
-        'property': key,
-        'message': message}
-
+    values = format_json_response_values(status, key, message)
     return request.render_to_response(
         'json',
         values=values,

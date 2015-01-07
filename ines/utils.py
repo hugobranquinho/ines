@@ -4,9 +4,9 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 import datetime
+from json import dumps
 from os import getpid
 from os import stat as os_stat
-from os.path import isfile
 from uuid import uuid4
 import warnings
 
@@ -75,5 +75,23 @@ def make_unique_hash():
 
 
 def last_read_file_time(path):
-    if isfile(path):
-        return int(os_stat(path).st_atime)
+    try:
+        last_read_time = int(os_stat(file_path).st_atime)
+    except OSError:
+        pass
+    else:
+        return last_read_time
+
+
+def format_json_response_values(status, key, message, **kwargs):
+    values = {
+        'status': status,
+        'property': key,
+        'message': message}
+    if kwargs:
+        values.update(kwargs)
+    return values
+
+
+def format_json_response(*args, **kwargs):
+    return dumps(format_json_response_values(*args, **kwargs))

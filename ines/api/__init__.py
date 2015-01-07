@@ -41,6 +41,9 @@ class BaseSession(object):
 
         return attribute
 
+    def __contains__(self, key):
+        return key in self.config.extensions
+
     @reify
     def applications(self):
         return self.request.applications

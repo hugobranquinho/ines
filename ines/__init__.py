@@ -4,3 +4,8 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 APPLICATIONS = {}
+
+MIDDLEWARES_POSITION = {
+    'logging': -99,
+    'cors': -2,
+    'repoze.tm': -1}

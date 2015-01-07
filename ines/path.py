@@ -7,6 +7,7 @@ from importlib import import_module
 from inspect import getmembers
 from inspect import isclass
 from inspect import ismodule
+from pkg_resources import EntryPoint
 from pkgutil import iter_modules
 
 
@@ -30,3 +31,7 @@ def find_class_on_module(module, class_to_find):
             result.update(find_class_on_module(deep_module, class_to_find))
 
     return result
+
+
+def get_object_on_path(path):
+    return EntryPoint.parse('x=' + path).load(False)

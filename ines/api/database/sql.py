@@ -17,6 +17,7 @@ from sqlalchemy.pool import NullPool
 from zope.sqlalchemy import ZopeTransactionExtension
 import transaction
 
+from ines import MIDDLEWARES_POSITION
 from ines.api import BaseSession
 from ines.api import BaseSessionClass
 from ines.utils import MissingDict
@@ -27,7 +28,10 @@ SQL_DBS = MissingDict()
 
 class BaseDatabaseSessionClass(BaseSessionClass):
     __api_name__ = 'database'
-    __middlewares__ = [(0, RepozeTM, {'commit_veto': default_commit_veto})]
+    __middlewares__ = [
+        (MIDDLEWARES_POSITION['repoze.tm'],
+         RepozeTM,
+         {'commit_veto': default_commit_veto})]
 
     def __init__(self, *args, **kwargs):
         super(BaseDatabaseSessionClass, self).__init__(*args, **kwargs)

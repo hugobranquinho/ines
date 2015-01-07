@@ -18,12 +18,15 @@ from pyramid.settings import asbool
 from pyramid.static import static_view
 
 from ines import APPLICATIONS
+from ines import MIDDLEWARES_POSITION
 from ines.api import BaseSession
 from ines.api import BaseSessionClass
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
+from ines.middlewares import CorsMiddleware
 from ines.path import find_class_on_module
+from ines.path import get_object_on_path
 from ines.request import InesRequest
 from ines.route import RootFactory
 from ines.utils import WarningDict
@@ -78,14 +81,14 @@ class APIConfigurator(Configurator):
             if key.startswith('api.extension.'):
                 options = key.split('.', 3)[2:]
                 if len(options) == 1:
-                    name, option = options, 'session_path'
+                    name, option = options[0], 'session_path'
                 else:
                     name, option = options
 
                 if option == 'session_path':
-                    sessions[name] = get_method(value)
+                    sessions[name] = get_object_on_path(value)
                 elif option == 'class_path':
-                    bases[name] = get_method(value)
+                    bases[name] = get_object_on_path(value)
 
         # Find sessions on module
         for session in find_class_on_module(self.package, BaseSession):
@@ -96,11 +99,6 @@ class APIConfigurator(Configurator):
                 self.package,
                 BaseSessionClass):
             bases[session_class.__api_name__] = session_class
-
-        # Find default sessions
-        for session in find_class_on_module('ines.api', BaseSession):
-            if session.__api_name__ not in sessions:
-                sessions[session.__api_name__] = session
 
         # Find default session class
         for session_class in find_class_on_module(
@@ -114,6 +112,9 @@ class APIConfigurator(Configurator):
         for api_name, session in sessions.items():
             session_class = bases.get(api_name, BaseSessionClass)
             self.extensions[api_name] = session_class(self, session)
+
+        # Middlewares
+        self.middlewares = []
 
         # Register package
         APPLICATIONS[self.application_name] = self
@@ -174,15 +175,19 @@ class APIConfigurator(Configurator):
         app = super(APIConfigurator, self).make_wsgi_app()
 
         if install_middlewares:
-            middlewares = []
             for extension in self.extensions.values():
                 if hasattr(extension, '__middlewares__'):
-                    middlewares.extend(extension.__middlewares__)
+                    self.middlewares.extend(extension.__middlewares__)
 
-            if middlewares:
-                middlewares.sort()
+            if self.middlewares:
+                self.middlewares.sort(reverse=True)
 
-                for order, middleware, kwargs in middlewares:
+                for info in self.middlewares:
+                    if len(info) == 2:
+                        order, middleware = info
+                        kwargs = {}
+                    else:
+                        order, middleware, kwargs = info
                     app = middleware(app, **kwargs)
 
         return app
@@ -216,6 +221,12 @@ class APIConfigurator(Configurator):
         authorization_policy = TokenAuthorizationPolicy(application_name)
         self.set_authorization_policy(authorization_policy)
 
+    def install_cors_middleware(self, settings=None):
+        self.middlewares.append((
+            MIDDLEWARES_POSITION['cors'],
+            CorsMiddleware,
+            {'settings': settings}))
+
     def set_ines_defaults(self):
         # Add services documentation
         self.add_apidocjs_view()
@@ -223,3 +234,5 @@ class APIConfigurator(Configurator):
         self.add_errors_handler()
         # Add header token authentication
         self.set_token_policy()
+        # Use cors
+        self.install_cors_middleware(self.settings)
