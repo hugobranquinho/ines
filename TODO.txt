@@ -1,0 +1,3 @@
+- registar todas as extensões, middlewares etc no registry, com:
+    - register: registry.registerUtility(CLASS, INTERFACE_CLASS)
+    - get: OPTIONS = registry.queryUtility(INTERFACE_CLASS, **SEARCH_KWARGS)
