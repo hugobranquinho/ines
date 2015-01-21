@@ -76,7 +76,7 @@ def make_unique_hash():
 
 def last_read_file_time(path):
     try:
-        last_read_time = int(os_stat(file_path).st_atime)
+        last_read_time = int(os_stat(path).st_atime)
     except OSError:
         pass
     else:

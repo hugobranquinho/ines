@@ -82,6 +82,9 @@ setupkw = dict(
     entry_points="""
         [console_scripts]
         apidocjs = ines.scripts.apidocjs:main
+
+        [paste.app_factory]
+        not_found_api_app = ines.views:not_found_api_app
     """)
 
 try:

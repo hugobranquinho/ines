@@ -3,7 +3,10 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from json import dumps
+
 from pyramid.httpexceptions import HTTPException
+from webob.response import Response
 
 from ines.exceptions import Error
 from ines.utils import format_json_response_values
@@ -30,3 +33,15 @@ def errors_json_view(context, request):
         'json',
         values=values,
         status=status)
+
+
+def not_found_api_app(settings):
+    def call_not_found(environ, start_response):
+        values = format_json_response_values(404, 'not_found', u'Not Found')
+        response = Response(
+            body=dumps(values),
+            status=404,
+            content_type='application/json')
+        return response(environ, start_response)
+
+    return call_not_found
