@@ -3,4 +3,15 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
-from ines.middlewares.cors import CorsMiddleware
+
+DEFAULT_MIDDLEWARE_POSITION = {
+    'logging': 102,
+    'cors': 101,
+    'repoze.tm': 100}
+
+
+class Middleware(object):
+    def __init__(self, config, application, **settings):
+        self.config = config
+        self.application = application
+        self.settings = settings

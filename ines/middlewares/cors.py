@@ -3,33 +3,41 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPMethodNotAllowed
 from pyramid.httpexceptions import HTTPNoContent
 from pyramid.settings import asbool
 
 from ines.convert import maybe_integer
+from ines.middlewares import Middleware
 from ines.utils import format_json_response
 
 
-class CorsMiddleware(object):
-    def __init__(self, application, settings):
-        self.application = application
+DEFAULT_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'OPTIONS', 'DELETE']
 
-        cors_settings = {}
-        for key, value in (settings or {}).items():
-            if key.startswith('cors.'):
-                cors_settings[key[5:]] = value
-        self.settings = cors_settings
 
-        self.allowed_origins = self.settings.get('allowed_origins', '').split()
-        self.allow_all_origins = '*' in self.allowed_origins
+class Cors(Middleware):
+    name = 'cors'
 
-        methods = self.settings.get('allowed_methods', '').split()
-        if not methods:
-            methods = ['GET', 'POST', 'PUT', 'OPTIONS', 'DELETE']
-        self.allowed_methods = set(m.upper() for m in methods)
+    @reify
+    def allowed_origins(self):
+        return self.settings.get('allowed_origins', '').split()
 
-        self.max_age = maybe_integer(self.settings.get('max_age'))
+    @reify
+    def allow_all_origins(self):
+        return '*' in self.allowed_origins
+
+    @reify
+    def allowed_methods(self):
+        allowed_methods = self.settings.get('allowed_methods', '').split()
+        if not allowed_methods:
+            return DEFAULT_METHODS
+        else:
+            return set(m.upper() for m in allowed_methods)
+
+    @reify
+    def max_age(self):
+        return maybe_integer(self.settings.get('max_age'))
 
     def __call__(self, environ, start_response):
         http_origin = environ.get('HTTP_ORIGIN')
@@ -62,9 +70,10 @@ class CorsMiddleware(object):
 
             http_headers = environ.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS')
             if http_headers:
-                cors_headers.append(('Access-Control-Allow-Headers', http_headers))
+                cors_headers.append(
+                    ('Access-Control-Allow-Headers', http_headers))
 
-            if self.max_age:
+            if self.max_age is not None:
                 cors_headers.append(('Access-Control-Max-Age', self.max_age))
 
             start_response(HTTPNoContent().status, cors_headers)

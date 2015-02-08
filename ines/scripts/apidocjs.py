@@ -3,6 +3,8 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from __future__ import print_function
+
 import optparse
 import os
 from pkg_resources import find_distributions
@@ -25,6 +27,10 @@ class APIDocJSCommand(object):
                       help=('Output dirname. Folder name for the generated '
                             'documentation.'))
 
+    parser.add_option('-p', '--output-path',
+                      dest='output_path',
+                      help=('Output path. Default is on application root.'))
+
     parser.add_option('-f', '--file-filters',
                       dest='filters',
                       action='append',
@@ -37,34 +43,49 @@ class APIDocJSCommand(object):
                       help=('Use template for output files. You can create '
                             'and use your own template.'))
 
+    parser.add_option('-a', '--application-path',
+                      dest='application_path',
+                      help=('Application path. Where you have your apidoc.json'
+                            'Default is "views/interfaces"'))
+
     def run(self, argv):
         options, args = self.parser.parse_args(argv[1:])
 
         if not args:
-            print 'You must provide at least one project_name'
+            print('You must provide at least one project_name')
             return 0
 
+        HERE = os.getcwd()
         packages_names = set()
         for maybe_path in args:
-            path = os.path.join(os.getcwd(), maybe_path)
+            path = os.path.join(HERE, maybe_path)
             if os.path.isdir(path):
                 distribution = [x for x in find_distributions(path, only=True)]
                 if len(distribution) != 1:
                     raise ValueError('Package not found in %s' % maybe_path)
                 distribution = distribution[0]
                 packages_names.add(distribution.project_name.replace('-', '_'))
-
             else:
                 packages_names.add(maybe_path)
 
+        application_path = options.application_path or 'views/interfaces'
         for package_name in packages_names:
-            input_path = resource_filename(package_name, '')
+            try:
+                input_path = resource_filename(package_name, application_path)
+            except ImportError:
+                continue
+
+            output_path = options.output_path
+            if output_path:
+                if not output_path.startswith('/'):
+                    output_path = os.path.join(HERE, output_path)
+            else:
+                output_path = resource_filename(package_name, '')
 
             output_name = options.output_name or 'apidocjs'
-            output_path = resource_filename(package_name, output_name)
+            output_path = os.path.join(output_path, output_name)
 
             cmds = ['apidoc', '-i', input_path, '-o', output_path]
-
             if options.filters:
                 for f in options.filters:
                     cmds.append('-f')
@@ -74,7 +95,8 @@ class APIDocJSCommand(object):
                 cmds.append('-t')
                 cmds.append(options.template)
 
-            print 'Creating apidoc for', package_name, 'on', input_path
+            print('Creating apidoc for', package_name, 'from', input_path,
+                  'to', output_path)
             p = Popen(cmds)
             p.wait()
 

@@ -19,13 +19,13 @@ class api_config(view_config):
             config = context.config.with_package(info.module)
             config.add_view(view=ob, **settings)
 
-        info = self.venusian.attach(wrapped, callback, category='pyramid',
-                                    depth=depth + 1)
+        info = self.venusian.attach(
+            wrapped,
+            callback,
+            category='pyramid',
+            depth=depth + 1)
 
         if info.scope == 'class':
-            # if the decorator was attached to a method in a class, or
-            # otherwise executed at class scope, we need to set an
-            # 'attr' into the settings if one isn't already in there
             if settings.get('attr') is None:
                 settings['attr'] = wrapped.__name__
             if 'request_method' not in settings:
@@ -37,7 +37,7 @@ class api_config(view_config):
 
                 settings['request_method'] = request_method
 
-        settings['_info'] = info.codeinfo # fbo "action_method"
+        settings['_info'] = info.codeinfo
         return wrapped
 
 

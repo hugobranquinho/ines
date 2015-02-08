@@ -3,5 +3,8 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
-APPLICATIONS = {}
-CAMELCASE_UPPER_NAMES = []
+from zope.interface import Interface
+
+
+class IBaseSessionManager(Interface):
+    pass

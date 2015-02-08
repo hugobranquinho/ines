@@ -3,106 +3,51 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from math import ceil
+
 from pyramid.decorator import reify
 from pyramid.settings import asbool
-from repoze.tm import default_commit_veto
-from repoze.tm import TM as RepozeTM
+from sqlalchemy import Column
 from sqlalchemy import create_engine
+from sqlalchemy import Date
+from sqlalchemy import DateTime
+from sqlalchemy import func
 from sqlalchemy import MetaData
+from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.pool import NullPool
 from zope.sqlalchemy import ZopeTransactionExtension
-import transaction
 
-from ines import MIDDLEWARES_POSITION
-from ines.api import BaseSession
-from ines.api import BaseSessionClass
+from ines.api import BaseSessionManager
+from ines.api.database import BaseSQLSession
+from ines.convert import maybe_integer
+from ines.convert import maybe_unicode
+from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.utils import MissingDict
+from ines.utils import MissingSet
 
 
 SQL_DBS = MissingDict()
 
 
-class BaseDatabaseSessionClass(BaseSessionClass):
+class BaseDatabaseSessionManager(BaseSessionManager):
     __api_name__ = 'database'
-    __middlewares__ = [
-        (MIDDLEWARES_POSITION['repoze.tm'],
-         RepozeTM,
-         {'commit_veto': default_commit_veto})]
+    __middlewares__ = [RepozeTMMiddleware]
 
     def __init__(self, *args, **kwargs):
-        super(BaseDatabaseSessionClass, self).__init__(*args, **kwargs)
-
-        settings = self.config.settings
-        sql_path = settings['sql.path']
-
-        kwargs = {
-            'encoding': settings.get('sql.encoding', 'utf8')}
-
-        if sql_path.startswith('mysql://'):
-            kwargs['mysql_engine'] = settings.get('sql.mysql_engine', 'InnoDB')
-
-        if 'sql.debug' in settings:
-            kwargs['debug'] = asbool(settings['sql.debug'])
-        else:
-            kwargs['debug'] = self.config.debug
+        super(BaseDatabaseSessionManager, self).__init__(*args, **kwargs)
 
         self.db_session = initialize_sql(
             self.config.application_name,
-            sql_path,
-            **kwargs)
+            **get_sql_settings_from_config(self.config))
 
 
-class BaseDatabaseSession(BaseSession):
+class BaseDatabaseSession(BaseSQLSession):
     __api_name__ = 'database'
-
-    def flush(self):
-        self.session.flush()
-        transaction.commit()
-
-    @reify
-    def session(self):
-        return self.api_session_class.db_session()
-
-    def rollback(self):
-        transaction.abort()
-
-    def direct_insert(self, obj):
-        values = {}
-        for column in obj.__table__.c:
-            name = column.name
-            value = getattr(obj, name, None)
-            if value is None and column.default:
-                values[name] = column.default.execute()
-            else:
-                values[name] = value
-
-        return (
-            obj.__table__
-            .insert(values)
-            .execute(autocommit=True))
-
-    def direct_delete(self, obj, query):
-        return bool(
-            obj.__table__
-            .delete(query)
-            .execute(autocommit=True)
-            .rowcount)
-
-    def direct_update(self, obj, query, values):
-        for column in obj.__table__.c:
-            name = column.name
-            if name not in values and column.onupdate:
-                values[name] = column.onupdate.execute()
-
-        return (
-            obj.__table__
-            .update(query)
-            .values(values)
-            .execute(autocommit=True))
 
 
 def initialize_sql(
@@ -140,6 +85,7 @@ def initialize_sql(
     session.configure(bind=engine)
     SQL_DBS[application_name]['session'] = session
 
+    indexed_columns = SQL_DBS[application_name]['indexed_columns'] = MissingSet()
     if metadata is not None:
         metadata.bind = engine
         metadata.create_all(engine)
@@ -148,12 +94,34 @@ def initialize_sql(
         for table in metadata.sorted_tables:
             if table.indexes:
                 for index in table.indexes:
+                    for column in index.columns._all_columns:
+                        indexed_columns[table.name].add(column.name)
+
                     try:
                         index.create()
                     except OperationalError:
                         pass
 
     return session
+
+
+def get_sql_settings_from_config(config):
+    sql_path = config.settings['sql.path']
+    kwargs = {
+        'sql_path': sql_path,
+        'encoding': config.settings.get('sql.encoding', 'utf8')}
+
+    if sql_path.startswith('mysql://'):
+        kwargs['mysql_engine'] = config.settings.get(
+            'sql.mysql_engine',
+            'InnoDB')
+
+    if 'sql.debug' in config.settings:
+        kwargs['debug'] = asbool(config.settings['sql.debug'])
+    else:
+        kwargs['debug'] = config.debug
+
+    return kwargs
 
 
 def sql_declarative_base(application_name, encoding='utf8'):
@@ -190,3 +158,222 @@ def append_arguments(obj, key, value):
                 last_arguments_dict[key] = value
 
             obj.__table_args__ = tuple(new_arguments)
+
+
+def maybe_with_none(column, values, query=None):
+    queries = []
+    values = set(values)
+    if None in values:
+        values.remove(None)
+        queries.append(column == None)
+
+    if len(values) == 1:
+        queries.append(column == values.pop())
+    elif values:
+        queries.append(column.in_(values))
+
+    query_filter = None
+    if len(queries) == 1:
+        query_filter = queries[0]
+    elif queries:
+        query_filter = or_(*queries)
+
+    if query is None:
+        return query_filter
+    elif query_filter is not None:
+        return query.filter(query_filter)
+    else:
+        return query
+
+
+def like_maybe_with_none(column, values, query=None):
+    queries = []
+    values = set(values)
+    if None in values:
+        values.remove(None)
+        queries.append(column == None)
+    for value in values:
+        like_filter = create_like_filter(column, value)
+        if like_filter is not None:
+            queries.append(like_filter)
+
+    query_filter = None
+    if len(queries) == 1:
+        query_filter = queries[0]
+    elif queries:
+        query_filter = or_(*queries)
+
+    if query is None:
+        return query_filter
+    elif query_filter is not None:
+        return query.filter(query_filter)
+    else:
+        return query
+
+
+def create_like_filter(column, value):
+    value = maybe_unicode(value)
+    if value:
+        words = value.split()
+        if words:
+            like_str = u'%%%s%%' % u'%'.join(words)
+            return column.like(like_str)
+
+
+def create_rlike_filter(column, value):
+    value = maybe_unicode(value)
+    if value:
+        words = value.split()
+        if words:
+            rlike_str = u'(%s)' % u'|'.join(words)
+            return column.op('rlike')(rlike_str)
+
+
+class Pagination(list):
+    def __init__(self, query, page, limit_per_page):
+        super(Pagination, self).__init__()
+
+        self.page = maybe_integer(page)
+        if not self.page or self.page < 1:
+            self.page = 1
+
+        self.limit_per_page = maybe_integer(limit_per_page)
+        if not self.limit_per_page or self.limit_per_page < 1:
+            self.limit_per_page = 20
+        elif self.limit_per_page > 5000:
+            self.limit_per_page = 5000
+
+        if query is None:
+            self.number_of_results = 1
+            self.last_page = 1
+        else:
+            self.number_of_results = (
+                query
+                .with_entities(func.count(1))
+                .first()[0])
+            self.last_page = int(ceil(
+                self.number_of_results / float(self.limit_per_page))) or 1
+
+        if self.page > self.last_page:
+            self.page = self.last_page
+
+        if query is not None:
+            end_slice = self.page * self.limit_per_page
+            start_slice = end_slice - self.limit_per_page
+            self.extend(query.slice(start_slice, end_slice).all())
+
+
+class TablesSet(set):
+    def have(self, table):
+        return table in self
+
+    def __contains__(self, table):
+        table = getattr(table, '__table__', None)
+        if table is not None:
+            return set.__contains__(self, table)
+        else:
+            return False
+
+
+class TemporaryColumnsLabel(dict):
+    def __init__(self, options):
+        self.options = options
+
+    def get(self, name, default=None):
+        columns = {}
+        for key, column in self.items():
+            if column.name != key:
+                column = column.label(key)
+            columns[key] = column
+
+        self.options.columns = columns
+        return columns.get(name, default)
+
+    def __getitem__(self, name):
+        column = self.get(name)
+        if column is None:
+            return self.options.columns[name]
+        else:
+            return column
+
+
+class Options(MissingDict):
+    def clone(self):
+        new = Options()
+        new.add_columns(**self.columns)
+        return new
+
+    def add_columns(self, **columns):
+        for key, column in columns.items():
+            self.add_column(key, column)
+
+    @reify
+    def columns(self):
+        return TemporaryColumnsLabel(self)
+
+    def add_table(self, table, ignore=None, add_name=None):
+        columns = table.__dict__.keys()
+        for key in columns:
+            maybe_column = getattr(table, key)
+            if isinstance(maybe_column, (Column, InstrumentedAttribute)):
+                if not ignore or key not in ignore:
+                    if add_name:
+                        key = '%s_%s' % (add_name, key)
+                    self.add_column(key, maybe_column)
+
+    def add_column(self, key, column):
+        self.columns[key] = column
+
+    def get(self, attributes=None):
+        if not attributes:
+            attributes = self.columns.keys()
+
+        columns = Columns()
+        for attribute in set(attributes):
+            if attribute is not None and attribute in self.columns:
+                column = self.columns[attribute]
+                columns.append(column)
+                columns.tables.update(get_object_tables(column))
+
+        return columns
+
+    def structure_order_by(self, *arguments):
+        result = []
+        add_order = result.append
+        for argument in arguments:
+            if isinstance(argument, (tuple, list)):
+                column_name, reverse = argument
+            else:
+                column_name = argument
+                reverse = False
+
+            column = self.columns[column_name]
+            if reverse:
+                add_order(column.desc())
+            else:
+                add_order(column)
+
+        return result
+
+
+def get_object_tables(value):
+    tables = set()
+    table = getattr(value, 'table', None)
+    if table is not None:
+        tables.add(table)
+    elif hasattr(value, '_element'):
+        # Label column
+        table = getattr(value._element, 'table', None)
+        if table is not None:
+            tables.add(table)
+        else:
+            # Function
+            for clause in value._element.clauses:
+                tables.update(get_object_tables(clause))
+    return tables
+
+
+class Columns(list):
+    def __init__(self):
+        super(Columns, self).__init__()
+        self.tables = TablesSet()

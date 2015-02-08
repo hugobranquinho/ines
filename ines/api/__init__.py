@@ -4,12 +4,17 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 from pyramid.decorator import reify
+from zope.interface import implementer
+
+from ines.interfaces import IBaseSessionManager
 
 
-class BaseSessionClass(object):
-    def __init__(self, config, session):
+@implementer(IBaseSessionManager)
+class BaseSessionManager(object):
+    def __init__(self, config, session, api_name):
         self.config = config
         self.session = session
+        self.api_name = api_name
 
     def __call__(self, request):
         return self.session(self, request)
@@ -32,7 +37,7 @@ class BaseSession(object):
             if self.__api_name__ == key:
                 return self
 
-            extension = self.config.extensions.get(key)
+            extension = self.registry.queryUtility(IBaseSessionManager, name=key)
             if not extension:
                 raise
             else:
@@ -42,7 +47,9 @@ class BaseSession(object):
         return attribute
 
     def __contains__(self, key):
-        return key in self.config.extensions
+        return (
+            self.registry
+            .queryUtility(IBaseSessionManager, name=key) is not None)
 
     @reify
     def applications(self):

@@ -4,6 +4,7 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 from importlib import import_module
+from uuid import uuid4
 
 from pkg_resources import get_distribution
 from pyramid.compat import is_nonstr_iter
@@ -18,16 +19,16 @@ from pyramid.settings import asbool
 from pyramid.static import static_view
 
 from ines import APPLICATIONS
-from ines import MIDDLEWARES_POSITION
 from ines.api import BaseSession
-from ines.api import BaseSessionClass
+from ines.api import BaseSessionManager
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
-from ines.middlewares import CorsMiddleware
+from ines.interfaces import IBaseSessionManager
+from ines.middlewares import DEFAULT_MIDDLEWARE_POSITION
 from ines.path import find_class_on_module
 from ines.path import get_object_on_path
-from ines.request import InesRequest
+from ines.request import inesRequest
 from ines.route import RootFactory
 from ines.utils import WarningDict
 
@@ -63,11 +64,11 @@ class APIConfigurator(Configurator):
         if 'root_factory' not in kwargs:
             kwargs['root_factory'] = RootFactory
         if 'request_factory' not in kwargs:
-            kwargs['request_factory'] = InesRequest
+            kwargs['request_factory'] = inesRequest
 
         super(APIConfigurator, self).__init__(**kwargs)
+
         self.registry.config = self
-        # @@TODO: remove this on pyramid >= 1.6
         self.registry.package_name = self.registry.__name__
 
         # Define application_name
@@ -97,21 +98,26 @@ class APIConfigurator(Configurator):
         # Find class on module
         for session_class in find_class_on_module(
                 self.package,
-                BaseSessionClass):
+                BaseSessionManager):
             bases[session_class.__api_name__] = session_class
 
         # Find default session class
         for session_class in find_class_on_module(
                 'ines.api',
-                BaseSessionClass):
+                BaseSessionManager):
             if session_class.__api_name__ not in bases:
                 bases[session_class.__api_name__] = session_class
 
         # Define extensions
-        self.extensions = WarningDict('Duplicate name "{key}" for API Session')
         for api_name, session in sessions.items():
-            session_class = bases.get(api_name, BaseSessionClass)
-            self.extensions[api_name] = session_class(self, session)
+            session_class = (
+                bases.get(api_name, BaseSessionManager)
+                (self, session, api_name))
+
+            self.registry.registerUtility(
+                session_class,
+                IBaseSessionManager,
+                name=api_name)
 
         # Middlewares
         self.middlewares = []
@@ -175,22 +181,37 @@ class APIConfigurator(Configurator):
         app = super(APIConfigurator, self).make_wsgi_app()
 
         if install_middlewares:
-            for extension in self.extensions.values():
+            for name, extension in (
+                    self.registry
+                    .getUtilitiesFor(IBaseSessionManager)):
                 if hasattr(extension, '__middlewares__'):
-                    self.middlewares.extend(extension.__middlewares__)
+                    for middleware in extension.__middlewares__:
+                        self.install_middleware(middleware)
 
             if self.middlewares:
-                self.middlewares.sort(reverse=True)
+                middlewares = []
+                for middleware in self.middlewares:
+                    settings = {}
+                    search_key = 'middleware.%s.' % middleware.name
+                    for key, value in self.settings.items():
+                        if key.startswith(search_key):
+                            key = key.split(search_key, 1)[1]
+                            settings[key] = value
 
-                for info in self.middlewares:
-                    if len(info) == 2:
-                        order, middleware = info
-                        kwargs = {}
-                    else:
-                        order, middleware, kwargs = info
-                    app = middleware(app, **kwargs)
+                    default_position = (
+                        getattr(middleware, 'position',
+                            DEFAULT_MIDDLEWARE_POSITION.get(middleware.name)))
+                    position = settings.get('position', default_position)
+                    middlewares.append((position, middleware, settings))
+
+                middlewares.sort()
+                for position, middleware, settings in middlewares:
+                    app = middleware(self, app, **settings)
 
         return app
+
+    def install_middleware(self, middleware):
+        self.middlewares.append(middleware)
 
     def add_errors_handler(self):
         # Set JSON handler
@@ -222,10 +243,8 @@ class APIConfigurator(Configurator):
         self.set_authorization_policy(authorization_policy)
 
     def install_cors_middleware(self, settings=None):
-        self.middlewares.append((
-            MIDDLEWARES_POSITION['cors'],
-            CorsMiddleware,
-            {'settings': settings}))
+        from ines.middlewares.cors import Cors
+        self.install_middleware(Cors)
 
     def set_ines_defaults(self):
         # Add services documentation

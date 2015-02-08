@@ -6,6 +6,11 @@
 from ines.convert.codes import (inject_junk,
                                 make_sha256)
 
-from ines.convert.strings import (force_string,
+from ines.convert.dates import (maybe_date,
+                                maybe_datetime)
+
+from ines.convert.strings import (camelcase,
+                                  force_string,
                                   force_unicode,
-                                  maybe_integer)
+                                  maybe_integer,
+                                  maybe_unicode)

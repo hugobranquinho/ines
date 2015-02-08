@@ -3,6 +3,9 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from ines import CAMELCASE_UPPER_NAMES
+
+
 def force_unicode(value, encoding='utf-8', errors='strict'):
     if isinstance(value, unicode):
         return value
@@ -28,3 +31,25 @@ def maybe_integer(value):
         pass
     else:
         return result
+
+
+def maybe_unicode(value, encoding='utf-8', errors='strict'):
+    if value or value is 0:
+        return force_unicode(value, encoding, errors)
+
+
+def camelcase(value):
+    if u'_' not in value:
+        return value
+    elif u'+' in value:
+        return u'+'.join(camelcase(v) for v in value.split(u'+'))
+    else:
+        words = value.split(u'_')
+        camelcase_words = [words.pop(0).lower()]
+        for word in words:
+            upper_word = word.upper()
+            if upper_word in CAMELCASE_UPPER_NAMES:
+                camelcase_words.append(upper_word)
+            else:
+                camelcase_words.append(word.title())
+        return u''.join(camelcase_words)

@@ -45,7 +45,10 @@ requires = [
     'setuptools',
     'pyramid',
     'Babel',
-    'translationstring']
+    'translationstring',
+    'zope.interface',
+    'Paste',
+    'WebOb']
 
 python_version = sys.version_info[:2]
 if python_version <= (2, 6):
@@ -84,8 +87,10 @@ setupkw = dict(
         apidocjs = ines.scripts.apidocjs:main
 
         [paste.app_factory]
-        not_found_api_app = ines.views:not_found_api_app
-    """)
+        not_found_api_application = ines.wsgi:not_found_api_application
+
+        [paste.composite_factory]
+        onthefly_url_map = ines.wsgi:onthefly_url_map_factory""")
 
 try:
     import babel

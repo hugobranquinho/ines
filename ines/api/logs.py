@@ -7,63 +7,19 @@ import datetime
 import sys
 from traceback import format_exception
 
-from pyramid.router import Router
-from pyramid.httpexceptions import HTTPInternalServerError
-
-from ines import MIDDLEWARES_POSITION
-from ines.api import BaseSessionClass
+from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.convert import force_string
+from ines.middlewares.logs import LoggingMiddleware
 from ines.utils import format_json_response
 
 
 NOW_DATE = datetime.datetime.now
-MISSING_RESPONSE = object()
 
 
-class LoggingMiddleware(object):
-    def __init__(self, application):
-        self.application = application
-
-        # Find application Router
-        self.router = None
-        maybe_router = self.application
-        while not self.router:
-            maybe_router = maybe_router.application
-            if isinstance(maybe_router, Router):
-                self.router = maybe_router
-
-    def __call__(self, environ, start_response):
-        try:
-            for chunk in self.application(environ, start_response):
-                yield chunk
-        except Exception as error:
-            internal_server_error = HTTPInternalServerError()
-            error_key = internal_server_error.title.lower().replace(' ', '_')
-
-            try:
-                type_, value, tb = sys.exc_info()
-            except:
-                raise
-            else:
-                error = ''.join(format_exception(type_, value, tb))
-
-                request = self.router.request_factory(environ)
-                request.registry = self.router.registry
-                request.api.logging.log_critical(error_key, error)
-
-            headers = [('Content-type', 'application/json')]
-            start_response(internal_server_error.status, headers)
-
-            yield format_json_response(
-                internal_server_error.code,
-                error_key,
-                internal_server_error.title)
-
-
-class BaseLogSessionClass(BaseSessionClass):
+class BaseLogSessionManager(BaseSessionManager):
     __api_name__ = 'logging'
-    __middlewares__ = [(MIDDLEWARES_POSITION['logging'], LoggingMiddleware)]
+    __middlewares__ = [LoggingMiddleware]
 
 
 class BaseLogSession(BaseSession):
