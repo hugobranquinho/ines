@@ -517,6 +517,13 @@ class BaseCoreSession(BaseSQLSession):
 
         return updated
 
+    def inactive_core(self, id_core):
+        return (
+            self.session
+            .query(Core.id)
+            .filter(Core.id == id_core)
+            .update({'end_date': func.now()}, synchronize_session=False))
+
     def delete_core(self, core_name, id_core):
         options = CORE_TYPES[core_name]
 
