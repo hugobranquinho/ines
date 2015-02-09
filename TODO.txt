@@ -3,6 +3,6 @@
 - start application wsgi.py
     - If this application run in a process fork only the father is updated!
     - update all process childs
-- add logs to DB
-- add core actions
+- add logs to DB or add core actions
     - possible to revert actions
+- register cores in zope registry

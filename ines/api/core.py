@@ -331,6 +331,18 @@ class BaseCoreSession(BaseSQLSession):
         if query is not None:
             return query.first()
 
+    def count_cores(self, core_name, return_inactives=False, **filters):
+        columns = [func.count(CORE_TYPES[core_name]['table'].id_core)]
+        core_length = self.get_core_query(
+            columns,
+            return_inactives=return_inactives,
+            **filters).first()[0]
+
+        if core_length:
+            return core_length
+        else:
+            return 0
+
     def get_cores(
             self, columns,
             return_inactives=False,

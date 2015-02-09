@@ -367,9 +367,11 @@ def get_object_tables(value):
         if table is not None:
             tables.add(table)
         else:
-            # Function
-            for clause in value._element.clauses:
-                tables.update(get_object_tables(clause))
+            tables.update(get_object_tables(value._element))
+    else:
+        # Function
+        for clause in value.clauses:
+            tables.update(get_object_tables(clause))
     return tables
 
 
