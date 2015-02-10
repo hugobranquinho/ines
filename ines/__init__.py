@@ -4,4 +4,4 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 APPLICATIONS = {}
-CAMELCASE_UPPER_NAMES = []
+CAMELCASE_UPPER_WORDS = set()

@@ -15,6 +15,7 @@ from ines.convert import force_unicode
 from ines.convert import maybe_date
 from ines.convert import maybe_datetime
 from ines.convert import maybe_integer
+from ines.convert import uncamelcase
 from ines.exceptions import Error
 from ines.utils import format_json_response_values
 from ines.utils import maybe_email
@@ -132,6 +133,14 @@ class DefaultAPIView(object):
 
     @reify
     def fields(self):
+        if self.external_fields:
+            result = set()
+            for field in self.external_fields:
+                result.add(uncamelcase(field))
+            return result or None
+
+    @reify
+    def external_fields(self):
         kwargs = self.validate_multiples(
             self.GET_dict_of_lists,
             attributes={'fields': ('field', 'fields')},
@@ -145,7 +154,7 @@ class DefaultAPIView(object):
 
     @reify
     def fields_formater(self):
-        formater = FormatResponse(self.fields_structure, self.fields)
+        formater = FormatResponse(self.fields_structure, self.external_fields)
         return self.construct_formater(formater)
 
     @reify
