@@ -4,6 +4,7 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 import datetime
+from time import mktime
 
 
 DATE = datetime.date
@@ -39,3 +40,9 @@ def maybe_date(value, date_format='%Y-%m-%d'):
         pass
     else:
         return result.date()
+
+
+def date_to_timestamp(value):
+    value = maybe_datetime(value)
+    if value:
+        return mktime(value.timetuple())
