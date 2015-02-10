@@ -484,7 +484,10 @@ class BaseCoreSession(BaseSQLSession):
 
             to_update = {}
             for key, value in values.items():
-                if value != getattr(response, key):
+                response_value = getattr(response, key)
+                if ((value is None or response_value is not None)
+                    or response_value is None
+                    or value != response_value):
                     to_update[key] = value
 
             if to_update:
@@ -507,13 +510,9 @@ class BaseCoreSession(BaseSQLSession):
             to_update = {}
             for key, value in values.items():
                 response_value = getattr(response, key)
-                if value is None:
-                    if response_value is not None:
-                        to_update[key] = value
-                elif response_value is None:
-                    to_update[key] = value
-                    continue
-                elif value != response_value:
+                if ((value is None or response_value is not None)
+                    or response_value is None
+                    or value != response_value):
                     to_update[key] = value
 
             if to_update:
@@ -530,11 +529,22 @@ class BaseCoreSession(BaseSQLSession):
         return updated
 
     def inactive_core(self, id_core):
-        return (
-            self.session
-            .query(Core.id)
-            .filter(Core.id == id_core)
-            .update({'end_date': func.now()}, synchronize_session=False))
+        return self.inactive_cores(id_core)
+
+    def inactive_cores(self, ids):
+        if not is_nonstr_iter(ids):
+            ids = [ids]
+
+        ids = set(ids)
+        if ids:
+            return bool(
+                self.session
+                .query(Core.id)
+                .filter(Core.id.in_(ids))
+                .update({'end_date': func.now()},
+                        synchronize_session=False))
+        else:
+            return False
 
     def delete_core(self, core_name, id_core):
         options = CORE_TYPES[core_name]
