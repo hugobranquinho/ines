@@ -11,6 +11,7 @@ from pyramid.interfaces import IAuthenticationPolicy
 from pyramid.interfaces import IAuthorizationPolicy
 from pyramid.renderers import render_to_response
 from pyramid.request import Request
+from pyramid.settings import asbool
 from webob.multidict import MultiDict
 from webob.multidict import NoVars
 from webob.request import FakeCGIBody
@@ -54,6 +55,10 @@ class inesRequest(Request):
     @reify
     def applications(self):
         return ApplicationsConnector(self)
+
+    @reify
+    def is_production_environ(self):
+        return asbool(self.settings['is_production_environ'])
 
     def render_to_response(self, renderer, values=None, status=None):
         if status is not None:
