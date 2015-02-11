@@ -162,8 +162,10 @@ class DefaultAPIView(object):
         return []
 
     def get_structure_attributes(
-            self, structure,
-            padding=None, fields=MISSING):
+            self,
+            structure,
+            padding=None,
+            fields=MISSING):
 
         if fields is MISSING:
             fields = self.external_fields
@@ -183,7 +185,8 @@ class DefaultAPIView(object):
                 attributes.update(
                     self.get_structure_attributes(
                         field,
-                        child_fields))
+                        fields=child_fields,
+                        padding=public_key))
             elif not fields or padding_public_key in fields:
                 attributes.update(field.attributes)
 
@@ -194,8 +197,9 @@ class DefaultAPIView(object):
     def fields_attributes(self):
         return self.get_structure_attributes(self.fields_structure)
 
-    def construct_details(
-            self, value,
+    def _construct_details(
+            self, 
+            value,
             padding=None,
             fields=MISSING,
             structure=MISSING):
@@ -220,16 +224,20 @@ class DefaultAPIView(object):
                 if not fields or padding_public_key in fields:
                     child_fields = None
 
-                details.update(
-                    self.construct_details(
-                        value,
-                        padding=padding_public_key,
-                        structure=field,
-                        fields=child_fields))
+                child_details = self._construct_details(
+                    value,
+                    padding=padding_public_key,
+                    structure=field,
+                    fields=child_fields)
+                if child_details:
+                    details[public_key] = child_details
             elif not fields or padding_public_key in fields:
                 details[public_key] = field(self.request, value)
 
         return details
+
+    def construct_details(self, value):
+        return self._construct_details(value)
 
     def construct_multiple_details(self, values):
         return [self.construct_details(v) for v in values]

@@ -3,6 +3,7 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from pyramid.httpexceptions import HTTPUnauthorized
 from translationstring import TranslationString
 
 from ines.utils import MissingList
@@ -51,3 +52,7 @@ class Error(Exception):
         for key, value in self.aslist(request):
             errors[key].append(value)
         return errors
+
+
+class HTTPTokenExpired(HTTPUnauthorized):
+    explanation = u'Token expired'

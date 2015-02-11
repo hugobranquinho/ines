@@ -272,6 +272,8 @@ class BaseCoreSession(BaseSQLSession):
         # Optimization queries
         # Make others queries if requested!
         if before_queries:
+            found_something = False
+            before_cores_queries = []
             for core_name, before_filters in before_queries.items():
                 table = CORE_TYPES[core_name]['table']
 
@@ -290,14 +292,24 @@ class BaseCoreSession(BaseSQLSession):
                         .all()))
 
                 if not cores_ids:
-                    return None
+                    found_something = True
+                    continue
                 elif len(cores_ids) < use_ids_if_less:
-                    query = query.filter(table.id_core.in_(cores_ids))
+                    before_cores_queries.append(
+                        table.id_core.in_(cores_ids))
                 else:
                     query = (
                         query
                         .filter(and_(*before_filters))
                         .filter(and_(*normal_filters)))
+
+            if len(before_cores_queries) == 1:
+                query = query.filter(before_cores_queries[0])
+            elif before_cores_queries:
+                query = query.filter(or_(*before_cores_queries))
+            elif found_something:
+                return None
+
         else:
             for table_filters in normal_filters.values():
                 query = query.filter(and_(*table_filters))
@@ -312,37 +324,19 @@ class BaseCoreSession(BaseSQLSession):
 
         return query
 
-    def get_core(
-            self, columns,
-            return_inactives=False,
-            order_by=None,
-            ignore_before_queries=False,
-            **filters):
-
-        query = self.get_core_query(
-            columns,
-            return_inactives=return_inactives,
-            order_by=order_by,
-            ignore_before_queries=ignore_before_queries,
-            **filters)
-
+    def get_core(self, *args, **kwargs):
+        query = self.get_core_query(*args, **kwargs)
         if query is not None:
             return query.first()
 
-    def count_cores(
-            self, core_name,
-            return_inactives=False,
-            group_by=None,
-            **filters):
-
+    def count_cores(self, core_name, group_by=None, **kwargs):
         columns = [func.count(CORE_TYPES[core_name]['table'].id_core)]
         if group_by:
             columns.insert(0, group_by)
 
         query = self.get_core_query(
             columns,
-            return_inactives=return_inactives,
-            **filters)
+            **kwargs)
 
         if group_by:
             return dict(query.group_by(group_by).all())
@@ -350,20 +344,17 @@ class BaseCoreSession(BaseSQLSession):
             return query.first()[0] or 0
 
     def get_cores(
-            self, columns,
-            return_inactives=False,
-            order_by=None, page=None, limit_per_page=None,
-            ignore_before_queries=False,
-            **filters):
+            self,
+            columns,
+            page=None, 
+            limit_per_page=None,
+            **kwargs):
 
         query = self.get_core_query(
             columns,
-            return_inactives=return_inactives,
             page=page,
             limit_per_page=limit_per_page,
-            order_by=order_by,
-            ignore_before_queries=ignore_before_queries,
-            **filters)
+            **kwargs)
 
         if query is not None:
             if isinstance(query, QueryPagination):
@@ -639,6 +630,9 @@ class CoreColumnParent(object):
         self.attribute = attribute
         self.with_label = None
 
+    def clone(self):
+        return CoreColumnParent(self._table, self.attribute)
+
     @reify
     def table(self):
         return self._table.__table__
@@ -747,7 +741,7 @@ class CoreOptions(Options):
                 if not ignore or key not in ignore:
                     if add_name:
                         key = '%s_%s' % (add_name, key)
-                    self.add_column(key, maybe_column)
+                    self.add_column(key, maybe_column.clone())
 
 
 def find_parent_tables(table):
