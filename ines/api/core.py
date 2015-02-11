@@ -329,17 +329,25 @@ class BaseCoreSession(BaseSQLSession):
         if query is not None:
             return query.first()
 
-    def count_cores(self, core_name, return_inactives=False, **filters):
+    def count_cores(
+            self, core_name,
+            return_inactives=False,
+            group_by=None,
+            **filters):
+
         columns = [func.count(CORE_TYPES[core_name]['table'].id_core)]
-        core_length = self.get_core_query(
+        if group_by:
+            columns.insert(0, group_by)
+
+        query = self.get_core_query(
             columns,
             return_inactives=return_inactives,
-            **filters).first()[0]
+            **filters)
 
-        if core_length:
-            return core_length
+        if group_by:
+            return dict(query.group_by(group_by).all())
         else:
-            return 0
+            return query.first()[0] or 0
 
     def get_cores(
             self, columns,
