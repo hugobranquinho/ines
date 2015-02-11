@@ -177,15 +177,14 @@ class BaseCoreSession(BaseSQLSession):
                     query_columns.append(column)
 
         # Relations
-        outerjoins = []
+        outerjoins = MissingList()
         queries = []
         for table in tables:
             core_relation = getattr(table, 'core_relation', None)
             if core_relation:
                 relation, relation_table = core_relation
                 if relation == 'branch':
-                    outerjoins.append((
-                        relation_table,
+                    outerjoins[relation_table].append((
                         table,
                         relation_table.id_core == table.id_core))
                     tables_with_relations.add(table)
@@ -223,11 +222,10 @@ class BaseCoreSession(BaseSQLSession):
         # Start query
         query = self.session.query(*query_columns)
         if outerjoins:
-            for table, join_table, on_query in outerjoins:
-                query = (
-                    query
-                    .select_from(table)
-                    .outerjoin(join_table, on_query))
+            for table, relations in outerjoins.items():
+                query = query.select_from(table)
+                for join_table, on_query in relations:
+                    query = query.outerjoin(join_table, on_query)
         if queries:
             query = query.filter(and_(*queries))
 

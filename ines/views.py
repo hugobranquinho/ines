@@ -10,6 +10,7 @@ from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPException
 from pyramid.settings import asbool
 
+from ines import MISSING
 from ines.convert import camelcase
 from ines.convert import force_unicode
 from ines.convert import maybe_date
@@ -39,7 +40,7 @@ def errors_json_view(context, request):
 
         status = context.code
         key = context.title.lower().replace(' ', '_')
-        message = context.title
+        message = context.explanation
     else:
         raise
 
@@ -83,6 +84,10 @@ class DefaultAPIView(object):
     @reify
     def POST_dict_of_lists(self):
         return self.request.POST.dict_of_lists()
+
+    @reify
+    def DELETE_dict_of_lists(self):
+        return self.request.DELETE.dict_of_lists()
 
     def create_pagination_href(self, route_name, pagination, **params):
         queries = {}
@@ -141,43 +146,93 @@ class DefaultAPIView(object):
 
     @reify
     def external_fields(self):
+        attribute = '%s_dict_of_lists' % self.request.method.upper()
+        if not hasattr(self, attribute):
+            attribute = 'POST_dict_of_lists'
+
         kwargs = self.validate_multiples(
-            self.GET_dict_of_lists,
+            getattr(self, attribute),
             attributes={'fields': ('field', 'fields')},
             ignore_missing=True)
         fields = kwargs.pop('fields', None)
         if fields:
             return fields
 
-    def construct_formater(self, formater):
-        return formater
+    def extend_attributes(self, structure):
+        return []
+
+    def get_structure_attributes(
+            self, structure,
+            padding=None, fields=MISSING):
+
+        if fields is MISSING:
+            fields = self.external_fields
+
+        attributes = set()
+        for public_key, field in structure.items():
+            if padding:
+                padding_public_key = padding + u' ' + public_key
+            else:
+                padding_public_key = public_key
+
+            if isinstance(field, dict):
+                child_fields = fields
+                if not fields or padding_public_key in fields:
+                    child_fields = None
+
+                attributes.update(
+                    self.get_structure_attributes(
+                        field,
+                        child_fields))
+            elif not fields or padding_public_key in fields:
+                attributes.update(field.attributes)
+
+        attributes.update(self.extend_attributes(structure))
+        return attributes
 
     @reify
-    def fields_formater(self):
-        formater = FormatResponse(self.fields_structure, self.external_fields)
-        return self.construct_formater(formater)
+    def fields_attributes(self):
+        return self.get_structure_attributes(self.fields_structure)
 
-    @reify
-    def methods(self):
-        return self.fields_formater.methods
+    def construct_details(
+            self, value,
+            padding=None,
+            fields=MISSING,
+            structure=MISSING):
 
-    def construct_details(self, value):
         details = {}
         if not value:
             return details
 
-        for key in self.fields_structure.keys():
-            if key in self.methods:
-                details[key] = self.methods[key](self.request, value)
+        if fields is MISSING:
+            fields = self.external_fields
+        if structure is MISSING:
+            structure = self.fields_structure
+
+        for public_key, field in structure.items():
+            if padding:
+                padding_public_key = padding + u' ' + public_key
+            else:
+                padding_public_key = public_key
+
+            if isinstance(field, dict):
+                child_fields = fields
+                if not fields or padding_public_key in fields:
+                    child_fields = None
+
+                details.update(
+                    self.construct_details(
+                        value,
+                        padding=padding_public_key,
+                        structure=field,
+                        fields=child_fields))
+            elif not fields or padding_public_key in fields:
+                details[public_key] = field(self.request, value)
+
         return details
 
     def construct_multiple_details(self, values):
-        result = []
-        for value in values:
-            details = self.construct_details(value)
-            if details:
-                result.append(details)
-        return result
+        return [self.construct_details(v) for v in values]
 
     def validate_attributes(
             self,

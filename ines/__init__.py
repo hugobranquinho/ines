@@ -5,3 +5,4 @@
 
 APPLICATIONS = {}
 CAMELCASE_UPPER_WORDS = set()
+MISSING = object()
