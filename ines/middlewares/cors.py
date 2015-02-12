@@ -8,6 +8,7 @@ from pyramid.httpexceptions import HTTPMethodNotAllowed
 from pyramid.httpexceptions import HTTPNoContent
 from pyramid.settings import asbool
 
+from ines.convert import force_string
 from ines.convert import maybe_integer
 from ines.middlewares import Middleware
 from ines.utils import format_json_response
@@ -61,20 +62,19 @@ class Cors(Middleware):
         if self.allow_all_origins:
             cors_headers.append(('Access-Control-Allow-Origin', '*'))
         else:
-            cors_headers.append(('Access-Control-Allow-Origin', http_origin))
+            cors_headers.append(('Access-Control-Allow-Origin', force_string(http_origin)))
 
         if http_method == 'OPTIONS':
             methods = environ.get('HTTP_ACCESS_CONTROL_REQUEST_METHOD')
             if methods:
-                cors_headers.append(('Access-Control-Allow-Methods', methods))
+                cors_headers.append(('Access-Control-Allow-Methods', force_string(methods)))
 
             http_headers = environ.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS')
             if http_headers:
-                cors_headers.append(
-                    ('Access-Control-Allow-Headers', http_headers))
+                cors_headers.append(('Access-Control-Allow-Headers', force_string(http_headers)))
 
             if self.max_age is not None:
-                cors_headers.append(('Access-Control-Max-Age', self.max_age))
+                cors_headers.append(('Access-Control-Max-Age', force_string(self.max_age)))
 
             start_response(HTTPNoContent().status, cors_headers)
             return []
