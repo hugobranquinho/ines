@@ -12,7 +12,6 @@ from pyramid.config import Configurator
 from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPException
 from pyramid.path import caller_package
-from pyramid.renderers import JSONP
 from pyramid.security import Authenticated
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
@@ -246,6 +245,10 @@ class APIConfigurator(Configurator):
         from ines.middlewares.cors import Cors
         self.install_middleware(Cors)
 
+    def install_payload_middleware(self, settings=None):
+        from ines.middlewares.payload import Payload
+        self.install_middleware(Payload)
+
     def set_ines_defaults(self):
         # Add services documentation
         self.add_apidocjs_view()
@@ -255,3 +258,5 @@ class APIConfigurator(Configurator):
         self.set_token_policy()
         # Use cors
         self.install_cors_middleware(self.settings)
+        # Use payload
+        self.install_payload_middleware(self.settings)

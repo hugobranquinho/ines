@@ -56,7 +56,7 @@ class Cors(Middleware):
             return [format_json_response(
                 method_not_allowed.code,
                 method_not_allowed.title.lower().replace(' ', '_'),
-                method_not_allowed.title)]
+                method_not_allowed.explanation)]
 
         cors_headers = []
         if self.allow_all_origins:
