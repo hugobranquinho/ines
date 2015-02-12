@@ -154,9 +154,25 @@ class DefaultAPIView(object):
             getattr(self, attribute),
             attributes={'fields': ('field', 'fields')},
             ignore_missing=True)
+
         fields = kwargs.pop('fields', None)
         if fields:
             return fields
+
+    @reify
+    def external_no_fields(self):
+        attribute = '%s_dict_of_lists' % self.request.method.upper()
+        if not hasattr(self, attribute):
+            attribute = 'POST_dict_of_lists'
+
+        kwargs = self.validate_multiples(
+            getattr(self, attribute),
+            attributes={'no_fields': ('-field', '-fields')},
+            ignore_missing=True)
+
+        no_fields = kwargs.pop('no_fields', None)
+        if no_fields:
+            return no_fields
 
     def extend_attributes(self, structure):
         return []
@@ -165,10 +181,13 @@ class DefaultAPIView(object):
             self,
             structure,
             padding=None,
-            fields=MISSING):
+            fields=MISSING,
+            no_fields=MISSING):
 
         if fields is MISSING:
             fields = self.external_fields
+        if no_fields is MISSING:
+            no_fields = self.external_no_fields
 
         attributes = set()
         for public_key, field in structure.items():
@@ -177,7 +196,9 @@ class DefaultAPIView(object):
             else:
                 padding_public_key = public_key
 
-            if isinstance(field, dict):
+            if no_fields and padding_public_key in no_fields:
+                continue
+            elif isinstance(field, dict):
                 child_fields = fields
                 if not fields or padding_public_key in fields:
                     child_fields = None
@@ -186,6 +207,7 @@ class DefaultAPIView(object):
                     self.get_structure_attributes(
                         field,
                         fields=child_fields,
+                        no_fields=no_fields,
                         padding=public_key))
             elif not fields or padding_public_key in fields:
                 attributes.update(field.attributes)
@@ -202,6 +224,7 @@ class DefaultAPIView(object):
             value,
             padding=None,
             fields=MISSING,
+            no_fields=MISSING,
             structure=MISSING):
 
         details = {}
@@ -210,6 +233,8 @@ class DefaultAPIView(object):
 
         if fields is MISSING:
             fields = self.external_fields
+        if no_fields is MISSING:
+            no_fields = self.external_no_fields
         if structure is MISSING:
             structure = self.fields_structure
 
@@ -219,7 +244,9 @@ class DefaultAPIView(object):
             else:
                 padding_public_key = public_key
 
-            if isinstance(field, dict):
+            if no_fields and padding_public_key in no_fields:
+                continue
+            elif isinstance(field, dict):
                 child_fields = fields
                 if not fields or padding_public_key in fields:
                     child_fields = None
@@ -228,7 +255,8 @@ class DefaultAPIView(object):
                     value,
                     padding=padding_public_key,
                     structure=field,
-                    fields=child_fields)
+                    fields=child_fields,
+                    no_fields=no_fields)
                 if child_details:
                     details[public_key] = child_details
             elif not fields or padding_public_key in fields:
@@ -493,7 +521,7 @@ class HrefField(Field):
     def __init__(self, route_name, attribute, value_attribute):
         self.route_name = route_name
         self.attribute = attribute
-        super(HrefField, self).__init__(value_attribute, attribute)
+        super(HrefField, self).__init__(value_attribute, value_attribute)
 
     def __call__(self, request, value):
         key = getattr(value, self.name)
