@@ -334,14 +334,18 @@ class DefaultAPIView(object):
         elif validate_options:
             for key, options in validate_options.items():
                 if key in kwargs:
-                    value = kwargs[key]
-                    if value not in options:
-                        options = set(options)
-                        if None in options:
-                            options.remove(None)
-                            options.add(u'NULL')
-                        message = u'Use %s' % u', '.join(options)
-                        raise Error(camelcase(key), message)
+                    values = kwargs[key]
+                    if not multiple_values:
+                        values = [values]
+
+                    for value in values:
+                        if value not in options:
+                            options = set(options)
+                            if None in options:
+                                options.remove(None)
+                                options.add(u'NULL')
+                            message = u'Use %s' % u', '.join(options)
+                            raise Error(camelcase(key), message)
 
         return kwargs
 
