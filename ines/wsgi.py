@@ -6,11 +6,12 @@
 from json import dumps
 from os import getpid
 
+from paste.deploy.loadwsgi import loadapp
 from paste.urlmap import parse_path_expression
 from paste.urlmap import URLMap
+from pyramid.httpexceptions import HTTPNotFound
 from pyramid.paster import get_app
 from pyramid.paster import get_appsettings
-from pyramid.scripts.pserve import Monitor
 from webob.response import Response
 
 from ines.convert import maybe_integer
@@ -21,10 +22,14 @@ from ines.utils import format_json_response_values
 
 def not_found_api_application(global_settings, **settings):
     def call_not_found(environ, start_response):
-        values = format_json_response_values(404, 'not_found', u'Not Found')
+        not_found = HTTPNotFound()
+        code = not_found.code
+        values = format_json_response_values(
+            code,
+            not_found.title.lower().replace(u' ', u'_'), not_found.explanation)
         response = Response(
             body=dumps(values),
-            status=404,
+            status=code,
             content_type='application/json')
         return response(environ, start_response)
     return call_not_found
@@ -39,6 +44,7 @@ class OnTheFlyAPI(URLMap):
     def __init__(self, config_path):
         self.config_path = config_path
         self.applications = []
+        self.validate_config_seconds = 15
 
         self.start_applications()
 
@@ -47,8 +53,6 @@ class OnTheFlyAPI(URLMap):
         self.validate_config_update()
 
     def validate_config_update(self):
-        monitor = Monitor(1)
-
         def validator():
             last_update = file_modified_time(self.config_path)
             if self.last_update_time < last_update:
@@ -66,7 +70,7 @@ class OnTheFlyAPI(URLMap):
             'not_found_application',
             settings.global_conf.get('not_found_application'))
         if not_found_application:
-            not_found_application = loader.get_app(
+            not_found_application = loadapp(
                 not_found_application,
                 global_conf=settings.global_conf)
         else:

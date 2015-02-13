@@ -124,7 +124,7 @@ def get_sql_settings_from_config(config):
     return kwargs
 
 
-def sql_declarative_base(application_name, encoding='utf8'):
+def sql_declarative_base(application_name):
     metadata = MetaData()
     metadata.application_name = application_name
     SQL_DBS[application_name]['metadata'] = metadata
@@ -165,7 +165,7 @@ def maybe_with_none(column, values, query=None):
     values = set(values)
     if None in values:
         values.remove(None)
-        queries.append(column == None)
+        queries.append(column.is_(None))
 
     if len(values) == 1:
         queries.append(column == values.pop())
@@ -191,7 +191,7 @@ def like_maybe_with_none(column, values, query=None):
     values = set(values)
     if None in values:
         values.remove(None)
-        queries.append(column == None)
+        queries.append(column.is_(None))
     for value in values:
         like_filter = create_like_filter(column, value)
         if like_filter is not None:

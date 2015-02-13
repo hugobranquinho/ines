@@ -21,8 +21,8 @@ from ines.exceptions import Error
 from ines.utils import format_json_response_values
 from ines.utils import maybe_email
 from ines.utils import MissingDict
-from ines.utils import MissingList
 from ines.utils import MissingSet
+from ines.utils import MissingList
 
 
 TODAY_DATE = datetime.date.today
@@ -220,7 +220,7 @@ class DefaultAPIView(object):
         return self.get_structure_attributes(self.fields_structure)
 
     def _construct_details(
-            self, 
+            self,
             value,
             padding=None,
             fields=MISSING,
@@ -288,12 +288,10 @@ class DefaultAPIView(object):
 
         if multiple_values:
             kwargs = MissingSet()
-            def add_value(key, value):
-                kwargs[key].add(value)
+            add_value = kwargs.add_item
         else:
             kwargs = {}
-            def add_value(key, value):
-                kwargs[key] = value
+            add_value = kwargs.__setitem__
 
         check_invalid = MissingDict()
         for key, values in validators.items():
@@ -428,7 +426,7 @@ class DefaultAPIView(object):
                 kwargs[key].update(values)
 
             if (not kwargs.get(key)
-                and (not ignore_missing or key not in ignore_missing)):
+            and (not ignore_missing or key not in ignore_missing)):
                 keys = '|'.join([normal_key, splitter_key])
                 raise Error(keys, u'Required')
 
@@ -533,17 +531,15 @@ class DateTimeField(Field):
 
 class AgeField(Field):
     def __init__(self, birthday_attribute, name='age'):
-        self.name = name
+        super(AgeField, self).__init__(name, birthday_attribute)
         self.birthday_attribute = birthday_attribute
-        self.attributes = set([birthday_attribute])
 
     def __call__(self, request, value):
         value = getattr(value, self.birthday_attribute)
         if value:
             today = TODAY_DATE()
             age = today.year - value.year
-            if (today.month < value.month
-                or (today.month == value.month and today.day < value.day)):
+            if today.month < value.month or (today.month == value.month and today.day < value.day):
                 age -= 1
             return age
 

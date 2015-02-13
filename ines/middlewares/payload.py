@@ -11,22 +11,17 @@ from webob.request import environ_add_POST
 
 from ines.convert import force_string
 from ines.middlewares import Middleware
+from ines.utils import get_content_type
 from ines.utils import format_json_response
 
 
 class Payload(Middleware):
     name = 'payload'
 
-    def get_content_type(self, environ):
-        content_type = environ.get('CONTENT_TYPE')
-        if content_type:
-            return force_string(content_type).split(';', 1)[0].strip()
-
     def __call__(self, environ, start_response):
-        if (self.get_content_type(environ) == 'application/json'
-            and 'wsgi.input' in environ):
+        content_type = get_content_type(environ.get('CONTENT_TYPE'))
+        if content_type == 'application/json' and 'wsgi.input' in environ:
             body = environ['wsgi.input'].read()
-
             if body:
                 arguments = []
                 try:
@@ -35,7 +30,7 @@ class Payload(Middleware):
                         if is_nonstr_iter(value):
                             value = ','.join(force_string(v) for v in value)
                         arguments.append('%s=%s' % (force_string(key), force_string(value)))
-                except:
+                except (ValueError, UnicodeEncodeError):
                     bad_request = HTTPBadRequest()
                     headers = [('Content-type', 'application/json')]
                     start_response(bad_request.status, headers)

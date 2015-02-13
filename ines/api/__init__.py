@@ -33,7 +33,7 @@ class BaseSession(object):
     def __getattribute__(self, key):
         try:
             attribute = object.__getattribute__(self, key)
-        except AttributeError as error:
+        except AttributeError:
             if self.__api_name__ == key:
                 return self
 

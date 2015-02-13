@@ -29,7 +29,7 @@ class APIDocJSCommand(object):
 
     parser.add_option('-p', '--output-path',
                       dest='output_path',
-                      help=('Output path. Default is on application root.'))
+                      help='Output path. Default is on application root.')
 
     parser.add_option('-f', '--file-filters',
                       dest='filters',
@@ -105,5 +105,5 @@ class APIDocJSCommand(object):
         return 0
 
 
-if __name__ == '__main__': # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     sys.exit(main() or 0)

@@ -3,9 +3,7 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
-from importlib import import_module
 from inspect import getargspec
-from uuid import uuid4
 
 from pkg_resources import get_distribution
 from pyramid.compat import is_nonstr_iter
@@ -13,7 +11,6 @@ from pyramid.config import Configurator
 from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPException
 from pyramid.path import caller_package
-from pyramid.security import Authenticated
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
 from pyramid.static import static_view
@@ -53,7 +50,8 @@ class APIConfigurator(Configurator):
             for application_config in APPLICATIONS.values():
                 if application_config.registry is kwargs['registry']:
                     # Nothing to do where. .scan() Configuration
-                    return super(APIConfigurator, self).__init__(**kwargs)
+                    super(APIConfigurator, self).__init__(**kwargs)
+                    return  # Nothing else to do where
 
         if 'package' not in kwargs:
             kwargs['package'] = caller_package()
@@ -189,7 +187,7 @@ class APIConfigurator(Configurator):
         found_settings = MissingDict()
         for find_setting_key, method_name in API_CONFIGURATION_EXTENSIONS.items():
             if not find_setting_key.endswith('.'):
-                find_setting_key = find_setting_key + '.'
+                find_setting_key += '.'
 
             for key, value in self.settings.items():
                 if key.startswith(find_setting_key):

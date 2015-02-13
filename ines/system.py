@@ -43,11 +43,11 @@ def start_system_thread(
         sleep_method=True):
 
     if sleep_method:
-        def while_method(*args, **kwargs):
+        def while_method(*w_args, **w_kwargs):
             sleep_time = 1
             factory = while_system_running_factory()
             while factory(sleep_time):
-                sleep_time = abs(method(*args, **kwargs) or 1)
+                sleep_time = abs(method(*w_args, **w_kwargs) or 1)
     else:
         while_method = method
 

@@ -58,9 +58,7 @@ class TokenAuthorizationPolicy(object):
         else:
             request = getattr(context, 'request', None)
             if request:
-                application = getattr(
-                    request.applications,
-                    self.application_name)
+                application = getattr(request.applications, self.application_name)
                 is_allowed = bool(
                     application.permits(
                         context.request.application_name,

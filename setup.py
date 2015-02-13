@@ -48,7 +48,8 @@ requires = [
     'translationstring',
     'zope.interface',
     'Paste',
-    'WebOb']
+    'WebOb',
+    'PasteDeploy']
 
 python_version = sys.version_info[:2]
 if python_version <= (2, 6):

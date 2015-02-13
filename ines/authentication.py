@@ -57,8 +57,7 @@ class ApplicationHeaderAuthenticationPolicy(object):
                 authorization_type,
                 authorization)
 
-            if (authenticated
-                and not isinstance(authenticated, AuthenticatedSession)):
+            if authenticated and not isinstance(authenticated, AuthenticatedSession):
                 session_type = authorization_type
                 if authorization_type == 'token':
                     session_type = 'user'

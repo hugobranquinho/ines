@@ -47,9 +47,7 @@ class WarningDict(dict):
     def update(self, *args, **kwargs):
         if args:
             if len(args) > 1:
-                raise TypeError('update expected at most 1 arguments, '
-                                'got %d' % len(args))
-
+                raise TypeError('update expected at most 1 arguments, got %d' % len(args))
             for key, value in dict(args[0]).items():
                 self[key] = value
 
@@ -69,13 +67,22 @@ class MissingDict(dict):
         self[key] = self._base_type()
         return self[key]
 
+    def add_item(self, key, value):
+        self[key][value] = {}
+
 
 class MissingList(MissingDict):
     _base_type = list
 
+    def add_item(self, key, value):
+        self[key].append(value)
+
 
 class MissingSet(MissingDict):
     _base_type = set
+
+    def add_item(self, key, value):
+        self[key].add(value)
 
 
 class InfiniteDict(dict):
@@ -137,3 +144,8 @@ def validate_email(value):
 def maybe_email(value):
     if validate_email(value):
         return force_unicode(value)
+
+
+def get_content_type(value):
+    if value:
+        return force_string(value).split(';', 1)[0].strip()

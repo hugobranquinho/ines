@@ -43,7 +43,7 @@ class Error(Exception):
         for key, value in self:
             if isinstance(value, TranslationString):
                 value = translator(value)
-            result.append((key, value))
+            errors.append((key, value))
 
         return errors
 

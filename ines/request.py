@@ -31,10 +31,7 @@ class inesRequest(Request):
 
     @reify
     def api(self):
-        return (
-            self.registry
-            .queryUtility(IBaseSessionManager, name='api')
-            (self))
+        return self.registry.queryUtility(IBaseSessionManager, name='api')(self)
 
     @reify
     def settings(self):
@@ -77,8 +74,7 @@ class inesRequest(Request):
 
     @reify
     def ip_address(self):
-        value = self.environ.get('HTTP_X_FORWARDED_FOR') or \
-                self.environ.get('REMOTE_ADDR')
+        value = self.environ.get('HTTP_X_FORWARDED_FOR') or self.environ.get('REMOTE_ADDR')
         if value:
             return force_unicode(value)
 
@@ -95,8 +91,7 @@ class inesRequest(Request):
 
     @reify
     def authenticated(self):
-        if (self.authentication
-            and hasattr(self.authentication, 'get_authenticated_session')):
+        if self.authentication and hasattr(self.authentication, 'get_authenticated_session'):
             return self.authentication.get_authenticated_session(self)
 
     @reify
@@ -143,7 +138,7 @@ class ApplicationsConnector(object):
     def __getattribute__(self, key):
         try:
             attribute = object.__getattribute__(self, key)
-        except AttributeError as error:
+        except AttributeError:
             config = APPLICATIONS.get(key)
             if config is None:
                 message = u'Missing application %s' % key
@@ -152,10 +147,7 @@ class ApplicationsConnector(object):
             if self._request.application_name == key:
                 attribute = self._request.api
             else:
-                attribute = (
-                    config.registry
-                    .queryUtility(IBaseSessionManager, name='api')
-                    (self._request))
+                attribute = config.registry.queryUtility(IBaseSessionManager, name='api')(self._request)
 
             setattr(self, key, attribute)
 

@@ -6,7 +6,6 @@
 from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPMethodNotAllowed
 from pyramid.httpexceptions import HTTPNoContent
-from pyramid.settings import asbool
 
 from ines.convert import force_string
 from ines.convert import maybe_integer
@@ -42,16 +41,16 @@ class Cors(Middleware):
 
     def __call__(self, environ, start_response):
         http_origin = environ.get('HTTP_ORIGIN')
-        if (not self.allow_all_origins
-            and http_origin not in self.allowed_origins):
+        if not self.allow_all_origins and http_origin not in self.allowed_origins:
             return self.application(environ, start_response)
 
         http_method = environ.get('REQUEST_METHOD')
         if http_method not in self.allowed_methods:
             method_not_allowed = HTTPMethodNotAllowed()
 
-            headers = [('Content-type', 'application/json')]
-            start_response(method_not_allowed.status, headers)
+            start_response(
+                method_not_allowed.status,
+                [('Content-type', 'application/json')])
 
             return [format_json_response(
                 method_not_allowed.code,

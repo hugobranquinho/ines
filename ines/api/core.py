@@ -180,15 +180,13 @@ class BaseCoreSession(BaseSQLSession):
         outerjoins = MissingList()
         queries = []
         for table in tables:
-            core_relation = getattr(table, 'core_relation', None)
-            if core_relation:
-                relation, relation_table = core_relation
-                if relation == 'branch':
-                    outerjoins[relation_table].append((
-                        table,
-                        relation_table.id_core == table.id_core))
-                    tables_with_relations.add(table)
-                    continue
+            relation, relation_table = getattr(table, 'core_relation', (None, None))
+            if relation == 'branch':
+                outerjoins[relation_table].append((
+                    table,
+                    relation_table.id_core == table.id_core))
+                tables_with_relations.add(table)
+                continue
 
             is_core_table = bool(table.__tablename__ == 'core')
             if not is_core_table:
@@ -205,17 +203,15 @@ class BaseCoreSession(BaseSQLSession):
                     table_inactives = alias
                 queries.append(
                     or_(table_inactives.start_date <= func.now(),
-                        table_inactives.start_date == None))
+                        table_inactives.start_date.is_(None)))
                 queries.append(
                     or_(table_inactives.end_date >= func.now(),
-                        table_inactives.end_date == None))
+                        table_inactives.end_date.is_(None)))
 
             # Define parent relation if requested
             # or to validate if parent is active
             # Define branch relation
-            if (core_relation
-                and relation == 'parent'
-                and (not return_inactives or relation_table in tables)):
+            if relation == 'parent' and (not return_inactives or relation_table in tables):
                 tables_with_relations.add(relation_table)
                 queries.append(alias.parent_id == relation_table.id_core)
 
@@ -299,9 +295,10 @@ class BaseCoreSession(BaseSQLSession):
 
                 use_ids_if_less = 2501
                 cores_ids = set(
-                    c.id_core for c in (before_query
-                        .slice(0, use_ids_if_less)
-                        .all()))
+                    c.id_core for c in (
+                        before_query
+                            .slice(0, use_ids_if_less)
+                            .all()))
 
                 if not cores_ids:
                     found_something = True
@@ -385,22 +382,17 @@ class BaseCoreSession(BaseSQLSession):
                 limit_per_page=limit_per_page or 1000,
                 last_page=1,
                 number_of_results=0)
-            return []
         else:
             return []
 
     def set_core(self, table, parent_key=None, branch_table=None):
-        core_relation = getattr(table, 'core_relation', None)
-        if core_relation:
-            relation, relation_table = core_relation
-            if relation == 'branch':
-                raise 
+        relation, relation_table = getattr(table, 'core_relation', (None, None))
+        if relation == 'branch':
+            raise
 
         if branch_table:
-            branch_relation, branch_relation_table = getattr(
-                branch_table, 'core_relation', None)
-            if (branch_relation != 'branch'
-                or not isinstance(table, branch_relation_table)):
+            branch_relation, branch_relation_table = getattr(branch_table, 'core_relation', (None, None))
+            if branch_relation != 'branch' or not isinstance(table, branch_relation_table):
                 raise Error('core', 'Invalid branch relation')
 
         # Set core values
@@ -417,7 +409,7 @@ class BaseCoreSession(BaseSQLSession):
 
         # Find and define parent id
         if parent_key:
-            if not core_relation:
+            if not relation:
                 message = u'Define core_relation for %s' % table.core_name
                 raise Error('parent_key', message)
 
@@ -428,8 +420,7 @@ class BaseCoreSession(BaseSQLSession):
             if not parent:
                 message = u'Missing parent "%s"' % parent_key
                 raise Error('parent_key', message)
-            elif (relation == 'parent'
-                and relation_table.core_name != parent.type):
+            elif relation == 'parent' and relation_table.core_name != parent.type:
                 message = (
                     u'Cannot add parent "%s" with type "%s" to type "%s"'
                     % (parent_key, table.core_name, parent.type))
@@ -495,8 +486,8 @@ class BaseCoreSession(BaseSQLSession):
             for key, value in values.items():
                 response_value = getattr(response, key)
                 if ((value is None or response_value is not None)
-                    or response_value is None
-                    or value != response_value):
+                        or response_value is None
+                        or value != response_value):
                     to_update[key] = value
 
             if to_update:
@@ -556,10 +547,9 @@ class BaseCoreSession(BaseSQLSession):
             return False
 
     def delete_core(self, core_name, id_core):
-        options = CORE_TYPES[core_name]
-
         childs = MissingList()
-        for child_id, child_type in (self.session
+        for child_id, child_type in (
+                self.session
                 .query(Core.id, Core.type)
                 .filter(Core.parent_id == id_core)
                 .all()):
@@ -632,6 +622,7 @@ class Core(DeclarativeBase):
 
     def make_key(self):
         return make_uuid_hash()
+
 
 CORE_TYPES['core']['table'] = Core
 

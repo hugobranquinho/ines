@@ -4,8 +4,6 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 import datetime
-import sys
-from traceback import format_exception
 
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
@@ -53,7 +51,7 @@ class BaseLogSession(BaseSession):
             message = force_string(message)
             for line in message.split('\n'):
                 print '  %s' % line
-        except:
+        except UnicodeEncodeError:
             pass
 
         print '-' * len(header)

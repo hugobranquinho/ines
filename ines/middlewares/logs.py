@@ -24,7 +24,7 @@ class LoggingMiddleware(Middleware):
         try:
             for chunk in self.application(environ, start_response):
                 yield chunk
-        except Exception as error:
+        except BaseException:
             internal_server_error = HTTPInternalServerError()
             error_key = internal_server_error.title.lower().replace(' ', '_')
 
