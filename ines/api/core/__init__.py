@@ -3,60 +3,34 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
-import datetime
-from math import ceil
-
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.settings import asbool
 from sqlalchemy import and_
-from sqlalchemy import Column
-from sqlalchemy import Date
-from sqlalchemy import DateTime
-from sqlalchemy import ForeignKey
 from sqlalchemy import func
-from sqlalchemy import Integer
 from sqlalchemy import or_
-from sqlalchemy import Unicode
-from sqlalchemy.ext.declarative import declared_attr
-from sqlalchemy.orm import aliased
-from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import ClauseElement
 
 from ines.api import BaseSessionManager
+from ines.api.core.database import Core
+from ines.api.core.database import CORE_KEYS
+from ines.api.core.database import CORE_TYPES
+from ines.api.core.database import CoreAliased
+from ines.api.core.database import CoreColumnParent
+from ines.api.core.database import find_parent_tables
+from ines.api.core.views import CorePagination
+from ines.api.core.views import define_pagination
+from ines.api.core.views import QueryPagination
 from ines.api.database import BaseSQLSession
 from ines.api.database.sql import initialize_sql
 from ines.api.database.sql import get_object_tables
 from ines.api.database.sql import get_sql_settings_from_config
 from ines.api.database.sql import maybe_with_none
-from ines.api.database.sql import Options
 from ines.api.database.sql import SQL_DBS
-from ines.api.database.sql import sql_declarative_base
-from ines.convert import camelcase
 from ines.convert import maybe_integer
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
-from ines.views import DateTimeField
-from ines.views import Field
-from ines.views import HrefField
-from ines.utils import make_uuid_hash
 from ines.utils import MissingList
-
-
-class CoreTypesMissing(dict):
-    def __missing__(self, key):
-        self[key] = {
-            'table': None,
-            'parent': None,
-            'childs': set(),
-            'branchs': set()}
-        return self[key]
-
-
-CORE_TYPES = CoreTypesMissing()
-CORE_KEYS = set()
-NOW_DATE = datetime.datetime.now
-DeclarativeBase = sql_declarative_base('core')
 
 
 class BaseCoreSessionManager(BaseSessionManager):
@@ -297,8 +271,8 @@ class BaseCoreSession(BaseSQLSession):
                 cores_ids = set(
                     c.id_core for c in (
                         before_query
-                            .slice(0, use_ids_if_less)
-                            .all()))
+                        .slice(0, use_ids_if_less)
+                        .all()))
 
                 if not cores_ids:
                     found_something = True
@@ -511,8 +485,8 @@ class BaseCoreSession(BaseSQLSession):
             for key, value in values.items():
                 response_value = getattr(response, key)
                 if ((value is None or response_value is not None)
-                    or response_value is None
-                    or value != response_value):
+                        or response_value is None
+                        or value != response_value):
                     to_update[key] = value
 
             if to_update:
@@ -593,285 +567,5 @@ class BaseCoreSession(BaseSQLSession):
         except:
             self.rollback()
             raise
-        else:
-            return True
-
-
-class CoreAliased(dict):
-    def __missing__(self, key):
-        self[key] = aliased(Core)
-        return self[key]
-
-
-class Core(DeclarativeBase):
-    __tablename__ = 'core'
-
-    id = Column(Integer, primary_key=True, nullable=False)
-    key = Column(Unicode(70), unique=True, index=True, nullable=False)
-    # If null, means this object is a relation type
-    type = Column(Unicode(50), index=True)
-    parent_id = Column(Integer, ForeignKey('core.id'))
-
-    start_date = Column(DateTime)
-    end_date = Column(DateTime)
-    updated_date = Column(
-        DateTime,
-        default=func.now(), onupdate=func.now(),
-        nullable=False)
-    created_date = Column(DateTime, default=func.now(), nullable=False)
-
-    def make_key(self):
-        return make_uuid_hash()
-
-
-CORE_TYPES['core']['table'] = Core
-
-
-class CoreColumnParent(object):
-    def __init__(self, table, attribute):
-        self._table = table
-        self.attribute = attribute
-        self.with_label = None
-
-    def clone(self):
-        return CoreColumnParent(self._table, self.attribute)
-
-    @reify
-    def table(self):
-        return self._table.__table__
-
-    @reify
-    def name(self):
-        return '%s.%s' % (self._table.__tablename__, self.attribute)
-
-    def __repr__(self):
-        return self.name
-
-    def get_core_column(self):
-        return getattr(Core, self.attribute)
-
-    def get_alias_column(self, alias):
-        column = getattr(alias, self.attribute)
-        if self.with_label:
-            return column.label(self.with_label)
-        else:
-            return column
-
-    def label(self, name):
-        self.with_label = name
-        return self
-
-
-def replace_core_attribute(wrapped):
-    def decorator(self):
-        name = wrapped.__name__
-        value = CoreColumnParent(self, name)
-        setattr(self, name, value)
-        CORE_KEYS.add(name)
-        return value
-    return decorator
-
-
-class CoreType(object):
-    @declared_attr
-    def __tablename__(self):
-        if self.core_name in CORE_TYPES:
-            message = u'Core "%s" already defined' % self.core_name
-            raise Error('core', message)
-        else:
-            CORE_TYPES[self.core_name]['table'] = self
-
-            core_relation = getattr(self, 'core_relation', None)
-            if core_relation:
-                relation, relation_table = core_relation
-                if relation == 'parent':
-                    CORE_TYPES[self.core_name]['parent'] = relation_table
-                    CORE_TYPES[relation_table.core_name]['childs'].add(self)
-                elif relation == 'branch':
-                    CORE_TYPES[relation_table.core_name]['branchs'].add(self)
-                else:
-                    raise ValueError('Invalid relation type')
-
-            tablename = 'core_%s' % self.core_name
-            setattr(self, '__tablename__', tablename)
-            return tablename
-
-    @declared_attr
-    @replace_core_attribute
-    def key(self):
-        pass
-
-    @declared_attr
-    @replace_core_attribute
-    def type(self):
-        pass
-
-    @declared_attr
-    @replace_core_attribute
-    def start_date(self):
-        pass
-
-    @declared_attr
-    @replace_core_attribute
-    def end_date(self):
-        pass
-
-    @declared_attr
-    @replace_core_attribute
-    def updated_date(self):
-        pass
-
-    @declared_attr
-    @replace_core_attribute
-    def created_date(self):
-        pass
-
-    @declared_attr
-    def id_core(self):
-        return Column(
-            Integer, ForeignKey(Core.id),
-            primary_key=True, nullable=False)
-
-
-class CoreOptions(Options):
-    def add_table(self, table, ignore=None, add_name=None):
-        Options.add_table(self, table, ignore=ignore, add_name=add_name)
-
-        columns = table.__dict__.keys()
-        for key in columns:
-            maybe_column = getattr(table, key)
-            if isinstance(maybe_column, CoreColumnParent):
-                if not ignore or key not in ignore:
-                    if add_name:
-                        key = '%s_%s' % (add_name, key)
-                    self.add_column(key, maybe_column.clone())
-
-
-def find_parent_tables(table):
-    # Find parent tables
-    tables = set()
-    while True:
-        core_relation = getattr(table, 'core_relation', None)
-        if not core_relation:
-            break
-        relation, table = core_relation
-        tables.add(table)
-    return tables
-
-
-def define_pagination(query, page, limit_per_page):
-    number_of_results = (
-        query
-        .with_entities(func.count(1))
-        .first()[0])
-
-    last_page = int(ceil(
-        number_of_results / float(limit_per_page))) or 1
-
-    if page > last_page:
-        page = last_page
-
-    end_slice = page * limit_per_page
-    start_slice = end_slice - limit_per_page
-
-    return QueryPagination(
-        query.slice(start_slice, end_slice),
-        page,
-        limit_per_page,
-        last_page,
-        number_of_results)
-
-
-class QueryPagination(object):
-    def __init__(
-            self,
-            query, 
-            page,
-            limit_per_page,
-            last_page,
-            number_of_results):
-        self.query = query
-        self.page = page
-        self.limit_per_page = limit_per_page
-        self.last_page = last_page
-        self.number_of_results = number_of_results
-
-    def __getattribute__(self, key):
-        try:
-            value = object.__getattribute__(self, key)
-        except AttributeError:
-            return getattr(self.query, key)
-        else:
-            return value
-
-
-class CorePagination(list):
-    def __init__(
-            self,
-            page,
-            limit_per_page,
-            last_page,
-            number_of_results):
-        super(CorePagination, self).__init__()
-        self.page = page
-        self.limit_per_page = limit_per_page
-        self.last_page = last_page
-        self.number_of_results = number_of_results
-
-
-def detect_core_fields(
-        table, route_name=None, url_key=None, params_key=None,
-        ignore_keys=None, parent_name=None,
-        ignore_core_keys=False):
-
-    ignore_keys = set(ignore_keys or [])
-    # Internal fields!
-    ignore_keys.update(('id_core', 'type'))
-    if ignore_core_keys:
-        ignore_keys.update((
-            'key', 'start_date', 'end_date',
-            'updated_date', 'created_date'))
-
-    values = {}
-    for key, column in table.__dict__.items():
-        if key in ignore_keys:
-            continue
-        elif isinstance(column, CoreColumnParent):
-            column = column.get_core_column()
-        elif not isinstance(column, InstrumentedAttribute):
-            continue
-
-        public_key = camelcase(key)
-        if parent_name:
-            key = '%s_%s' % (parent_name, key)
-
-        if isinstance(column.type, (Date, DateTime)):
-            values[public_key] = DateTimeField(key)
-        else:
-            values[public_key] = Field(key)
-
-    if route_name and url_key:
-        values['href'] = HrefField(
-            route_name,
-            url_key,
-            params_key or url_key)
-
-    return values
-
-
-class CoreActiveField(Field):
-    def __init__(self):
-        super(CoreActiveField, self).__init__(
-            'active',
-            attributes=['start_date', 'end_date'])
-
-    def __call__(self, request, value):
-        now = NOW_DATE()
-        start_date = getattr(value, 'start_date')
-        end_date = getattr(value, 'end_date')
-        if start_date and start_date > now:
-            return False
-        elif end_date and end_date < now:
-            return False
         else:
             return True
