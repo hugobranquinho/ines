@@ -11,24 +11,23 @@ from threading import Thread
 from ines.utils import MissingDict
 
 
-SYSTEM_RUNNING = []
+PROCESS_RUNNING = set()
+KILLED_PROCESS = set()
 ALIVE_THREADS = MissingDict()
 
 
 class while_system_running_factory(object):
     def __init__(self):
         self.process_id = getpid()
-        if self.process_id not in SYSTEM_RUNNING:
-            SYSTEM_RUNNING.append(self.process_id)
 
     def __call__(self, sleep_seconds):
-        if sleep_seconds < 1:
+        if sleep_seconds < 2:
             while_time = 0.1
         else:
             while_time = 1
 
         slept = 0
-        while self.process_id in SYSTEM_RUNNING:
+        while self.process_id not in KILLED_PROCESS:
             sleep(while_time)
 
             slept += while_time
@@ -71,19 +70,12 @@ def clean_dead_threads():
             thread.join()
             ALIVE_THREADS[process_id].pop(name)
 
-    if not ALIVE_THREADS.get(process_id):
-        ALIVE_THREADS.pop(process_id)
 
-
-KILLED = []
 def exit_system():
-    for pid in list(SYSTEM_RUNNING):
-        SYSTEM_RUNNING.remove(pid)
-
     process_id = getpid()
-    if process_id in KILLED:
+    if process_id in KILLED_PROCESS:
         return None
-    KILLED.append(process_id)
+    KILLED_PROCESS.add(process_id)
 
     print 'Stopping process %s...' % process_id
 
@@ -99,8 +91,11 @@ def exit_system():
         sleep(0.5)
         count += 1
 
+    print 'Process %s stopped!' % process_id
+
 
 def register_thread(name, thread):
+    # Clean up function
     clean_dead_threads()
 
     process_id = getpid()
@@ -114,12 +109,13 @@ def register_thread(name, thread):
 atexit.register(exit_system)
 
 
-# Register on uwsgi if exists
+# Register uwsgi if exists
 try:
     import uwsgi
 except ImportError:
     pass
 else:
     def after_fork():
+        PROCESS_RUNNING.add(getpid())
         uwsgi.atexit = exit_system
     uwsgi.post_fork_hook = after_fork

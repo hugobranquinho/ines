@@ -64,6 +64,7 @@ class APIDocJSCommand(object):
                 if len(distribution) != 1:
                     raise ValueError('Package not found in %s' % maybe_path)
                 distribution = distribution[0]
+                print(dir(distribution))
                 packages_names.add(distribution.project_name.replace('-', '_'))
             else:
                 packages_names.add(maybe_path)
@@ -79,11 +80,12 @@ class APIDocJSCommand(object):
             if output_path:
                 if not output_path.startswith('/'):
                     output_path = os.path.join(HERE, output_path)
+                output_name = options.output_name or package_name
+                output_path = os.path.join(output_path, output_name)
             else:
                 output_path = resource_filename(package_name, '')
-
-            output_name = options.output_name or 'apidocjs'
-            output_path = os.path.join(output_path, output_name)
+                output_name = options.output_name or 'apidocjs'
+                output_path = os.path.join(output_path, output_name)
 
             cmds = ['apidoc', '-i', input_path, '-o', output_path]
             if options.filters:

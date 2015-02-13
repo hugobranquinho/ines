@@ -219,6 +219,18 @@ class BaseCoreSession(BaseSQLSession):
                 tables_with_relations.add(relation_table)
                 queries.append(alias.parent_id == relation_table.id_core)
 
+            core_foreign = getattr(table, 'core_foreign_key', None)
+            if core_foreign is not None:
+                column_key, foreign_column = core_foreign
+                name = foreign_column.table.name
+                if name.startswith('core_'):
+                    name = name.split('core_', 1)[1]
+                foreign_table = CORE_TYPES[name]['table']
+                if foreign_table in tables:
+                    tables_with_relations.add(foreign_table)
+                    tables_with_relations.add(table)
+                    queries.append(foreign_column == getattr(table, column_key))
+
         # Start query
         query = self.session.query(*query_columns)
         if outerjoins:

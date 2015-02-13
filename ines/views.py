@@ -299,7 +299,7 @@ class DefaultAPIView(object):
         for key, values in validators.items():
             key = key.split('validate_', 1)[1]
             validate_method = VALIDATORS[key]['method']
-            for value in values:
+            for value in set(values):
                 check_invalid[value][key] = validate_method
 
         missing_attributes = []
@@ -356,7 +356,7 @@ class DefaultAPIView(object):
 
         elif invalid:
             key, values = invalid.popitem()
-            keys = u'+'.join(validators['validate_%s' % key])
+            keys = u'+'.join(values)
             raise Error(keys, VALIDATORS[key]['error'])
 
         elif validate_options:
@@ -384,6 +384,32 @@ class DefaultAPIView(object):
             value_splitter=u',',
             **settings):
 
+        ignore_missing = settings.get('ignore_missing')
+        if ignore_missing is True:
+            ignore_missing = attributes.keys()
+
+        # Extend options
+        for validate_key, options in settings.items():
+            if options:
+                if validate_key == 'validate_options':
+                    for key, option_values in options.items():
+                        info = attributes.get(key)
+                        if info:
+                            options[info[0]] = option_values
+                            options[info[1]] = option_values
+
+                elif validate_key.startswith('validate_'):
+                    for option in list(options):
+                        info = attributes.get(option)
+                        if info:
+                            options.extend(info)
+
+                elif validate_key == 'ignore_missing' and options is not True:
+                    for option in list(options):
+                        info = attributes.get(option)
+                        if info:
+                            options.extend(info)
+
         kwargs = MissingSet()
         for key, (normal_key, splitter_key) in attributes.items():
             for values in self.validate_attributes(
@@ -400,6 +426,11 @@ class DefaultAPIView(object):
                     value_splitter=value_splitter,
                     **settings).values():
                 kwargs[key].update(values)
+
+            if (not kwargs.get(key)
+                and (not ignore_missing or key not in ignore_missing)):
+                keys = '|'.join([normal_key, splitter_key])
+                raise Error(keys, u'Required')
 
         return kwargs
 

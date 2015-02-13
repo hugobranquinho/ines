@@ -5,10 +5,10 @@
 
 
 DEFAULT_MIDDLEWARE_POSITION = {
-    'payload': 103,
-    'logging': 102,
-    'cors': 101,
-    'repoze.tm': 100}
+    'payload': -100,
+    'logging': -99,
+    'cors': -98,
+    'repoze.tm': -97}
 
 
 class Middleware(object):

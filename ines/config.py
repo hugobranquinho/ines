@@ -4,6 +4,7 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 from importlib import import_module
+from inspect import getargspec
 from uuid import uuid4
 
 from pkg_resources import get_distribution
@@ -17,6 +18,7 @@ from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
 from pyramid.static import static_view
 
+from ines import API_CONFIGURATION_EXTENSIONS
 from ines import APPLICATIONS
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
@@ -29,7 +31,15 @@ from ines.path import find_class_on_module
 from ines.path import get_object_on_path
 from ines.request import inesRequest
 from ines.route import RootFactory
+from ines.utils import MissingDict
 from ines.utils import WarningDict
+
+
+def configuration_extensions(setting_key):
+    def decorator(wrapped):
+        API_CONFIGURATION_EXTENSIONS[setting_key] = wrapped.__name__
+        return wrapped
+    return decorator
 
 
 class APIConfigurator(Configurator):
@@ -132,15 +142,16 @@ class APIConfigurator(Configurator):
     def debug(self):
         return self.settings.get('debug')
 
+    @configuration_extensions('apidocjs')
     def add_apidocjs_view(
-            self, pattern='docs', cache_max_age=86400,
+            self, pattern='documentation', cache_max_age=86400,
             resource_name='apidocjs'):
 
         static_func = static_view(
             '%s:%s/' % (self.package_name, resource_name),
             package_name=self.package_name,
             use_subpath=True,
-            cache_max_age=cache_max_age)
+            cache_max_age=int(cache_max_age))
 
         self.add_route(resource_name, pattern='%s*subpath' % pattern)
         self.add_view(
@@ -174,65 +185,97 @@ class APIConfigurator(Configurator):
             kwargs['permission'] = INES_POLICY
         return super(APIConfigurator, self).add_view(*args, **kwargs)
 
+    def lookup_extensions(self):
+        found_settings = MissingDict()
+        for find_setting_key, method_name in API_CONFIGURATION_EXTENSIONS.items():
+            if not find_setting_key.endswith('.'):
+                find_setting_key = find_setting_key + '.'
+
+            for key, value in self.settings.items():
+                if key.startswith(find_setting_key):
+                    setting_key = key.split(find_setting_key, 1)[1]
+                    found_settings[method_name][setting_key] = value
+
+        for method_name, settings in found_settings.items():
+            method = getattr(self, method_name)
+            method_settings = dict(
+                (argument, settings[argument])
+                for argument in getargspec(method).args
+                if argument in settings)
+            method(**method_settings)
+
     def make_wsgi_app(self, install_middlewares=True):
+        # Find for possible configuration extensions
+        self.lookup_extensions()
+
         # Scan all package routes
         self.scan(self.package_name, categories=['pyramid'])
         app = super(APIConfigurator, self).make_wsgi_app()
 
         if install_middlewares:
+            # Look for middlewares in API Sessions
             for name, extension in (
                     self.registry
                     .getUtilitiesFor(IBaseSessionManager)):
                 if hasattr(extension, '__middlewares__'):
-                    for middleware in extension.__middlewares__:
-                        self.install_middleware(middleware)
+                    for extension_middleware in extension.__middlewares__:
+                        self.install_middleware(
+                            extension_middleware.name,
+                            extension_middleware)
 
+            # Define middleware settings
+            middlewares_settings = MissingDict()
+            for key, value in self.settings.items():
+                if key.startswith('middleware.'):
+                    maybe_name = key.split('middleware.', 1)[1]
+                    if '.' in maybe_name:
+                        name, setting_key = maybe_name.split('.', 1)
+                        middlewares_settings[name][setting_key] = value
+                    else:
+                        # Install settings middlewares
+                        middleware_class = get_object_on_path(value)
+                        self.install_middleware(maybe_name, middleware_class)
+
+            # Install middlewares, with reversed order. Lower position first
             if self.middlewares:
                 middlewares = []
-                for middleware in self.middlewares:
-                    settings = {}
-                    search_key = 'middleware.%s.' % middleware.name
-                    for key, value in self.settings.items():
-                        if key.startswith(search_key):
-                            key = key.split(search_key, 1)[1]
-                            settings[key] = value
-
+                for name, middleware in self.middlewares:
+                    settings = middlewares_settings[name]
                     default_position = (
-                        getattr(middleware, 'position',
-                            DEFAULT_MIDDLEWARE_POSITION.get(middleware.name)))
-                    position = settings.get('position', default_position)
-                    middlewares.append((position, middleware, settings))
-
-                middlewares.sort()
-                for position, middleware, settings in middlewares:
+                        getattr(middleware, 'position', DEFAULT_MIDDLEWARE_POSITION.get(name)))
+                    position = settings.get('position', default_position) or 0
+                    middlewares.append((position, name, middleware, settings))
+                middlewares.sort(reverse=True)
+                for position, name, middleware, settings in middlewares:
                     app = middleware(self, app, **settings)
+                    app.name = name
 
         return app
 
-    def install_middleware(self, middleware):
-        self.middlewares.append(middleware)
+    def install_middleware(self, name, middleware):
+        self.middlewares.append((name, middleware))
 
-    def add_errors_handler(self):
+    @configuration_extensions('apierrors.interface')
+    def add_api_errors_interface(self, only_http=False):
         # Set JSON handler
         self.add_view(
             view='ines.views.errors_json_view',
             context=HTTPException,
             permission=NO_PERMISSION_REQUIRED)
-        self.add_view(
-            view='ines.views.errors_json_view',
-            context=Exception,
-            permission=NO_PERMISSION_REQUIRED)
 
+        if not asbool(only_http):
+            self.add_view(
+                view='ines.views.errors_json_view',
+                context=Exception,
+                permission=NO_PERMISSION_REQUIRED)
+
+    @configuration_extensions('policy.token')
     def set_token_policy(
             self,
-            application_name=None,
+            application_name,
             header_key='Authorization'):
 
         # Authentication Policy
-        application_name = (
-            application_name
-            or self.settings['policy.application_name'])
-
         authentication_policy = ApplicationHeaderAuthenticationPolicy(
             application_name,
             header_key=header_key)
@@ -240,23 +283,3 @@ class APIConfigurator(Configurator):
 
         authorization_policy = TokenAuthorizationPolicy(application_name)
         self.set_authorization_policy(authorization_policy)
-
-    def install_cors_middleware(self, settings=None):
-        from ines.middlewares.cors import Cors
-        self.install_middleware(Cors)
-
-    def install_payload_middleware(self, settings=None):
-        from ines.middlewares.payload import Payload
-        self.install_middleware(Payload)
-
-    def set_ines_defaults(self):
-        # Add services documentation
-        self.add_apidocjs_view()
-        # Add errors handler
-        self.add_errors_handler()
-        # Add header token authentication
-        self.set_token_policy()
-        # Use cors
-        self.install_cors_middleware(self.settings)
-        # Use payload
-        self.install_payload_middleware(self.settings)
