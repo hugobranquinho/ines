@@ -93,7 +93,7 @@ class DefaultAPIView(object):
 
     def create_pagination_href(self, route_name, pagination, **params):
         queries = {}
-        for key, values in self.GET.dict_of_lists.items():
+        for key, values in self.dict_of_lists.items():
             values = [value for value in values if value]
             if values:
                 queries[key] = values
