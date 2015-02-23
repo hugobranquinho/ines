@@ -3,7 +3,12 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+import re
+
 from ines import CAMELCASE_UPPER_WORDS
+
+
+REPLACE_CAMELCASE_REGEX = re.compile(u'[^A-Z0-9_.]').sub
 
 
 def force_unicode(value, encoding='utf-8', errors='strict'):
@@ -39,17 +44,20 @@ def maybe_unicode(value, encoding='utf-8', errors='strict'):
 
 
 def camelcase(value):
-    if u'_' not in value:
+    value = force_unicode(value).strip()
+    if not value:
         return value
     elif u'+' in value:
-        return u'+'.join(camelcase(v) for v in value.split(u'+'))
+        return u'+'.join(camelcase(key) for key in value.split(u'+'))
+
+    words = [w for w in REPLACE_CAMELCASE_REGEX(u'_', value.upper()).split(u'_') if w]
+    if not words:
+        return u''
     else:
-        words = value.split(u'_')
         camelcase_words = [words.pop(0).lower()]
         for word in words:
-            upper_word = word.upper()
-            if upper_word in CAMELCASE_UPPER_WORDS:
-                camelcase_words.append(upper_word)
+            if word in CAMELCASE_UPPER_WORDS:
+                camelcase_words.append(word)
             else:
                 camelcase_words.append(word.title())
         return u''.join(camelcase_words)

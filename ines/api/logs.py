@@ -9,7 +9,6 @@ from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.convert import force_string
 from ines.middlewares.logs import LoggingMiddleware
-from ines.utils import format_json_response
 
 
 NOW_DATE = datetime.datetime.now
@@ -62,12 +61,6 @@ class BaseLogSession(BaseSession):
                 code,
                 message,
                 level='DEBUG')
-
-    def log_info(self, code, message):
-        return self.log(
-            code,
-            message,
-            level='INFO')
 
     def log_warning(self, code, message):
         return self.log(

@@ -3,7 +3,6 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
-from json import dumps
 from os import getpid
 
 from paste.deploy.loadwsgi import loadapp
@@ -17,19 +16,15 @@ from webob.response import Response
 from ines.convert import maybe_integer
 from ines.system import start_system_thread
 from ines.utils import file_modified_time
-from ines.utils import format_json_response_values
+from ines.utils import format_error_to_json
 
 
 def not_found_api_application(global_settings, **settings):
     def call_not_found(environ, start_response):
         not_found = HTTPNotFound()
-        code = not_found.code
-        values = format_json_response_values(
-            code,
-            not_found.title.lower().replace(u' ', u'_'), not_found.explanation)
         response = Response(
-            body=dumps(values),
-            status=code,
+            body=format_error_to_json(not_found),
+            status=not_found.code,
             content_type='application/json')
         return response(environ, start_response)
     return call_not_found

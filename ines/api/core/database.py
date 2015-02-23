@@ -188,6 +188,19 @@ class CoreOptions(Options):
                         key = '%s_%s' % (add_name, key)
                     self.add_column(key, maybe_column.clone())
 
+        start_alias = table.start_date.clone()
+        end_alias = table.end_date.clone()
+        key = 'active'
+        if add_name:
+            key = '%s_%s' % (add_name, key)
+        self.add_column(
+            key,
+            and_(or_(start_alias == None, start_alias <= func.now()),
+                   or_(end_alias == None, end_alias <= func.now())).label(key))
+
+from sqlalchemy import and_
+from sqlalchemy import or_
+
 
 def find_parent_tables(table):
     # Find parent tables

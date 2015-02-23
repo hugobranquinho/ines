@@ -3,7 +3,6 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
-from repoze.tm import default_commit_veto
 from repoze.tm import TM
 
 from ines.middlewares import Middleware
@@ -14,10 +13,7 @@ class RepozeTMMiddleware(Middleware):
     name = 'repoze.tm'
 
     def __init__(self, config, application, **settings):
-        super(RepozeTMMiddleware, self).__init__(
-            config,
-            application,
-            **settings)
+        super(RepozeTMMiddleware, self).__init__(config, application, **settings)
 
         commit_veto = settings.get('commit_veto')
         if commit_veto:

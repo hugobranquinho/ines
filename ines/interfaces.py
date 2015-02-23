@@ -8,3 +8,7 @@ from zope.interface import Interface
 
 class IBaseSessionManager(Interface):
     pass
+
+
+class ISchemaViewManager(Interface):
+    pass

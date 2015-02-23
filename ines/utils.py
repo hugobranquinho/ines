@@ -10,9 +10,11 @@ from os import stat as os_stat
 from os.path import getmtime
 from re import compile as regex_compile
 from socket import getfqdn
-from time import time
 from uuid import uuid4
 import warnings
+
+from colander import Invalid
+from pyramid.httpexceptions import HTTPError
 
 from ines.convert import camelcase
 from ines.convert import force_string
@@ -78,6 +80,13 @@ class MissingList(MissingDict):
         self[key].append(value)
 
 
+class MissingInteger(MissingDict):
+    _base_type = int
+
+    def add_item(self, key, value):
+        self[key] += value
+
+
 class MissingSet(MissingDict):
     _base_type = set
 
@@ -85,7 +94,7 @@ class MissingSet(MissingDict):
         self[key].add(value)
 
 
-class InfiniteDict(dict):
+class InfiniteDict(MissingDict):
     @property
     def _base_type(self):
         return InfiniteDict
@@ -113,7 +122,22 @@ def last_read_file_time(path):
         return last_read_time
 
 
-def format_json_response_values(status, key, message, **kwargs):
+def format_error_to_json_values(error, kwargs=None):
+    if isinstance(error, HTTPError):
+        status = error.code
+        key = error.title
+        message = error.explanation
+    elif isinstance(error, Invalid):
+        status = 400
+        error_items = error.asdict()
+        if error_items:
+            key, message = error_items.items()[0]
+        kwargs = {'errors': error_items}
+    else:
+        status = getattr(error, 'code', 400)
+        key = getattr(error, 'key', 'undefined')
+        message = getattr(error, 'msg', getattr(error, 'message', u'Undefined'))
+
     values = {
         'status': status,
         'property': camelcase(key),
@@ -123,8 +147,8 @@ def format_json_response_values(status, key, message, **kwargs):
     return values
 
 
-def format_json_response(*args, **kwargs):
-    return dumps(format_json_response_values(*args, **kwargs))
+def format_error_to_json(error, kwargs=None):
+    return dumps(format_error_to_json_values(error, kwargs))
 
 
 def file_modified_time(path):

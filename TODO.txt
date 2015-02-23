@@ -1,8 +1,12 @@
 - https://uwsgi-docs.readthedocs.org/en/latest/Python.html
-- script create babel templates / update / compile
+- script uwsgi_ini to run uwsgi apps
 - start application wsgi.py
     - If this application run in a process fork only the father is updated!
     - update all process childs
 - add logs to DB or add core actions
     - possible to revert actions
 - register cores in zope registry
+- script create babel templates / update / compile
+- script to read ini run application and compile apidocjs
+- script to read ini run application and compile postman requests
+- add thread with garbage collector

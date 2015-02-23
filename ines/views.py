@@ -3,11 +3,26 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from ines.utils import format_error_to_json_values
+
+
+def errors_json_view(context, request):
+    values = format_error_to_json_values(context)
+    return request.render_to_response(
+        'json',
+        values=values,
+        status=values['status'])
+
+
+
+
+
+
 import datetime
 
+from colander import SchemaNode
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
-from pyramid.httpexceptions import HTTPException
 from pyramid.settings import asbool
 
 from ines import MISSING
@@ -17,8 +32,6 @@ from ines.convert import maybe_date
 from ines.convert import maybe_datetime
 from ines.convert import maybe_integer
 from ines.convert import uncamelcase
-from ines.exceptions import Error
-from ines.utils import format_json_response_values
 from ines.utils import maybe_email
 from ines.utils import MissingDict
 from ines.utils import MissingSet
@@ -28,27 +41,18 @@ from ines.utils import MissingList
 TODAY_DATE = datetime.date.today
 
 
-def errors_json_view(context, request):
-    if isinstance(context, Error):
-        status = 400
-        key = context.key
-        message = context.message
-    elif isinstance(context, HTTPException):
-        if str(context.code).startswith('3'):
-            # Redirect Code
-            return context
 
-        status = context.code
-        key = context.title.lower().replace(' ', '_')
-        message = context.explanation
-    else:
-        raise
 
-    values = format_json_response_values(status, key, message)
-    return request.render_to_response(
-        'json',
-        values=values,
-        status=status)
+class Field(object):
+    def __init__(self, name, attributes=None):
+        self.name = name
+
+        if attributes and not is_nonstr_iter(attributes):
+            attributes = [attributes]
+        self.attributes = set(attributes or [self.name])
+
+    def __call__(self, request, value):
+        return getattr(value, self.name)
 
 
 VALIDATORS = {
@@ -78,20 +82,18 @@ class DefaultAPIView(object):
         self.api = self.request.api
 
     @reify
-    def GET_dict_of_lists(self):
-        return self.request.GET.dict_of_lists()
-
-    @reify
-    def POST_dict_of_lists(self):
-        return self.request.POST.dict_of_lists()
-
-    @reify
-    def DELETE_dict_of_lists(self):
-        return self.request.DELETE.dict_of_lists()
+    def dict_of_lists(self):
+        method = self.request.method.upper()
+        if method in ('POST', 'PUT'):
+            return self.request.POST.dict_of_lists()
+        elif method == 'DELETE':
+            return self.request.DELETE.dict_of_lists()
+        else:
+            return self.request.GET.dict_of_lists()
 
     def create_pagination_href(self, route_name, pagination, **params):
         queries = {}
-        for key, values in self.GET_dict_of_lists.items():
+        for key, values in self.GET.dict_of_lists.items():
             values = [value for value in values if value]
             if values:
                 queries[key] = values
@@ -146,12 +148,8 @@ class DefaultAPIView(object):
 
     @reify
     def external_fields(self):
-        attribute = '%s_dict_of_lists' % self.request.method.upper()
-        if not hasattr(self, attribute):
-            attribute = 'POST_dict_of_lists'
-
         kwargs = self.validate_multiples(
-            getattr(self, attribute),
+            self.dict_of_lists,
             attributes={'fields': ('field', 'fields')},
             ignore_missing=True)
 
@@ -161,12 +159,8 @@ class DefaultAPIView(object):
 
     @reify
     def external_no_fields(self):
-        attribute = '%s_dict_of_lists' % self.request.method.upper()
-        if not hasattr(self, attribute):
-            attribute = 'POST_dict_of_lists'
-
         kwargs = self.validate_multiples(
-            getattr(self, attribute),
+            self.dict_of_lists,
             attributes={'no_fields': ('-field', '-fields')},
             ignore_missing=True)
 
@@ -458,68 +452,6 @@ class DefaultAPIView(object):
         return kwargs
 
 
-class FormatResponse(object):
-    def __init__(self, structure, fields=None, padding=''):
-        self.structure = structure
-        self.fields = fields
-        self.padding = padding
-        self.methods = {}
-        self.attributes = set()
-
-        for public_key, field in self.structure.items():
-            if self.padding:
-                padding_public_key = self.padding + ' ' + public_key
-            else:
-                padding_public_key = public_key
-
-            if isinstance(field, dict):
-                child_fields = self.fields
-                if not self.fields or padding_public_key in self.fields:
-                    child_fields = None
-
-                formater = FormatResponse(
-                    field,
-                    fields=child_fields,
-                    padding=padding_public_key)
-
-                if formater.methods:
-                    self.attributes.update(formater.attributes)
-                    self.methods[public_key] = formater
-            else:
-                if not self.fields or padding_public_key in self.fields:
-                    self.attributes.update(field.attributes)
-                    self.methods[public_key] = field
-
-        if not self.methods and u'key' in self.structure:
-            field = self.structure[u'key']
-            self.attributes.update(field.attributes)
-            self.methods[u'key'] = field
-
-    def __call__(self, request, value):
-        result = dict(
-            (public_key, method(request, value))
-            for public_key, method in self.methods.items())
-
-        if self.padding:
-            for value in result.values():
-                if value is not None:
-                    break
-            else:
-                result = None
-
-        return result
-
-
-class Field(object):
-    def __init__(self, name, attributes=None):
-        self.name = name
-
-        if attributes and not is_nonstr_iter(attributes):
-            attributes = [attributes]
-        self.attributes = set(attributes or [self.name])
-
-    def __call__(self, request, value):
-        return getattr(value, self.name)
 
 
 class DateTimeField(Field):

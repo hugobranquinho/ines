@@ -6,13 +6,13 @@
 from json import loads
 
 from pyramid.compat import is_nonstr_iter
-from pyramid.httpexceptions import HTTPBadRequest
 from webob.request import environ_add_POST
 
 from ines.convert import force_string
+from ines.exceptions import Error
 from ines.middlewares import Middleware
 from ines.utils import get_content_type
-from ines.utils import format_json_response
+from ines.utils import format_error_to_json
 
 
 class Payload(Middleware):
@@ -31,13 +31,11 @@ class Payload(Middleware):
                             value = ','.join(force_string(v) for v in value)
                         arguments.append('%s=%s' % (force_string(key), force_string(value)))
                 except (ValueError, UnicodeEncodeError):
-                    bad_request = HTTPBadRequest()
                     headers = [('Content-type', 'application/json')]
-                    start_response(bad_request.status, headers)
-                    return [format_json_response(
-                        bad_request.code,
-                        bad_request.title.lower().replace(' ', '_'),
-                        u'Invalid json request')]
+                    start_response(400, headers)
+                    error = Error('json_loads', u'Invalid json request')
+                    return format_error_to_json(error)
+
                 body = '&'.join(arguments)
 
             environ_add_POST(environ, body or '')

@@ -5,11 +5,12 @@
 
 from inspect import getargspec
 
+from colander import Invalid
 from pkg_resources import get_distribution
 from pyramid.compat import is_nonstr_iter
 from pyramid.config import Configurator
 from pyramid.decorator import reify
-from pyramid.httpexceptions import HTTPException
+from pyramid.httpexceptions import HTTPError
 from pyramid.path import caller_package
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
@@ -22,12 +23,14 @@ from ines.api import BaseSessionManager
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
+from ines.exceptions import Error
 from ines.interfaces import IBaseSessionManager
 from ines.middlewares import DEFAULT_MIDDLEWARE_POSITION
 from ines.path import find_class_on_module
 from ines.path import get_object_on_path
 from ines.request import inesRequest
 from ines.route import RootFactory
+from ines.view import SchemaView
 from ines.utils import MissingDict
 from ines.utils import WarningDict
 
@@ -83,8 +86,8 @@ class APIConfigurator(Configurator):
         self.registry.application_name = self.application_name
 
         # Find extensions on settings
-        bases = WarningDict('Duplicate name "{key}" for API Class')
-        sessions = WarningDict('Duplicate name "{key}" for API Session')
+        bases = WarningDict('Duplicated name "{key}" for API Class')
+        sessions = WarningDict('Duplicated name "{key}" for API Session')
         for key, value in self.settings.items():
             if key.startswith('api.extension.'):
                 options = key.split('.', 3)[2:]
@@ -161,6 +164,18 @@ class APIConfigurator(Configurator):
     def version(self):
         return get_distribution(self.package_name).version
 
+    def add_route_schema(self, pattern, routes_names, name=None, **kwargs):
+        if not is_nonstr_iter(routes_names):
+            routes_names = [routes_names]
+        if not routes_names:
+            raise ValueError('Define some routes_names')
+        if not name:
+            name = '%s_schema' % routes_names[0]
+
+        self.add_route(name=name, pattern=pattern)
+        view = SchemaView(routes_names)
+        self.add_view(view, route_name=name, renderer='json', request_method='GET', **kwargs)
+
     def add_routes(self, *routes):
         for arguments in routes:
             if not arguments:
@@ -170,11 +185,9 @@ class APIConfigurator(Configurator):
             elif not is_nonstr_iter(arguments):
                 self.add_route(arguments)
             else:
-                length = len(arguments)
                 kwargs = {'name': arguments[0]}
-                if length > 1:
+                if len(arguments) > 1:
                     kwargs['pattern'] = arguments[1]
-
                 self.add_route(**kwargs)
 
     def add_view(self, *args, **kwargs):
@@ -258,13 +271,18 @@ class APIConfigurator(Configurator):
         # Set JSON handler
         self.add_view(
             view='ines.views.errors_json_view',
-            context=HTTPException,
+            context=HTTPError,
             permission=NO_PERMISSION_REQUIRED)
 
         if not asbool(only_http):
             self.add_view(
                 view='ines.views.errors_json_view',
-                context=Exception,
+                context=Error,
+                permission=NO_PERMISSION_REQUIRED)
+        if not asbool(only_http):
+            self.add_view(
+                view='ines.views.errors_json_view',
+                context=Invalid,
                 permission=NO_PERMISSION_REQUIRED)
 
     @configuration_extensions('policy.token')

@@ -10,7 +10,7 @@ from pyramid.httpexceptions import HTTPNoContent
 from ines.convert import force_string
 from ines.convert import maybe_integer
 from ines.middlewares import Middleware
-from ines.utils import format_json_response
+from ines.utils import format_error_to_json
 
 
 DEFAULT_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'OPTIONS', 'DELETE']
@@ -47,15 +47,10 @@ class Cors(Middleware):
         http_method = environ.get('REQUEST_METHOD')
         if http_method not in self.allowed_methods:
             method_not_allowed = HTTPMethodNotAllowed()
-
             start_response(
                 method_not_allowed.status,
                 [('Content-type', 'application/json')])
-
-            return [format_json_response(
-                method_not_allowed.code,
-                method_not_allowed.title.lower().replace(' ', '_'),
-                method_not_allowed.explanation)]
+            return format_error_to_json(method_not_allowed)
 
         cors_headers = []
         if self.allow_all_origins:

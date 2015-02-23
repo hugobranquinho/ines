@@ -9,8 +9,6 @@ from pyramid.decorator import reify
 from pyramid.settings import asbool
 from sqlalchemy import Column
 from sqlalchemy import create_engine
-from sqlalchemy import Date
-from sqlalchemy import DateTime
 from sqlalchemy import func
 from sqlalchemy import MetaData
 from sqlalchemy import or_
@@ -94,7 +92,7 @@ def initialize_sql(
         for table in metadata.sorted_tables:
             if table.indexes:
                 for index in table.indexes:
-                    for column in index.columns._all_columns:
+                    for column in getattr(index.columns, '_all_columns'):
                         indexed_columns[table.name].add(column.name)
 
                     try:
@@ -361,17 +359,24 @@ def get_object_tables(value):
     table = getattr(value, 'table', None)
     if table is not None:
         tables.add(table)
-    elif hasattr(value, '_element'):
-        # Label column
-        table = getattr(value._element, 'table', None)
-        if table is not None:
-            tables.add(table)
-        else:
-            tables.update(get_object_tables(value._element))
     else:
-        # Function
-        for clause in value.clauses:
-            tables.update(get_object_tables(clause))
+        element = getattr(value, '_element', None)
+        if element is not None:
+            # Label column
+            table = getattr(element, 'table', None)
+            if table is not None:
+                tables.add(table)
+            else:
+                tables.update(get_object_tables(element))
+        else:
+            clauses = getattr(value, 'clauses', None)
+            if clauses is not None:
+                # Function
+                for clause in value.clauses:
+                    tables.update(get_object_tables(clause))
+            elif hasattr(value, '_orig'):
+                for orig in value._orig:
+                    tables.update(get_object_tables(orig))
     return tables
 
 

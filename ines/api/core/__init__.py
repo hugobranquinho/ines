@@ -202,6 +202,8 @@ class BaseCoreSession(BaseSQLSession):
                     queries.append(foreign_column == getattr(table, column_key))
 
         # Start query
+        print columns
+        print query_columns
         query = self.session.query(*query_columns)
         if outerjoins:
             for table, relations in outerjoins.items():
@@ -301,6 +303,7 @@ class BaseCoreSession(BaseSQLSession):
         if orders_by:
             query = query.order_by(*(o for t, o in orders_by))
 
+        print query
         # Pagination for main query
         if with_pagination:
             query = define_pagination(query, page, limit_per_page)

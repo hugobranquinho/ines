@@ -49,7 +49,8 @@ requires = [
     'zope.interface',
     'Paste',
     'WebOb',
-    'PasteDeploy']
+    'PasteDeploy',
+    'colander']
 
 python_version = sys.version_info[:2]
 if python_version <= (2, 6):
