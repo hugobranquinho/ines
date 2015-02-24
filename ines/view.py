@@ -282,7 +282,7 @@ class OutputView(object):
 
     def __init__(self, schema, use_fields=False):
         self.schema = schema
-        self.allowed_fields, self.allowed_fields_dict = find_allowed_fields(self.schema)
+        self.allowed_fields = find_allowed_fields(self.schema)
         if not self.allowed_fields:
             raise Error('output', u'Define output schema')
 
@@ -311,13 +311,12 @@ class OutputView(object):
 
             # Define allowed fields
             context.allowed_fields = self.allowed_fields
-            context.allowed_fields_dict = self.allowed_fields_dict
 
             # Look and validate requested fields
             if context.include_fields:
-                context.output_fields = construct_allowed_fields(self.allowed_fields_dict, context.include_fields)
+                context.output_fields = construct_allowed_fields(self.allowed_fields, context.include_fields)
             else:
-                context.output_fields = deepcopy(self.allowed_fields_dict)
+                context.output_fields = deepcopy(self.allowed_fields)
 
             # Exclude fields
             if context.exclude_fields:
@@ -328,7 +327,7 @@ class OutputView(object):
                             context.output_fields.pop(requested_field)
 
             if not context.output_fields:
-                keys = u'+'.join(self.allowed_fields)
+                keys = u'+'.join(allowed_fields_to_set(self.allowed_fields))
                 raise Error(keys, u'Please define some fields to export')
             context.fields = deepcopy(context.output_fields)
 
@@ -337,11 +336,24 @@ class OutputView(object):
         return decorator
 
 
+def allowed_fields_to_set(fields, padding=None):
+    result = set()
+    for key, childrens in fields.items():
+        if padding:
+            key = '%s.%s' % (padding, key)
+        result.add(key)
+        if childrens:
+            result.update(allowed_fields_to_set(childrens, key))
+    return result
+
+
 def construct_output_structure(schema, values, fields):
     if isinstance(schema, SequenceSchema):
         result = []
         if values is None:
             return result
+        elif values is null:
+            return []
 
         child = schema.children[0]
         for value in values:
@@ -377,18 +389,20 @@ def construct_output_structure(schema, values, fields):
         return result
 
     else:
-        value = schema.serialize(values)
-        if value is null:
+        if values is not None:
+            values = schema.serialize(values)
+
+        if values is null:
             return None
-        elif value:
+        elif values is not None:
             if isinstance(schema.typ, Number):
-                return schema.typ.num(value)
+                return schema.typ.num(values)
             elif isinstance(schema.typ, Boolean):
-                return asbool(value)
+                return asbool(values)
             else:
-                return value
+                return values
         else:
-            return value
+            return values
 
 
 def find_allowed_fields(schema, padding=None):
@@ -397,23 +411,17 @@ def find_allowed_fields(schema, padding=None):
     else:
         name = schema.name
 
-    allowed_fields = set()
-    allowed_fields_dict = {}
+    allowed_fields = {}
     if isinstance(schema, SequenceSchema):
         for child in schema.children:
-            fields, fields_dict = find_allowed_fields(child, name)
-            allowed_fields.update(fields)
-            allowed_fields_dict.update(fields_dict)
+            allowed_fields.update(find_allowed_fields(child, name))
 
     elif node_is_iterable(schema):
         for child in schema.children:
-            fields, allowed_fields_dict[child.name] = find_allowed_fields(child, name)
-            allowed_fields.update(fields)
+            allowed_fields[child.name] = find_allowed_fields(child, name)
 
-    else:
-        allowed_fields.add(name)
+    return allowed_fields
 
-    return allowed_fields, allowed_fields_dict
 
 
 class DefaultAPIView(object):
@@ -553,6 +561,8 @@ class SchemaView(object):
 
     def __call__(self, context, request):
         nodes = MissingDict()
+        requested_methods = [key.lower() for key in request.GET.keys()]
+
         for route_name in self.routes_names:
             schema_manager = request.registry.queryUtility(ISchemaViewManager, name=route_name)
             if not schema_manager:
@@ -565,7 +575,8 @@ class SchemaView(object):
                 else:
                     request_methods = [schema.request_method]
                 for request_method in request_methods:
-                    nodes[request_method.lower()][schema.schema_type] = structure
+                    if not requested_methods or request_method.lower() in requested_methods:
+                        nodes[request_method.lower()][schema.schema_type] = structure
 
         return nodes
 
@@ -577,13 +588,23 @@ def construct_schema_structure(request, schema, schema_type):
         if not is_nonstr_iter(childrens):
             childrens = [childrens]
 
-        return {
+        details = {
             'type': 'sequence',
-            'name': camelcase(schema.name),
-            'title': schema.title,
-            'description': schema.description or None,
             'order': schema._order,
             'childrens': childrens}
+
+        if not schema.name:
+            details.update({
+                'name': camelcase(child.name),
+                'title': child.title,
+                'description': child.description or None})
+        else:
+            details.update({
+                'name': camelcase(schema.name),
+                'title': schema.title,
+                'description': schema.description or None})
+
+        return details
 
     elif isinstance(schema, TupleSchema):
         raise NotImplementedError('TupleSchema need to be implemented')
@@ -595,22 +616,12 @@ def construct_schema_structure(request, schema, schema_type):
         return result
 
     else:
-        default = schema.serialize()
-        if default is null:
-            default = None
-        elif default:
-            if isinstance(schema.typ, Number):
-                default = schema.typ.num(default)
-            elif isinstance(schema.typ, Boolean):
-                default = asbool(default)
-
         details = {
             'type': get_colander_type_name(schema.typ),
             'name': camelcase(schema.name),
             'title': schema.title,
             'description': schema.description or None,
-            'order': schema._order,
-            'default': default}
+            'order': schema._order}
 
         if schema_type == 'request':
             details['required'] = schema.missing is colander_required
@@ -626,8 +637,17 @@ def construct_schema_structure(request, schema, schema_type):
                     validators.append({
                         'type': get_colander_type_name(validator),
                         'error': validator.msg})
+            default = schema.missing
         else:
             details['maybeNotSent'] = schema.missing is colander_drop
+            default = schema.serialize()
+
+        if default is not null and default is not colander_required:
+            if isinstance(schema.typ, Number):
+                default = schema.typ.num(default)
+            elif isinstance(schema.typ, Boolean):
+                default = asbool(default)
+            details['default'] = default
 
         return details
 

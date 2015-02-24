@@ -3,6 +3,9 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from copy import deepcopy
+from math import ceil
+
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.settings import asbool
@@ -10,6 +13,7 @@ from sqlalchemy import and_
 from sqlalchemy import func
 from sqlalchemy import or_
 from sqlalchemy.sql.elements import ClauseElement
+from sqlalchemy.sql.expression import true
 
 from ines.api import BaseSessionManager
 from ines.api.core.database import Core
@@ -31,6 +35,7 @@ from ines.convert import maybe_integer
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.utils import MissingList
+from ines.utils import MissingSet
 
 
 class BaseCoreSessionManager(BaseSessionManager):
@@ -45,8 +50,198 @@ class BaseCoreSessionManager(BaseSessionManager):
             **get_sql_settings_from_config(self.config))
 
 
+NOT_INACTIVES_FILTER = and_(
+    or_(Core.start_date <= func.now(), Core.start_date.is_(None)),
+    or_(Core.end_date >= func.now(), Core.end_date.is_(None)))
+
+
 class BaseCoreSession(BaseSQLSession):
     __api_name__ = 'core'
+
+    def get_cores(
+            self,
+            core_name,
+            attributes,
+            order_by=None, page=None, limit_per_page=None,
+            return_inactives=False,
+            filters=None,
+            only_one=False):
+
+        # Pagination
+        with_pagination = bool(
+            limit_per_page is not None
+            or page is not None)
+        if with_pagination:
+            only_one = False
+            page = maybe_integer(page)
+            if not page or page < 1:
+                page = 1
+            limit_per_page = maybe_integer(limit_per_page)
+            if not limit_per_page or limit_per_page < 1:
+                limit_per_page = 1000
+
+        relate_with_core = not return_inactives
+        table = CORE_TYPES[core_name]['table']
+
+        if not attributes:
+            attributes = table._sa_class_manager.values()
+        elif isinstance(attributes, (tuple, list)):
+            attributes = dict((k, None) for k in attributes)
+        else:
+            attributes = deepcopy(attributes)
+
+        columns = set()
+        for key in attributes.keys():
+            if key == 'active':
+                attributes.pop(key)  # Dont need this attribute anymore
+                if return_inactives:
+                    columns.add(NOT_INACTIVES_FILTER.label('active'))
+                else:
+                    columns.add(true().label('active'))
+            elif hasattr(table, key):
+                attributes.pop(key)  # Dont need this attribute anymore
+                column = getattr(table, key)
+                if isinstance(column, CoreColumnParent):
+                    column = getattr(Core, key)
+                    relate_with_core = True
+                columns.add(column)
+
+        branches_tables = MissingSet()
+        for branch in CORE_TYPES[core_name]['branches']:
+            for key in attributes.keys():
+                if hasattr(branch, key):
+                    branches_tables[branch].add(key)
+        if branches_tables:
+            for branch, keys in branches_tables.items():
+                for key in keys:
+                    attributes.pop(key, None)  # Dont need this attribute anymore
+                    columns.add(getattr(branch, key))
+
+        if not columns:
+            columns.add(Core.key)
+
+        if attributes:
+            childs_names = [t.core_name for t in CORE_TYPES[core_name]['childs']]
+            for key in attributes.keys():
+                if key not in childs_names:
+                    raise ValueError(
+                        'Attribute %s is not a child of %s'
+                        % (key, core_name))
+            columns.add(Core.id)
+
+        query = self.session.query(*columns)
+
+        if branches_tables:
+            query = query.select_from(table)
+            for branch in branches_tables.keys():
+                query = query.outerjoin(branch, branch.id_core == table.id_core)
+
+        if filters and core_name in filters:
+            for key, values in filters[core_name].items():
+                column = getattr(table, key)
+                if isinstance(column, CoreColumnParent):
+                    column = getattr(Core, key)
+                    relate_with_core = True
+
+                if not is_nonstr_iter(values):
+                    query  = query.filter(column == values)
+                else:
+                    values = set(values)
+                    query  = query.filter(maybe_with_none(column, values))
+
+        if relate_with_core:
+            query = query.filter(table.id_core == Core.id)
+        if not return_inactives:
+            query = query.filter(NOT_INACTIVES_FILTER)
+
+        # Set order by
+        if order_by:
+            query = query.order_by(order_by)
+
+        # Pagination for main query
+        if with_pagination:
+            number_of_results = (
+                query
+                .with_entities(func.count(1))
+                .first()[0])
+
+            last_page = int(ceil(number_of_results / float(limit_per_page))) or 1
+            if page > last_page:
+                page = last_page
+            end_slice = page * limit_per_page
+            start_slice = end_slice - limit_per_page
+
+            result = CorePagination(
+                page,
+                limit_per_page,
+                last_page,
+                number_of_results)
+            result.extend(query.slice(start_slice, end_slice).all())
+        elif only_one:
+            result = query.first()
+        else:
+            result = query.all()
+
+        if not attributes or not result:
+            return result
+
+        if only_one:
+            result = [result]
+
+        labels = set(result[0]._labels)
+        labels.update(attributes.keys())
+        labels = tuple(labels)
+
+        references = {}
+        for value in result:
+            value._labels = labels
+            references[value.id] = value
+            for key in attributes.keys():
+                setattr(value, key, [])
+
+        for key, key_attributes in attributes.items():
+            key_filters = deepcopy(filters)
+            if key_filters:
+                key_parents_ids = references.keys()
+                if key in key_filters and 'parent_id' in key_filters[key]:
+                    key_parents_ids = set(key_parents_ids)
+                    if not is_nonstr_iter(key_filters[key]['parent_id']):
+                        key_parents_ids.add(key_filters[key]['parent_id'])
+                    else:
+                        key_parents_ids.update(key_filters[key]['parent_id'])
+
+                key_filters[key] = {'parent_id': key_parents_ids}
+            else:
+                key_filters = {key: {'parent_id': references.keys()}}
+
+            key_attributes['parent_id'] = None
+            for value in self.get_cores(
+                    key,
+                    key_attributes,
+                    return_inactives=return_inactives,
+                    filters=key_filters):
+                getattr(references[value.parent_id], key).append(value)
+
+        if only_one:
+            return result[0]
+        else:
+            return result
+
+
+
+    def get_core(self, core_name, attributes, return_inactives=False, filters=None):
+        return self.get_cores(
+            core_name,
+            attributes,
+            return_inactives=return_inactives,
+            filters=filters,
+            only_one=True)
+
+
+
+
+
+
 
     @reify
     def use_before_queries(self):
@@ -202,8 +397,6 @@ class BaseCoreSession(BaseSQLSession):
                     queries.append(foreign_column == getattr(table, column_key))
 
         # Start query
-        print columns
-        print query_columns
         query = self.session.query(*query_columns)
         if outerjoins:
             for table, relations in outerjoins.items():
@@ -303,14 +496,13 @@ class BaseCoreSession(BaseSQLSession):
         if orders_by:
             query = query.order_by(*(o for t, o in orders_by))
 
-        print query
         # Pagination for main query
         if with_pagination:
             query = define_pagination(query, page, limit_per_page)
 
         return query
 
-    def get_core(self, *args, **kwargs):
+    def old_get_core(self, *args, **kwargs):
         query = self.get_core_query(*args, **kwargs)
         if query is not None:
             return query.first()
@@ -329,7 +521,7 @@ class BaseCoreSession(BaseSQLSession):
         else:
             return query.first()[0] or 0
 
-    def get_cores(
+    def old_get_cores(
             self,
             columns,
             page=None, 
@@ -550,7 +742,7 @@ class BaseCoreSession(BaseSQLSession):
                 else:
                     self.flush()
 
-        for branch in CORE_TYPES[core_name]['branchs']:
+        for branch in CORE_TYPES[core_name]['branches']:
             (self.session
                 .query(branch.id_core)
                 .filter(branch.id_core == id_core)

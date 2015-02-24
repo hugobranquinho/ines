@@ -27,7 +27,7 @@ class CoreTypesMissing(dict):
             'table': None,
             'parent': None,
             'childs': set(),
-            'branchs': set()}
+            'branches': set()}
         return self[key]
 
 
@@ -130,7 +130,7 @@ class CoreType(object):
                     CORE_TYPES[self.core_name]['parent'] = relation_table
                     CORE_TYPES[relation_table.core_name]['childs'].add(self)
                 elif relation == 'branch':
-                    CORE_TYPES[relation_table.core_name]['branchs'].add(self)
+                    CORE_TYPES[relation_table.core_name]['branches'].add(self)
                 else:
                     raise ValueError('Invalid relation type')
 
@@ -166,6 +166,11 @@ class CoreType(object):
     @declared_attr
     @replace_core_attribute
     def created_date(self):
+        pass
+
+    @declared_attr
+    @replace_core_attribute
+    def parent_id(self):
         pass
 
     @declared_attr

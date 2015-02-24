@@ -6,8 +6,8 @@
 
 DEFAULT_MIDDLEWARE_POSITION = {
     'payload': -100,
-    'logging': -99,
-    'cors': -98,
+    'cors': -99,
+    'logging': -98,
     'repoze.tm': -97}
 
 

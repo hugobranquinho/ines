@@ -176,19 +176,40 @@ class APIConfigurator(Configurator):
         view = SchemaView(routes_names)
         self.add_view(view, route_name=name, renderer='json', request_method='GET', **kwargs)
 
-    def add_routes(self, *routes):
+    def add_routes(self, *routes, **kwargs):
+        use_schema = kwargs.get('use_schema', False)
+        schema_permissions = kwargs.get('schema_permissions')
+
         for arguments in routes:
             if not arguments:
                 raise ValueError('Define some arguments')
-            elif isinstance(arguments, dict):
-                self.add_route(**arguments)
-            elif not is_nonstr_iter(arguments):
-                self.add_route(arguments)
-            else:
-                kwargs = {'name': arguments[0]}
-                if len(arguments) > 1:
-                    kwargs['pattern'] = arguments[1]
-                self.add_route(**kwargs)
+            elif not isinstance(arguments, dict):
+                list_arguments = arguments
+                if not is_nonstr_iter(arguments):
+                    list_arguments = [list_arguments]
+
+                arguments = {'name': list_arguments[0]}
+                if len(list_arguments) > 1:
+                    arguments['pattern'] = list_arguments[1]
+                if len(list_arguments) > 2:
+                    arguments['permission'] = list_arguments[2]
+
+            if use_schema:
+                name = arguments.get('name')
+                pattern = arguments.get('pattern')
+
+                schema_kwargs = {}
+                if schema_permissions and name in schema_permissions:
+                    schema_kwargs['permission'] = schema_permissions[name]
+
+                if name and pattern:
+                    if '.' in pattern:
+                        pattern = '%s/schema.json' % pattern.rsplit('.', 1)[0]
+                    else:
+                        pattern = '%s/schema.json' % (pattern.rstrip('/'))
+                    self.add_route_schema(pattern, [name], **schema_kwargs)
+
+            self.add_route(**arguments)
 
     def add_view(self, *args, **kwargs):
         if 'permission' not in kwargs:

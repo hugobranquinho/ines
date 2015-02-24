@@ -32,6 +32,7 @@ from ines.convert import maybe_date
 from ines.convert import maybe_datetime
 from ines.convert import maybe_integer
 from ines.convert import uncamelcase
+from ines.exceptions import Error
 from ines.utils import maybe_email
 from ines.utils import MissingDict
 from ines.utils import MissingSet
