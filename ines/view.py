@@ -29,6 +29,7 @@ from ines.convert import force_unicode
 from ines.convert import maybe_integer
 from ines.convert import uncamelcase
 from ines.exceptions import Error
+from ines.i18n import translate_factory
 from ines.interfaces import ISchemaViewManager
 from ines.utils import MissingDict
 
@@ -140,9 +141,7 @@ class InputViewValidator(object):
             context.structure = {}
             if self.schema:
                 structure = get_request_structure(request, self.schema)
-                print structure
                 context.structure = self.schema.deserialize(structure) or {}
-                print context.structure
 
             return wrapped(context, request)
         return decorator
@@ -627,7 +626,7 @@ def construct_schema_structure(request, schema, schema_type):
             'description': schema.description or None,
             'order': schema._order}
 
-        schema_validators = []
+        request_validation = []
         if schema.validator:
             if isinstance(schema.validator, All):
                 validators = schema.validator.validators
@@ -635,21 +634,30 @@ def construct_schema_structure(request, schema, schema_type):
                 validators = [schema.validator]
 
             for validator in validators:
-                if isinstance(validator, OneOf):
-                    details['options'] = {}
+                if isinstance(validator, OneOfWithDescription):
+                    details['options'] = []
+                    translator = translate_factory(request)
+                    for choice, description in validator.choices_dict.items():
+                        details['options'].append({
+                            'value': choice,
+                            'text': translator(description)})
+                elif isinstance(validator, OneOf):
+                    details['options'] = []
                     for choice in validator.choices:
                         choice_description = force_unicode(choice).replace(u'_', u' ').title()
-                        details['options'][choice] = choice_description
+                        details['options'].append({
+                            'value': choice,
+                            'text': choice_description})
                 else:
-                    schema_validators.append(validator)
+                    request_validation.append(validator)
 
         if schema_type == 'request':
             validation = {}
             if schema.missing is colander_required:
                 validation['required'] = True
 
-            if schema_validators:
-                for validator in schema_validators:
+            if request_validation:
+                for validator in request_validation:
                     validation[get_colander_type_name(validator)] = True
             if validation:
                 details['validation'] = validation
@@ -673,3 +681,9 @@ def construct_schema_structure(request, schema, schema_type):
 
 def get_colander_type_name(node):
     return camelcase(str(node.__class__.__name__).lower())
+
+
+class OneOfWithDescription(OneOf):
+    def __init__(self, choices_dict):
+        self.choices_dict = choices_dict
+        super(OneOfWithDescription, self).__init__(choices_dict.keys())

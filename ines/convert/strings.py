@@ -9,6 +9,7 @@ from ines import CAMELCASE_UPPER_WORDS
 
 
 REPLACE_CAMELCASE_REGEX = re.compile(u'[^A-Z0-9_.]').sub
+NULLS = frozenset([u'null', u'', u'none'])
 
 
 def force_unicode(value, encoding='utf-8', errors='strict'):
@@ -36,6 +37,15 @@ def maybe_integer(value):
         pass
     else:
         return result
+
+
+def maybe_null(value):
+    if value is None:
+        return None
+    elif force_unicode(value).strip().lower() in NULLS:
+        return None
+    else:
+        return value
 
 
 def maybe_unicode(value, encoding='utf-8', errors='strict'):

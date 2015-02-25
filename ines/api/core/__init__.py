@@ -202,16 +202,19 @@ class BaseCoreSession(BaseSQLSession):
             filters = deepcopy(filters)
             if core_name in filters:
                 for key, values in filters.pop(core_name).items():
-                    column = getattr(table, key)
-                    if isinstance(column, CoreColumnParent):
-                        column = getattr(Core, key)
-                        relate_with_core = True
-
-                    if not is_nonstr_iter(values):
-                        queries.append(column == values)
+                    if isinstance(values, ClauseElement):
+                        queries.append(values)
                     else:
-                        values = set(values)
-                        queries.append(maybe_with_none(column, values))
+                        column = getattr(table, key)
+                        if isinstance(column, CoreColumnParent):
+                            column = getattr(Core, key)
+                            relate_with_core = True
+
+                        if not is_nonstr_iter(values):
+                            queries.append(column == values)
+                        else:
+                            values = set(values)
+                            queries.append(maybe_with_none(column, values))
 
             cores_ids = set()
             looked_cores = False
@@ -510,17 +513,18 @@ class BaseCoreSession(BaseSQLSession):
 
         table = CORE_TYPES[core_name]['table']
 
-        attributes = set()
-        core_attributes = set()
-        for key in values.keys():
+        core_name_values = {}
+        core_values = {}
+        for key, value in values.items():
             column = getattr(table, key)
             if isinstance(column, CoreColumnParent):
-                core_attributes.add(key)
+                core_values[key] = value
             else:
-                attributes.add(key)
+                core_name_values[key] = value
 
         updated = False
-        if attributes:
+        if core_name_values:
+            attributes = set(core_name_values.keys())
             attributes.add('id_core')
             response = self.get_core(
                 core_name,
@@ -531,7 +535,7 @@ class BaseCoreSession(BaseSQLSession):
                 return False
 
             to_update = {}
-            for key, value in values.items():
+            for key, value in core_name_values.items():
                 response_value = getattr(response, key)
                 if ((value is None or response_value is not None)
                         or response_value is None
@@ -546,7 +550,8 @@ class BaseCoreSession(BaseSQLSession):
                 self.flush()
                 updated = True
 
-        if core_attributes or updated:
+        if core_values or updated:
+            core_attributes = set(core_values.keys())
             core_attributes.add('id_core')
             response = self.get_core(
                 core_name,
@@ -557,7 +562,7 @@ class BaseCoreSession(BaseSQLSession):
                 return False
 
             to_update = {}
-            for key, value in values.items():
+            for key, value in core_values.items():
                 response_value = getattr(response, key)
                 if ((value is None or response_value is not None)
                         or response_value is None
