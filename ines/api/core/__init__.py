@@ -12,6 +12,7 @@ from pyramid.settings import asbool
 from sqlalchemy import and_
 from sqlalchemy import func
 from sqlalchemy import or_
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ClauseElement
 from sqlalchemy.sql.expression import true
 
@@ -50,9 +51,10 @@ class BaseCoreSessionManager(BaseSessionManager):
             **get_sql_settings_from_config(self.config))
 
 
-NOT_INACTIVES_FILTER = and_(
-    or_(Core.start_date <= func.now(), Core.start_date.is_(None)),
-    or_(Core.end_date >= func.now(), Core.end_date.is_(None)))
+def not_inactives_filter(column):
+    return and_(
+        or_(Core.start_date <= func.now(), Core.start_date.is_(None)),
+        or_(Core.end_date >= func.now(), Core.end_date.is_(None)))
 
 
 class BaseCoreSession(BaseSQLSession):
@@ -95,7 +97,7 @@ class BaseCoreSession(BaseSQLSession):
             if key == 'active':
                 attributes.pop(key)  # Dont need this attribute anymore
                 if return_inactives:
-                    columns.add(NOT_INACTIVES_FILTER.label('active'))
+                    columns.add(not_inactives_filter(Core).label('active'))
                 else:
                     columns.add(true().label('active'))
             elif hasattr(table, key):
@@ -120,6 +122,16 @@ class BaseCoreSession(BaseSQLSession):
         if not columns:
             columns.add(Core.key)
 
+        relate_with_child = {}
+        if attributes:
+            for child in CORE_TYPES[core_name]['childs']:
+                for key in attributes.keys():
+                    if hasattr(child, key):
+                        attributes.pop(key, None)  # Dont need this attribute anymore
+                        columns.add(getattr(child, key))
+                        relate_with_child[child.core_name] = (child, aliased(Core))
+                        relate_with_core = True
+
         if attributes:
             childs_names = [t.core_name for t in CORE_TYPES[core_name]['childs']]
             for key in attributes.keys():
@@ -136,23 +148,48 @@ class BaseCoreSession(BaseSQLSession):
             for branch in branches_tables.keys():
                 query = query.outerjoin(branch, branch.id_core == table.id_core)
 
-        if filters and core_name in filters:
-            for key, values in filters[core_name].items():
-                column = getattr(table, key)
-                if isinstance(column, CoreColumnParent):
-                    column = getattr(Core, key)
-                    relate_with_core = True
+        filters = deepcopy(filters)
+        if filters:
+            if core_name in filters:
+                for key, values in filters.pop(core_name).items():
+                    column = getattr(table, key)
+                    if isinstance(column, CoreColumnParent):
+                        column = getattr(Core, key)
+                        relate_with_core = True
 
-                if not is_nonstr_iter(values):
-                    query  = query.filter(column == values)
-                else:
-                    values = set(values)
-                    query  = query.filter(maybe_with_none(column, values))
+                    if not is_nonstr_iter(values):
+                        query  = query.filter(column == values)
+                    else:
+                        values = set(values)
+                        query  = query.filter(maybe_with_none(column, values))
+
+            for child_core_name, values in filters.items():
+                if child_core_name in relate_with_child:
+                    child, alias_child = relate_with_child[child_core_name]
+
+                    for key, values in filters.pop(child_core_name).items():
+                        column = getattr(child, key)
+                        if isinstance(column, CoreColumnParent):
+                            column = getattr(alias_child, key)
+                        if not is_nonstr_iter(values):
+                            query  = query.filter(column == values)
+                        else:
+                            values = set(values)
+                            query  = query.filter(maybe_with_none(column, values))
+
+        if relate_with_child:
+            for child, alias_child in relate_with_child.values():
+                query = (
+                    query
+                    .filter(child.id_core == alias_child.id)
+                    .filter(alias_child.parent_id == Core.id))
+                if not return_inactives:
+                    query = query.filter(not_inactives_filter(alias_child))
 
         if relate_with_core:
             query = query.filter(table.id_core == Core.id)
         if not return_inactives:
-            query = query.filter(NOT_INACTIVES_FILTER)
+            query = query.filter(not_inactives_filter(Core))
 
         # Set order by
         if order_by:
@@ -182,6 +219,7 @@ class BaseCoreSession(BaseSQLSession):
         else:
             result = query.all()
 
+        print attributes.keys(), query
         if not attributes or not result:
             return result
 
@@ -583,9 +621,10 @@ class BaseCoreSession(BaseSQLSession):
                 raise Error('parent_key', message)
 
             parent = self.get_core(
-                [Core.id, Core.type],
+                'core',
+                attributes=['id', 'type'],
                 return_inactives=True,
-                core={'key': parent_key})
+                filters={'core': {'key': parent_key}})
             if not parent:
                 message = u'Missing parent "%s"' % parent_key
                 raise Error('parent_key', message)
