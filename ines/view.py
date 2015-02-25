@@ -140,6 +140,7 @@ class InputViewValidator(object):
             context.structure = {}
             if self.schema:
                 structure = get_request_structure(request, self.schema)
+                print structure
                 context.structure = self.schema.deserialize(structure) or {}
                 print context.structure
 
@@ -643,20 +644,15 @@ def construct_schema_structure(request, schema, schema_type):
                     schema_validators.append(validator)
 
         if schema_type == 'request':
-            validators = []
+            validation = {}
             if schema.missing is colander_required:
-                validators.append({
-                    'type': 'required',
-                    'message': u'Required'})
+                validation['required'] = True
 
             if schema_validators:
-                validators = details['validators'] = []
                 for validator in schema_validators:
-                    validators.append({
-                        'type': get_colander_type_name(validator),
-                        'message': validator.msg})
-            if validators:
-                details['validators'] = validators
+                    validation[get_colander_type_name(validator)] = True
+            if validation:
+                details['validation'] = validation
 
             default = schema.missing
         else:
