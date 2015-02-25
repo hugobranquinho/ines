@@ -25,6 +25,7 @@ from pyramid.view import view_defaults
 from zope.interface import implementer
 
 from ines.convert import camelcase
+from ines.convert import force_unicode
 from ines.convert import maybe_integer
 from ines.convert import uncamelcase
 from ines.exceptions import Error
@@ -340,12 +341,12 @@ class OutputView(object):
 
 def allowed_fields_to_set(fields, padding=None):
     result = set()
-    for key, childrens in fields.items():
+    for key, children in fields.items():
         if padding:
             key = '%s.%s' % (padding, key)
         result.add(key)
-        if childrens:
-            result.update(allowed_fields_to_set(childrens, key))
+        if children:
+            result.update(allowed_fields_to_set(children, key))
     return result
 
 
@@ -490,7 +491,7 @@ def construct_allowed_fields(fields_dict, requested_fields, padding=None, add_al
     }
 
     Requested: c.f + c.f.h + a
-    If we request C.F, we ignore brothers of C.F and add C.F childrens
+    If we request C.F, we ignore brothers of C.F and add C.F children
     If we request C.F.H, we ignore brothers of C.F.H, even if it has been added on C.F
     If we request A, we ignore brothers of A
     {
@@ -509,7 +510,7 @@ def construct_allowed_fields(fields_dict, requested_fields, padding=None, add_al
     level_field_added = False
     post_level_field_add = []
 
-    for original_name, childrens in fields_dict.items():
+    for original_name, children in fields_dict.items():
         if padding:
             name = '%s.%s' % (padding, original_name)
         else:
@@ -519,10 +520,10 @@ def construct_allowed_fields(fields_dict, requested_fields, padding=None, add_al
             # If not requested, no others fields will be added in this level
             level_field_added = True
 
-            if childrens:
-                # All childrens fields will be added!
+            if children:
+                # All children fields will be added!
                 result[original_name] = construct_allowed_fields(
-                    childrens,
+                    children,
                     requested_fields,
                     name,
                     add_all=True)
@@ -531,13 +532,13 @@ def construct_allowed_fields(fields_dict, requested_fields, padding=None, add_al
 
         elif not level_field_added:
             # Add this fields, if no other field added in this level
-            post_level_field_add.append((original_name, name, childrens, add_all))
+            post_level_field_add.append((original_name, name, children, add_all))
 
     if not level_field_added and post_level_field_add:
-        for original_name, name, childrens, field_add_all in post_level_field_add:
-            if childrens:
+        for original_name, name, children, field_add_all in post_level_field_add:
+            if children:
                 result[original_name] = construct_allowed_fields(
-                    childrens,
+                    children,
                     requested_fields,
                     name,
                     field_add_all)
@@ -586,14 +587,14 @@ class SchemaView(object):
 def construct_schema_structure(request, schema, schema_type):
     if isinstance(schema, SequenceSchema):
         child = schema.children[0]
-        childrens = construct_schema_structure(request, child, schema_type)
-        if not is_nonstr_iter(childrens):
-            childrens = [childrens]
+        children = construct_schema_structure(request, child, schema_type)
+        if not is_nonstr_iter(children):
+            children = [children]
 
         details = {
             'type': 'sequence',
             'order': schema._order,
-            'childrens': childrens}
+            'children': children}
 
         if not schema.name:
             details.update({
@@ -634,18 +635,29 @@ def construct_schema_structure(request, schema, schema_type):
 
             for validator in validators:
                 if isinstance(validator, OneOf):
-                    details['options'] = validator.choices
+                    details['options'] = {}
+                    for choice in validator.choices:
+                        choice_description = force_unicode(choice).replace(u'_', u' ').title()
+                        details['options'][choice] = choice_description
                 else:
                     schema_validators.append(validator)
 
         if schema_type == 'request':
-            details['required'] = schema.missing is colander_required
+            validators = []
+            if schema.missing is colander_required:
+                validators.append({
+                    'type': 'required',
+                    'message': u'Required'})
+
             if schema_validators:
                 validators = details['validators'] = []
                 for validator in schema_validators:
                     validators.append({
                         'type': get_colander_type_name(validator),
-                        'error': validator.msg})
+                        'message': validator.msg})
+            if validators:
+                details['validators'] = validators
+
             default = schema.missing
         else:
             details['maybeNotSent'] = schema.missing is colander_drop
