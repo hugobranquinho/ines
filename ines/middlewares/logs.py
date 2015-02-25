@@ -29,14 +29,18 @@ class LoggingMiddleware(Middleware):
         try:
             for chunk in self.application(environ, start_response):
                 yield chunk
-        except BaseException:
+        except (BaseException, Exception):
             type_, value, tb = sys.exc_info()
             error = ''.join(format_exception(type_, value, tb))
 
             # Save / log error
             request = self.request_factory(environ)
             request.registry = self.config.registry
-            getattr(request.api, self.api_name).log_critical('internal_server_error', error)
+
+            try:
+                getattr(request.api, self.api_name).log_critical('internal_server_error', error)
+            except (BaseException, Exception):
+                print error
 
             internal_server_error = HTTPInternalServerError()
             headers = [('Content-type', 'application/json')]

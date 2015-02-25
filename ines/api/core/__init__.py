@@ -53,8 +53,8 @@ class BaseCoreSessionManager(BaseSessionManager):
 
 def not_inactives_filter(column):
     return and_(
-        or_(Core.start_date <= func.now(), Core.start_date.is_(None)),
-        or_(Core.end_date >= func.now(), Core.end_date.is_(None)))
+        or_(column.start_date <= func.now(), column.start_date.is_(None)),
+        or_(column.end_date >= func.now(), column.end_date.is_(None)))
 
 
 class BaseCoreSession(BaseSQLSession):
@@ -85,12 +85,15 @@ class BaseCoreSession(BaseSQLSession):
         relate_with_core = not return_inactives
         table = CORE_TYPES[core_name]['table']
 
+        # Convert attributes do dict
         if not attributes:
             attributes = table._sa_class_manager.values()
-        elif isinstance(attributes, (tuple, list)):
-            attributes = dict((k, None) for k in attributes)
-        else:
+        elif isinstance(attributes, dict):
             attributes = deepcopy(attributes)
+        elif not is_nonstr_iter(attributes):
+            attributes = {attributes: None}
+        else:
+            attributes = dict((k, None) for k in attributes)
 
         columns = set()
         for key in attributes.keys():
@@ -100,7 +103,8 @@ class BaseCoreSession(BaseSQLSession):
                     columns.add(not_inactives_filter(Core).label('active'))
                 else:
                     columns.add(true().label('active'))
-            elif hasattr(table, key):
+
+            elif not is_nonstr_iter(key) and hasattr(table, key):
                 attributes.pop(key)  # Dont need this attribute anymore
                 column = getattr(table, key)
                 if isinstance(column, CoreColumnParent):
@@ -111,7 +115,7 @@ class BaseCoreSession(BaseSQLSession):
         branches_tables = MissingSet()
         for branch in CORE_TYPES[core_name]['branches']:
             for key in attributes.keys():
-                if hasattr(branch, key):
+                if not is_nonstr_iter(key) and hasattr(branch, key):
                     branches_tables[branch].add(key)
         if branches_tables:
             for branch, keys in branches_tables.items():
@@ -126,11 +130,63 @@ class BaseCoreSession(BaseSQLSession):
         if attributes:
             for child in CORE_TYPES[core_name]['childs']:
                 for key in attributes.keys():
-                    if hasattr(child, key):
+                    if is_nonstr_iter(key):
+                        child_core_name, child_key, label_name = key
+                        if child_core_name == child.core_name:
+                            attributes.pop(key)  # Dont need this attribute anymore
+                            if child.core_name not in relate_with_child:
+                                alias_child = aliased(Core)
+                                relate_with_child[child.core_name] = (child, alias_child)
+                                relate_with_core = True
+                            else:
+                                alias_child = relate_with_child[child.core_name][1]
+
+                            column = getattr(child, child_key)
+                            if isinstance(column, CoreColumnParent):
+                                column = getattr(alias_child, child_key)
+                            columns.add(column.label(label_name))
+
+                    elif hasattr(child, key):
+                        attributes.pop(key)  # Dont need this attribute anymore
+
+                        if child.core_name not in relate_with_child:
+                            alias_child = aliased(Core)
+                            relate_with_child[child.core_name] = (child, alias_child)
+                            relate_with_core = True
+                        else:
+                            alias_child = relate_with_child[child.core_name][1]
+
+                        column = getattr(child, key)
+                        if isinstance(column, CoreColumnParent):
+                            column = getattr(alias_child, key)
+                        columns.add(column)
+
+        relate_with_father = False
+        parent = CORE_TYPES[core_name]['parent']
+        if parent is not None and attributes:
+            alias_parent = aliased(Core)
+            for key in attributes.keys():
+                if is_nonstr_iter(key):
+                    parent_core_name, parent_key, label_name = key
+                    if parent_core_name == parent.core_name:
                         attributes.pop(key, None)  # Dont need this attribute anymore
-                        columns.add(getattr(child, key))
-                        relate_with_child[child.core_name] = (child, aliased(Core))
+                        relate_with_father = True
                         relate_with_core = True
+
+                        column = getattr(parent, parent_key)
+                        if isinstance(column, CoreColumnParent):
+                            column = getattr(alias_parent, parent_key)
+                        columns.add(column.label(label_name))
+
+                elif hasattr(parent, key):
+                    attributes.pop(key, None)  # Dont need this attribute anymore
+                    relate_with_father = True
+                    relate_with_core = True
+
+                    column = getattr(parent, key)
+                    if isinstance(column, CoreColumnParent):
+                        column = getattr(alias_parent, key)
+                    columns.add(column)
 
         if attributes:
             childs_names = [t.core_name for t in CORE_TYPES[core_name]['childs']]
@@ -141,15 +197,9 @@ class BaseCoreSession(BaseSQLSession):
                         % (key, core_name))
             columns.add(Core.id)
 
-        query = self.session.query(*columns)
-
-        if branches_tables:
-            query = query.select_from(table)
-            for branch in branches_tables.keys():
-                query = query.outerjoin(branch, branch.id_core == table.id_core)
-
-        filters = deepcopy(filters)
+        queries = []
         if filters:
+            filters = deepcopy(filters)
             if core_name in filters:
                 for key, values in filters.pop(core_name).items():
                     column = getattr(table, key)
@@ -158,36 +208,145 @@ class BaseCoreSession(BaseSQLSession):
                         relate_with_core = True
 
                     if not is_nonstr_iter(values):
-                        query  = query.filter(column == values)
+                        queries.append(column == values)
                     else:
                         values = set(values)
-                        query  = query.filter(maybe_with_none(column, values))
+                        queries.append(maybe_with_none(column, values))
 
+            cores_ids = set()
+            looked_cores = False
             for child_core_name, values in filters.items():
                 if child_core_name in relate_with_child:
                     child, alias_child = relate_with_child[child_core_name]
 
-                    for key, values in filters.pop(child_core_name).items():
+                    child_query = self.session.query(alias_child.parent_id)
+                    for key, values in filters[child_core_name].items():
                         column = getattr(child, key)
                         if isinstance(column, CoreColumnParent):
                             column = getattr(alias_child, key)
                         if not is_nonstr_iter(values):
-                            query  = query.filter(column == values)
+                            child_query  = child_query.filter(column == values)
                         else:
                             values = set(values)
-                            query  = query.filter(maybe_with_none(column, values))
+                            child_query  = child_query.filter(maybe_with_none(column, values))
+                    if not return_inactives:
+                        child_query = (
+                            child_query
+                            .filter(not_inactives_filter(alias_child))
+                            .filter(alias_child.id == child.id_core))
+
+                    cores_ids.update(q.parent_id for q in child_query.all())
+                    looked_cores = True
+
+                else:
+                    # Look in childs
+                    child_found = False
+                    for child in CORE_TYPES[core_name]['childs']:
+                        if child.core_name == child_core_name:
+                            child_found = True
+                            alias_child = aliased(Core)
+                            relate_with_child[child_core_name] = (child, alias_child)
+                            relate_with_core = True
+
+                            for key, values in filters.pop(child_core_name).items():
+                                column = getattr(child, key)
+                                if isinstance(column, CoreColumnParent):
+                                    column = getattr(alias_child, key)
+                                    relate_with_core = True
+
+                                if not is_nonstr_iter(values):
+                                    queries.append(column == values)
+                                else:
+                                    values = set(values)
+                                    queries.append(maybe_with_none(column, values))
+                    if child_found:
+                        continue
+
+                    # Look in branches
+                    branch_found = False
+                    for branch in CORE_TYPES[core_name]['branches']:
+                        if branch.core_name == child_core_name:
+                            branch_found = True
+                            branches_tables[branch] = None
+                            for key, values in filters.pop(child_core_name).items():
+                                column = getattr(branch, key)
+                                if not is_nonstr_iter(values):
+                                    queries.append(column == values)
+                                else:
+                                    values = set(values)
+                                    queries.append(maybe_with_none(column, values))
+                    if branch_found:
+                        continue
+
+                    # Look parent
+                    parent = CORE_TYPES[core_name]['parent']
+                    if parent and parent.core_name == child_core_name:
+                        if not relate_with_father:
+                            alias_parent = aliased(Core)
+                        relate_with_father = True
+                        relate_with_core = True
+
+                        for key, values in filters.pop(child_core_name).items():
+                            column = getattr(parent, key)
+                            if isinstance(column, CoreColumnParent):
+                                column = getattr(alias_parent, key)
+                            if not is_nonstr_iter(values):
+                                queries.append(column == values)
+                            else:
+                                values = set(values)
+                                queries.append(maybe_with_none(column, values))
+                        continue
+
+                    raise ValueError(
+                        'Invalid filter %s for core %s'
+                        % (child_core_name, core_name))
+
+            if cores_ids:
+                queries.append(maybe_with_none(table.id_core, cores_ids))
+            elif looked_cores:
+                # Pagination for main query
+                if with_pagination:
+                    return CorePagination(
+                        page=1,
+                        limit_per_page=limit_per_page,
+                        last_page=1,
+                        number_of_results=0)
+                elif only_one:
+                    return None
+                else:
+                    return []
+
+        query = self.session.query(*columns)
+
+        if branches_tables:
+            query = query.select_from(table)
+            for branch in branches_tables.keys():
+                query = query.outerjoin(branch, branch.id_core == table.id_core)
+
+        if queries:
+            query = query.filter(and_(*queries))
 
         if relate_with_child:
             for child, alias_child in relate_with_child.values():
                 query = (
                     query
                     .filter(child.id_core == alias_child.id)
+                    .filter(alias_child.type == child.core_name)
                     .filter(alias_child.parent_id == Core.id))
                 if not return_inactives:
                     query = query.filter(not_inactives_filter(alias_child))
 
-        if relate_with_core:
-            query = query.filter(table.id_core == Core.id)
+        if relate_with_father:
+            query = (
+                query
+                .filter(parent.id_core == alias_parent.id)
+                .filter(alias_parent.type == parent.core_name)
+                .filter(Core.parent_id == alias_parent.id))
+            if not return_inactives:
+                query = query.filter(not_inactives_filter(alias_parent))
+
+        if relate_with_core and table is not Core:
+            query = query.filter(table.id_core == Core.id).filter(Core.type == table.core_name)
         if not return_inactives:
             query = query.filter(not_inactives_filter(Core))
 
@@ -219,7 +378,6 @@ class BaseCoreSession(BaseSQLSession):
         else:
             result = query.all()
 
-        print attributes.keys(), query
         if not attributes or not result:
             return result
 
@@ -265,8 +423,6 @@ class BaseCoreSession(BaseSQLSession):
         else:
             return result
 
-
-
     def get_core(self, core_name, attributes, return_inactives=False, filters=None):
         return self.get_cores(
             core_name,
@@ -274,6 +430,241 @@ class BaseCoreSession(BaseSQLSession):
             return_inactives=return_inactives,
             filters=filters,
             only_one=True)
+
+    def set_core(self, table, parent_key=None, branch_table=None):
+        relation, relation_table = getattr(table, 'core_relation', (None, None))
+        if relation == 'branch':
+            raise
+
+        if branch_table:
+            branch_relation, branch_relation_table = getattr(branch_table, 'core_relation', (None, None))
+            if branch_relation != 'branch' or not isinstance(table, branch_relation_table):
+                raise Error('core', 'Invalid branch relation')
+
+        # Set core values
+        core = Core()
+        for key in CORE_KEYS:
+            value = getattr(table, key, None)
+            if not isinstance(value, CoreColumnParent):
+                setattr(core, key, value)
+
+        # Force core values
+        core.type = table.core_name
+        if not core.key:
+            core.key = core.make_key()
+
+        # Find and define parent id
+        if parent_key:
+            if not relation:
+                message = u'Define core_relation for %s' % table.core_name
+                raise Error('parent_key', message)
+
+            parent = self.get_core(
+                'core',
+                attributes=['id', 'type'],
+                return_inactives=True,
+                filters={'core': {'key': parent_key}})
+            if not parent:
+                message = u'Missing parent "%s"' % parent_key
+                raise Error('parent_key', message)
+            elif relation == 'parent' and relation_table.core_name != parent.type:
+                message = (
+                    u'Cannot add parent "%s" with type "%s" to type "%s"'
+                    % (parent_key, table.core_name, parent.type))
+                raise Error('parent_key', message)
+            core.parent_id = parent.id
+
+        # Prevent SQLAlchemy pre-executed queries
+        core.created_date = func.now()
+        core.updated_date = func.now()
+
+        # Insert core
+        core_id = self.direct_insert(core).lastrowid
+
+        # Insert direct relation
+        table.id_core = core_id
+        table.key = core.key
+        try:
+            self.direct_insert(table)
+        except:
+            self.direct_delete(Core, Core.id == core_id)
+            raise
+
+        # Insert branch relation, if sent!
+        if branch_table:
+            branch_table.id_core = core_id
+            branch_table.key = core.key
+            try:
+                self.direct_insert(branch_table)
+            except:
+                self.direct_delete(Core, Core.id == core_id)
+                self.direct_delete(table, table.id_core == core_id)
+                raise
+
+        self.flush()
+        return core.key
+
+    def update_core(self, core_name, values, update_inactives=False, filters=None):
+        if not values:
+            return False
+
+        table = CORE_TYPES[core_name]['table']
+
+        attributes = set()
+        core_attributes = set()
+        for key in values.keys():
+            column = getattr(table, key)
+            if isinstance(column, CoreColumnParent):
+                core_attributes.add(key)
+            else:
+                attributes.add(key)
+
+        updated = False
+        if attributes:
+            attributes.add('id_core')
+            response = self.get_core(
+                core_name,
+                attributes,
+                return_inactives=update_inactives,
+                filters=filters)
+            if not response:
+                return False
+
+            to_update = {}
+            for key, value in values.items():
+                response_value = getattr(response, key)
+                if ((value is None or response_value is not None)
+                        or response_value is None
+                        or value != response_value):
+                    to_update[key] = value
+
+            if to_update:
+                self.direct_update(
+                    table,
+                    table.id_core == response.id_core,
+                    to_update)
+                self.flush()
+                updated = True
+
+        if core_attributes or updated:
+            core_attributes.add('id_core')
+            response = self.get_core(
+                core_name,
+                core_attributes,
+                return_inactives=update_inactives,
+                filters=filters)
+            if not response:
+                return False
+
+            to_update = {}
+            for key, value in values.items():
+                response_value = getattr(response, key)
+                if ((value is None or response_value is not None)
+                        or response_value is None
+                        or value != response_value):
+                    to_update[key] = value
+
+            if to_update or updated:
+                # Prevent SQLAlchemy pre-executed queries
+                to_update['updated_date'] = func.now()
+
+                self.direct_update(
+                    Core,
+                    Core.id == response.id_core,
+                    to_update)
+                self.flush()
+                updated = True
+
+        return updated
+
+    def inactive_cores(self, ids):
+        if not is_nonstr_iter(ids):
+            ids = [ids]
+
+        ids = set(ids)
+        if ids:
+            return bool(
+                self.session
+                .query(Core.id)
+                .filter(Core.id.in_(ids))
+                .update({'end_date': func.now()},
+                        synchronize_session=False))
+        else:
+            return False
+
+    def inactive_core(self, id_core):
+        return self.inactive_cores(id_core)
+
+    def delete_core(self, core_name, id_core):
+        childs = MissingList()
+        for child_id, child_type in (
+                self.session
+                .query(Core.id, Core.type)
+                .filter(Core.parent_id == id_core)
+                .all()):
+            childs[child_type].append(child_id)
+
+        if childs:
+            for child_type, ids in childs.items():
+                table = CORE_TYPES[child_type]['table']
+                try:
+                    (self.session
+                        .query(table.id_core)
+                        .filter(table.id_core.in_(ids))
+                        .delete(synchronize_session=False))
+                    (self.session
+                        .query(Core.id)
+                        .filter(Core.id.in_(ids))
+                        .delete(synchronize_session=False))
+                except:
+                    self.rollback()
+                    raise
+                else:
+                    self.flush()
+
+        for branch in CORE_TYPES[core_name]['branches']:
+            (self.session
+                .query(branch.id_core)
+                .filter(branch.id_core == id_core)
+                .delete(synchronize_session=False))
+            self.flush()
+
+        try:
+            table = CORE_TYPES[core_name]['table']
+            (self.session
+                .query(table.id_core)
+                .filter(table.id_core == id_core)
+                .delete(synchronize_session=False))
+            (self.session
+                .query(Core.id)
+                .filter(Core.id == id_core)
+                .delete(synchronize_session=False))
+        except:
+            self.rollback()
+            raise
+        else:
+            return True
+
+    def count_cores(self, core_name, group_by=None, return_inactives=False):
+        table = CORE_TYPES[core_name]['table']
+        columns = [func.count(table.id_core)]
+        if group_by is not None:
+            columns.insert(0, group_by)
+
+        query = self.session.query(*columns)
+        if not return_inactives:
+            query = (
+                query
+                .filter(not_inactives_filter(Core))
+                .filter(table.id_core == Core.id))
+
+        if group_by is not None:
+            return dict(query.group_by(group_by).all())
+        else:
+            return query.first()[0] or 0
+
+
+
 
 
 
@@ -289,7 +680,7 @@ class BaseCoreSession(BaseSQLSession):
     def indexed_columns(self):
         return SQL_DBS['core']['indexed_columns']
 
-    def get_core_query(
+    def old_get_core_query(
             self, columns, return_inactives=False,
             order_by=None, page=None, limit_per_page=None,
             ignore_before_queries=True,
@@ -545,20 +936,6 @@ class BaseCoreSession(BaseSQLSession):
         if query is not None:
             return query.first()
 
-    def count_cores(self, core_name, group_by=None, **kwargs):
-        columns = [func.count(CORE_TYPES[core_name]['table'].id_core)]
-        if group_by:
-            columns.insert(0, group_by)
-
-        query = self.get_core_query(
-            columns,
-            **kwargs)
-
-        if group_by:
-            return dict(query.group_by(group_by).all())
-        else:
-            return query.first()[0] or 0
-
     def old_get_cores(
             self,
             columns,
@@ -591,215 +968,3 @@ class BaseCoreSession(BaseSQLSession):
                 number_of_results=0)
         else:
             return []
-
-    def set_core(self, table, parent_key=None, branch_table=None):
-        relation, relation_table = getattr(table, 'core_relation', (None, None))
-        if relation == 'branch':
-            raise
-
-        if branch_table:
-            branch_relation, branch_relation_table = getattr(branch_table, 'core_relation', (None, None))
-            if branch_relation != 'branch' or not isinstance(table, branch_relation_table):
-                raise Error('core', 'Invalid branch relation')
-
-        # Set core values
-        core = Core()
-        for key in CORE_KEYS:
-            value = getattr(table, key, None)
-            if not isinstance(value, CoreColumnParent):
-                setattr(core, key, value)
-
-        # Force core values
-        core.type = table.core_name
-        if not core.key:
-            core.key = core.make_key()
-
-        # Find and define parent id
-        if parent_key:
-            if not relation:
-                message = u'Define core_relation for %s' % table.core_name
-                raise Error('parent_key', message)
-
-            parent = self.get_core(
-                'core',
-                attributes=['id', 'type'],
-                return_inactives=True,
-                filters={'core': {'key': parent_key}})
-            if not parent:
-                message = u'Missing parent "%s"' % parent_key
-                raise Error('parent_key', message)
-            elif relation == 'parent' and relation_table.core_name != parent.type:
-                message = (
-                    u'Cannot add parent "%s" with type "%s" to type "%s"'
-                    % (parent_key, table.core_name, parent.type))
-                raise Error('parent_key', message)
-            core.parent_id = parent.id
-
-        # Prevent SQLAlchemy pre-executed queries
-        core.created_date = func.now()
-        core.updated_date = func.now()
-
-        # Insert core
-        core_id = self.direct_insert(core).lastrowid
-
-        # Insert direct relation
-        table.id_core = core_id
-        table.key = core.key
-        try:
-            self.direct_insert(table)
-        except:
-            self.direct_delete(Core, Core.id == core_id)
-            raise
-
-        # Insert branch relation, if sent!
-        if branch_table:
-            branch_table.id_core = core_id
-            branch_table.key = core.key
-            try:
-                self.direct_insert(branch_table)
-            except:
-                self.direct_delete(Core, Core.id == core_id)
-                self.direct_delete(table, table.id_core == core_id)
-                raise
-
-        self.flush()
-        return core.key
-
-    def update_core(self, core_name, values, update_inactives=False, **filters):
-        if not values:
-            return False
-
-        table = CORE_TYPES[core_name]['table']
-
-        columns = []
-        core_columns = []
-        for key in values.keys():
-            column = getattr(table, key)
-            if isinstance(column, CoreColumnParent):
-                core_columns.append(column)
-            else:
-                columns.append(column)
-
-        updated = False
-        if columns:
-            columns.append(table.id_core)
-            response = self.get_core(
-                columns,
-                return_inactives=update_inactives,
-                **filters)
-            if not response:
-                return False
-
-            to_update = {}
-            for key, value in values.items():
-                response_value = getattr(response, key)
-                if ((value is None or response_value is not None)
-                        or response_value is None
-                        or value != response_value):
-                    to_update[key] = value
-
-            if to_update:
-                self.direct_update(
-                    table,
-                    table.id_core == response.id_core,
-                    to_update)
-                self.flush()
-                updated = True
-
-        if core_columns:
-            core_columns.append(table.id_core)
-            response = self.get_core(
-                core_columns,
-                return_inactives=update_inactives,
-                **filters)
-            if not response:
-                return False
-
-            to_update = {}
-            for key, value in values.items():
-                response_value = getattr(response, key)
-                if ((value is None or response_value is not None)
-                        or response_value is None
-                        or value != response_value):
-                    to_update[key] = value
-
-            if to_update:
-                # Prevent SQLAlchemy pre-executed queries
-                to_update['updated_date'] = func.now()
-
-                self.direct_update(
-                    Core,
-                    Core.id == response.id_core,
-                    to_update)
-                self.flush()
-                updated = True
-
-        return updated
-
-    def inactive_core(self, id_core):
-        return self.inactive_cores(id_core)
-
-    def inactive_cores(self, ids):
-        if not is_nonstr_iter(ids):
-            ids = [ids]
-
-        ids = set(ids)
-        if ids:
-            return bool(
-                self.session
-                .query(Core.id)
-                .filter(Core.id.in_(ids))
-                .update({'end_date': func.now()},
-                        synchronize_session=False))
-        else:
-            return False
-
-    def delete_core(self, core_name, id_core):
-        childs = MissingList()
-        for child_id, child_type in (
-                self.session
-                .query(Core.id, Core.type)
-                .filter(Core.parent_id == id_core)
-                .all()):
-            childs[child_type].append(child_id)
-
-        if childs:
-            for child_type, ids in childs.items():
-                table = CORE_TYPES[child_type]['table']
-                try:
-                    (self.session
-                        .query(table.id_core)
-                        .filter(table.id_core.in_(ids))
-                        .delete(synchronize_session=False))
-                    (self.session
-                        .query(Core.id)
-                        .filter(Core.id.in_(ids))
-                        .delete(synchronize_session=False))
-                except:
-                    self.rollback()
-                    raise
-                else:
-                    self.flush()
-
-        for branch in CORE_TYPES[core_name]['branches']:
-            (self.session
-                .query(branch.id_core)
-                .filter(branch.id_core == id_core)
-                .delete(synchronize_session=False))
-            self.flush()
-
-        try:
-            table = CORE_TYPES[core_name]['table']
-            (self.session
-                .query(table.id_core)
-                .filter(table.id_core == id_core)
-                .delete(synchronize_session=False))
-            (self.session
-                .query(Core.id)
-                .filter(Core.id == id_core)
-                .delete(synchronize_session=False))
-        except:
-            self.rollback()
-            raise
-        else:
-            return True

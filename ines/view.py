@@ -11,6 +11,7 @@ from colander import drop as colander_drop
 from colander import MappingSchema
 from colander import null
 from colander import Number
+from colander import OneOf
 from colander import required as colander_required
 from colander import SequenceSchema
 from colander import SchemaNode
@@ -139,6 +140,7 @@ class InputViewValidator(object):
             if self.schema:
                 structure = get_request_structure(request, self.schema)
                 context.structure = self.schema.deserialize(structure) or {}
+                print context.structure
 
             return wrapped(context, request)
         return decorator
@@ -623,15 +625,22 @@ def construct_schema_structure(request, schema, schema_type):
             'description': schema.description or None,
             'order': schema._order}
 
+        schema_validators = []
+        if schema.validator:
+            if isinstance(schema.validator, All):
+                validators = schema.validator.validators
+            elif not is_nonstr_iter(schema.validator):
+                validators = [schema.validator]
+
+            for validator in validators:
+                if isinstance(validator, OneOf):
+                    details['options'] = validator.choices
+                else:
+                    schema_validators.append(validator)
+
         if schema_type == 'request':
             details['required'] = schema.missing is colander_required
-            if schema.validator:
-                schema_validators = schema.validator
-                if isinstance(schema_validators, All):
-                    schema_validators = schema_validators.validators
-                elif not is_nonstr_iter(schema_validators):
-                    schema_validators = [schema_validators]
-
+            if schema_validators:
                 validators = details['validators'] = []
                 for validator in schema_validators:
                     validators.append({
@@ -640,9 +649,11 @@ def construct_schema_structure(request, schema, schema_type):
             default = schema.missing
         else:
             details['maybeNotSent'] = schema.missing is colander_drop
-            default = schema.serialize()
+            default = schema.default
 
-        if default is not null and default is not colander_required:
+        if (default is not colander_drop
+                and default is not colander_required
+                and default is not null):
             if isinstance(schema.typ, Number):
                 default = schema.typ.num(default)
             elif isinstance(schema.typ, Boolean):

@@ -10,7 +10,7 @@ from pkg_resources import get_distribution
 from pyramid.compat import is_nonstr_iter
 from pyramid.config import Configurator
 from pyramid.decorator import reify
-from pyramid.httpexceptions import HTTPError
+from pyramid.httpexceptions import HTTPClientError
 from pyramid.path import caller_package
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
@@ -268,7 +268,7 @@ class APIConfigurator(Configurator):
                         middleware_class = get_object_on_path(value)
                         self.install_middleware(maybe_name, middleware_class)
 
-            # Install middlewares, with reversed order. Lower position first
+            # Install middlewares with reversed order. Lower position first
             if self.middlewares:
                 middlewares = []
                 for name, middleware in self.middlewares:
@@ -292,7 +292,7 @@ class APIConfigurator(Configurator):
         # Set JSON handler
         self.add_view(
             view='ines.views.errors_json_view',
-            context=HTTPError,
+            context=HTTPClientError,
             permission=NO_PERMISSION_REQUIRED)
 
         if not asbool(only_http):
