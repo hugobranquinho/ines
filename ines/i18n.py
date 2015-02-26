@@ -11,14 +11,12 @@ from pyramid.interfaces import ITranslationDirectories
 
 def get_localizer(registry, locale_name):
     localizer = registry.queryUtility(ILocalizer, name=locale_name)
-    print locale_name, localizer
     if localizer is not None:
         return localizer
 
     tdirs = registry.queryUtility(ITranslationDirectories, default=[])
     localizer = make_localizer(locale_name, tdirs)
     registry.registerUtility(localizer, ILocalizer, name=locale_name)
-    print locale_name, localizer
     return localizer
 
 

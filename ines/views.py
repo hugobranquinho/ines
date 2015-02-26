@@ -7,7 +7,7 @@ from ines.utils import format_error_to_json_values
 
 
 def errors_json_view(context, request):
-    values = format_error_to_json_values(context)
+    values = format_error_to_json_values(context, request=request)
     return request.render_to_response(
         'json',
         values=values,

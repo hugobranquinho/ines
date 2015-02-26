@@ -32,6 +32,7 @@ class BaseLogSession(BaseSession):
             ('Application', self.request.application_name),
             ('Code', code),
             ('URL', self.request.url),
+            ('Method', self.request.method),
             ('Date', NOW_DATE()),
             ('Language', self.request.locale_name),
             ('IP address', self.request.ip_address)]

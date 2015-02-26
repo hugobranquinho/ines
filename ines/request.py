@@ -19,7 +19,7 @@ from webob.request import FakeCGIBody
 from ines import APPLICATIONS
 from ines.convert import force_unicode
 from ines.exceptions import Error
-from ines.i18n import get_localizer
+from ines.i18n import translate_factory
 from ines.interfaces import IBaseSessionManager
 from ines.utils import InfiniteDict
 
@@ -62,15 +62,15 @@ class inesRequest(Request):
             self.response.status = int(status)
         return render_to_response(renderer, values or {}, self)
 
-    @property
+    @reify
     def translator(self):
-        return self.get_translator(self.locale_name)
+        return self.get_translator()
 
-    def get_translator(self, locale_name):
-        localizer = self.localizer
-        if locale_name != localizer.locale_name:
-            localizer = get_localizer(self.registry, locale_name)
-        return localizer.translator
+    def get_translator(self, locale_name=None):
+        return translate_factory(self, locale_name)
+
+    def translate(self, tstring, **kwargs):
+        return self.translator(tstring, **kwargs)
 
     @reify
     def ip_address(self):

@@ -3,6 +3,7 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+import datetime
 from copy import deepcopy
 from math import ceil
 
@@ -30,6 +31,7 @@ from ines.api.database import BaseSQLSession
 from ines.api.database.sql import initialize_sql
 from ines.api.database.sql import get_object_tables
 from ines.api.database.sql import get_sql_settings_from_config
+from ines.api.database.sql import like_maybe_with_none
 from ines.api.database.sql import maybe_with_none
 from ines.api.database.sql import SQL_DBS
 from ines.convert import maybe_integer
@@ -37,6 +39,9 @@ from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.utils import MissingList
 from ines.utils import MissingSet
+
+
+TIMEDELTA = datetime.timedelta
 
 
 class BaseCoreSessionManager(BaseSessionManager):
@@ -55,6 +60,14 @@ def not_inactives_filter(column):
     return and_(
         or_(column.start_date <= func.now(), column.start_date.is_(None)),
         or_(column.end_date >= func.now(), column.end_date.is_(None)))
+
+
+def table_type(table):
+    if hasattr(table, 'core_relation'):
+        relation_type, relation_table = table.core_relation
+        if relation_type == 'branch':
+            return table_type(relation_table)
+    return table.core_name
 
 
 class BaseCoreSession(BaseSQLSession):
@@ -87,7 +100,7 @@ class BaseCoreSession(BaseSQLSession):
 
         # Convert attributes do dict
         if not attributes:
-            attributes = table._sa_class_manager.values()
+            attributes = dict((k, None) for k in table._sa_class_manager.keys())
         elif isinstance(attributes, dict):
             attributes = deepcopy(attributes)
         elif not is_nonstr_iter(attributes):
@@ -202,19 +215,28 @@ class BaseCoreSession(BaseSQLSession):
             filters = deepcopy(filters)
             if core_name in filters:
                 for key, values in filters.pop(core_name).items():
-                    if isinstance(values, ClauseElement):
-                        queries.append(values)
-                    else:
-                        column = getattr(table, key)
-                        if isinstance(column, CoreColumnParent):
-                            column = getattr(Core, key)
-                            relate_with_core = True
+                    filter_type = None
+                    if isinstance(values, tuple):
+                        filter_type, values = values
 
-                        if not is_nonstr_iter(values):
-                            queries.append(column == values)
+                    column = getattr(table, key)
+                    if isinstance(column, CoreColumnParent):
+                        column = getattr(Core, key)
+                        relate_with_core = True
+
+                    if filter_type:
+                        if filter_type == 'like':
+                            value_filter = like_maybe_with_none(column, values)
+                            if value_filter is not None:
+                                queries.append(value_filter)
                         else:
-                            values = set(values)
-                            queries.append(maybe_with_none(column, values))
+                            raise
+
+                    elif not is_nonstr_iter(values):
+                        queries.append(column == values)
+                    else:
+                        values = set(values)
+                        queries.append(maybe_with_none(column, values))
 
             cores_ids = set()
             looked_cores = False
@@ -343,13 +365,13 @@ class BaseCoreSession(BaseSQLSession):
             query = (
                 query
                 .filter(parent.id_core == alias_parent.id)
-                .filter(alias_parent.type == parent.core_name)
+                .filter(alias_parent.type == table_type(parent))
                 .filter(Core.parent_id == alias_parent.id))
             if not return_inactives:
                 query = query.filter(not_inactives_filter(alias_parent))
 
         if relate_with_core and table is not Core:
-            query = query.filter(table.id_core == Core.id).filter(Core.type == table.core_name)
+            query = query.filter(table.id_core == Core.id).filter(Core.type == table_type(table))
         if not return_inactives:
             query = query.filter(not_inactives_filter(Core))
 
@@ -434,6 +456,15 @@ class BaseCoreSession(BaseSQLSession):
             filters=filters,
             only_one=True)
 
+    @reify
+    def application_time_zone(self):
+        time_zone_hours = self.settings.get('time_zone.hours')
+        time_zone_minutes = self.settings.get('time_zone.minutes')
+        if time_zone_hours is not None or time_zone_minutes is not None:
+            return TIMEDELTA(
+                hours=int(time_zone_hours or 0),
+                minutes=int(time_zone_minutes or 0))
+
     def set_core(self, table, parent_key=None, branch_table=None):
         relation, relation_table = getattr(table, 'core_relation', (None, None))
         if relation == 'branch':
@@ -452,7 +483,7 @@ class BaseCoreSession(BaseSQLSession):
                 setattr(core, key, value)
 
         # Force core values
-        core.type = table.core_name
+        core.type = table_type(table)
         if not core.key:
             core.key = core.make_key()
 
@@ -480,6 +511,16 @@ class BaseCoreSession(BaseSQLSession):
         # Prevent SQLAlchemy pre-executed queries
         core.created_date = func.now()
         core.updated_date = func.now()
+
+        # Convert time zones
+        if core.end_date and core.end_date.utcoffset():
+            core.end_date = core.end_date.replace(tzinfo=None) + core.end_date.utcoffset()
+            if self.application_time_zone:
+                core.end_date = core.end_date + self.application_time_zone
+        if core.start_date and core.start_date.utcoffset():
+            core.start_date = core.start_date.replace(tzinfo=None) + core.start_date.utcoffset()
+            if self.application_time_zone:
+                core.start_date = core.start_date + self.application_time_zone
 
         # Insert core
         core_id = self.direct_insert(core).lastrowid
@@ -935,11 +976,6 @@ class BaseCoreSession(BaseSQLSession):
             query = define_pagination(query, page, limit_per_page)
 
         return query
-
-    def old_get_core(self, *args, **kwargs):
-        query = self.get_core_query(*args, **kwargs)
-        if query is not None:
-            return query.first()
 
     def old_get_cores(
             self,

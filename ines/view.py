@@ -6,15 +6,16 @@
 from copy import deepcopy
 
 from colander import All
-from colander import Boolean
+from colander import Boolean as BaseBoolean
 from colander import drop as colander_drop
+from colander import DateTime as BaseDateTime
 from colander import MappingSchema
 from colander import null
 from colander import Number
 from colander import OneOf
 from colander import required as colander_required
 from colander import SequenceSchema
-from colander import SchemaNode
+from colander import SchemaNode as BaseSchemaNode
 from colander import String
 from colander import TupleSchema
 from pyramid.compat import is_nonstr_iter
@@ -29,12 +30,13 @@ from ines.convert import force_unicode
 from ines.convert import maybe_integer
 from ines.convert import uncamelcase
 from ines.exceptions import Error
-from ines.i18n import translate_factory
 from ines.interfaces import ISchemaViewManager
 from ines.utils import MissingDict
 
 
 DEFAULT_SCHEMA_METHODS = ['get', 'put', 'post', 'delete']
+TRUES = frozenset(('t', 'true', 'y', 'yes', 'on', '1'))
+FALSES = frozenset(('f', 'false', 'f', 'no', 'off', '0'))
 
 
 class api_config(view_config):
@@ -47,7 +49,8 @@ class api_config(view_config):
 
         # Input decorator
         input_schema = settings.pop('input', None)
-        if input_schema:
+        use_fields = settings.pop('use_fields', False)
+        if input_schema or use_fields:
             decorator = settings.pop('decorator', None)
             if decorator is None:
                 decorator = []
@@ -55,15 +58,14 @@ class api_config(view_config):
                 decorator = [decorator]
             decorator = list(decorator)
 
-            input_view_decorator = InputViewValidator(input_schema)
+            input_view_decorator = InputViewValidator(input_schema, use_fields)
             decorator.append(input_view_decorator)
             settings['decorator'] = tuple(decorator)
 
         # Output mapper
         output_schema = settings.pop('output', None)
-        use_fields = settings.pop('use_fields', False)
         if output_schema:
-            output_view = OutputView(output_schema, use_fields)
+            output_view = OutputView(output_schema)
             previous_mapper = settings.get('mapper', DefaultViewMapper)
             class OutputViewMapper(previous_mapper):
                 def __call__(self, view):
@@ -77,13 +79,13 @@ class api_config(view_config):
                 route_name = getattr(ob, '__view_defaults__', {}).get('route_name')
 
             # Register input and output schema
-            if route_name and (input_schema or output_schema):
+            if route_name and (input_schema or use_fields or output_schema):
                 schema_manager = context.config.registry.queryUtility(ISchemaViewManager, name=route_name)
                 if not schema_manager:
                     schema_manager = SchemaViewManager(route_name)
                     context.config.registry.registerUtility(schema_manager, name=route_name)
 
-                if input_schema:
+                if input_schema or use_fields:
                     input_view_decorator.route_name = route_name
                     input_view_decorator.request_method = settings.get('request_method')
                     schema_manager.add_schema(input_view_decorator)
@@ -91,8 +93,6 @@ class api_config(view_config):
                     output_view.route_name = route_name
                     output_view.request_method = settings.get('request_method')
                     schema_manager.add_schema(output_view)
-
-
 
             config = context.config.with_package(info.module)
             config.add_view(view=ob, **settings)
@@ -129,10 +129,14 @@ class api_defaults(view_defaults):
 class InputViewValidator(object):
     schema_type = 'request'
 
-    def __init__(self, schema):
+    def __init__(self, schema=None, use_fields=False):
         self.schema = schema
         self.route_name = None
         self.request_method = None
+
+        self.fields_schema = None
+        if use_fields:
+            self.fields_schema = SearchFields()
 
     def __call__(self, wrapped):
         def decorator(context, request):
@@ -141,7 +145,25 @@ class InputViewValidator(object):
             context.structure = {}
             if self.schema:
                 structure = get_request_structure(request, self.schema)
+                print 1, structure
                 context.structure = self.schema.deserialize(structure) or {}
+                print 2, context.structure
+
+            # Construct output fields
+            context.include_fields = set()
+            context.exclude_fields = set()
+            if self.fields_schema:
+                fields_structure = get_request_structure(request, self.fields_schema)
+                fields = self.fields_schema.deserialize(fields_structure)
+                if fields:
+                    context.include_fields.update(
+                        uncamelcase(f) for f in fields.get('field', []))
+                    context.include_fields.update(
+                        uncamelcase(f) for f in fields.get('fields', []))
+                    context.exclude_fields.update(
+                        uncamelcase(f) for f in fields.get('exclude_field', []))
+                    context.exclude_fields.update(
+                        uncamelcase(f) for f in fields.get('exclude_fields', []))
 
             return wrapped(context, request)
         return decorator
@@ -243,47 +265,10 @@ def construct_sequence_items(name, values):
     return [v for i, v in result_sequence]
 
 
-def structure_fields(fields, split_key=None):
-    result = set()
-    if fields:
-        for field in fields:
-            if not field:
-                continue
-            elif split_key:
-                fields = field.split(split_key)
-                result.update(structure_fields(fields))
-            else:
-                result.add(uncamelcase(field))
-    return result
-
-
-class InputField(SequenceSchema):
-    field = SchemaNode(String(), missing=None)
-
-
-class InputExcludeField(SequenceSchema):
-    exclude_field = SchemaNode(String(), missing=None)
-
-
-class InputFields(SequenceSchema):
-    fields = SchemaNode(String(), missing=None)
-
-
-class InputExcludeFields(SequenceSchema):
-    exclude_field = SchemaNode(String(), missing=None)
-
-
-class SearchFields(MappingSchema):
-    field = InputField()
-    exclude_field = InputExcludeField()
-    fields = InputFields()
-    exclude_fields = InputExcludeFields()
-
-
 class OutputView(object):
     schema_type = 'response'
 
-    def __init__(self, schema, use_fields=False):
+    def __init__(self, schema):
         self.schema = schema
         self.allowed_fields = find_allowed_fields(self.schema)
         if not self.allowed_fields:
@@ -292,38 +277,24 @@ class OutputView(object):
         self.route_name = None
         self.request_method = None
 
-        self.fields_schema = None
-        if use_fields:
-            self.fields_schema = SearchFields()
-
     def __call__(self, wrapped):
         def decorator(context, request):
             context.output_schema = self.schema
-
-            # Construct output fields
-            context.include_fields = set()
-            context.exclude_fields = set()
-            if self.fields_schema:
-                fields_structure = get_request_structure(request, self.fields_schema)
-                fields = self.fields_schema.deserialize(fields_structure)
-                if fields:
-                    context.include_fields.update(structure_fields(fields.get('field')))
-                    context.include_fields.update(structure_fields(fields.get('fields'), split_key=u','))
-                    context.exclude_fields.update(structure_fields(fields.get('exclude_field')))
-                    context.exclude_fields.update(structure_fields(fields.get('exclude_fields'), split_key=u','))
 
             # Define allowed fields
             context.allowed_fields = self.allowed_fields
 
             # Look and validate requested fields
-            if context.include_fields:
-                context.output_fields = construct_allowed_fields(self.allowed_fields, context.include_fields)
+            include_fields = getattr(context, 'include_fields', None)
+            if include_fields:
+                context.output_fields = construct_allowed_fields(self.allowed_fields, include_fields)
             else:
                 context.output_fields = deepcopy(self.allowed_fields)
 
             # Exclude fields
-            if context.exclude_fields:
-                for field in context.exclude_fields:
+            exclude_fields = getattr(context, 'exclude_fields', None)
+            if exclude_fields:
+                for field in exclude_fields:
                     maybe_field_child = field + '.'
                     for requested_field in context.output_fields.keys():
                         if requested_field == field or requested_field.startswith(maybe_field_child):
@@ -400,7 +371,7 @@ def construct_output_structure(schema, values, fields):
         elif values is not None:
             if isinstance(schema.typ, Number):
                 return schema.typ.num(values)
-            elif isinstance(schema.typ, Boolean):
+            elif isinstance(schema.typ, BaseBoolean):
                 return asbool(values)
             else:
                 return values
@@ -432,6 +403,53 @@ class DefaultAPIView(object):
         self.request = request
         self.context = context
         self.api = self.request.api
+
+    def create_pagination_href(self, route_name, pagination, **params):
+        queries = {}
+        for key, values in self.request.GET.dict_of_lists().items():
+            values = [value for value in values if value]
+            if values:
+                queries[key] = values
+
+        # Next page
+        next_href = None
+        next_page = pagination.page + 1
+        if next_page <= pagination.last_page:
+            queries['page'] = [next_page]
+            next_href = self.request.route_url(
+                route_name,
+                _query=queries,
+                **params)
+
+        # Previous page
+        previous_href = None
+        previous_page = pagination.page - 1
+        if previous_page >= 1:
+            queries['page'] = [previous_page]
+            previous_href = self.request.route_url(
+                route_name,
+                _query=queries,
+                **params)
+
+        # First page
+        queries['page'] = [1]
+        first_href = self.request.route_url(
+            route_name,
+            _query=queries,
+            **params)
+
+        # Last page
+        queries['page'] = [pagination.last_page]
+        last_href = self.request.route_url(
+            route_name,
+            _query=queries,
+            **params)
+
+        return {
+            'next_page_href': next_href,
+            'previous_page_href': previous_href,
+            'first_page_href': first_href,
+            'last_page_href': last_href}
 
 
 def construct_allowed_fields(fields_dict, requested_fields, padding=None, add_all=False):
@@ -572,14 +590,38 @@ class SchemaView(object):
                 continue
 
             for schema in schema_manager.schemas:
-                structure = construct_schema_structure(request, schema.schema, schema.schema_type)
                 if not schema.request_method:
                     request_methods = DEFAULT_SCHEMA_METHODS
                 else:
                     request_methods = [schema.request_method]
+
+                add_to_requests_methods = set()
                 for request_method in request_methods:
                     if not requested_methods or request_method.lower() in requested_methods:
-                        nodes[request_method.lower()][schema.schema_type] = structure
+                        add_to_requests_methods.add(request_method.lower())
+                if not add_to_requests_methods:
+                    continue
+
+                if schema.schema:
+                    structure = construct_schema_structure(
+                        request,
+                        schema.schema,
+                        schema.schema_type)
+                else:
+                    structure = []
+
+                if schema.schema_type == 'request' and schema.fields_schema:
+                    fields_structure = construct_schema_structure(
+                        request,
+                        schema.fields_schema,
+                        schema.schema_type)
+
+                    if not isinstance(structure, list):
+                        structure = [structure]
+                    structure.extend(fields_structure)
+
+                for method in add_to_requests_methods:
+                    nodes[method][schema.schema_type] = structure
 
         return nodes
 
@@ -636,11 +678,10 @@ def construct_schema_structure(request, schema, schema_type):
             for validator in validators:
                 if isinstance(validator, OneOfWithDescription):
                     details['options'] = []
-                    translator = translate_factory(request)
-                    for choice, description in validator.choices_dict.items():
+                    for choice, description in validator.choices_with_descripton:
                         details['options'].append({
                             'value': choice,
-                            'text': translator(description)})
+                            'text': request.translate(description)})
                 elif isinstance(validator, OneOf):
                     details['options'] = []
                     for choice in validator.choices:
@@ -653,7 +694,7 @@ def construct_schema_structure(request, schema, schema_type):
 
         if schema_type == 'request':
             validation = {}
-            if schema.missing is colander_required:
+            if schema.required:
                 validation['required'] = True
 
             if request_validation:
@@ -664,7 +705,8 @@ def construct_schema_structure(request, schema, schema_type):
 
             default = schema.missing
         else:
-            details['maybeNotSent'] = schema.missing is colander_drop
+            if schema.missing is colander_drop:
+                details['maybeNotSent'] = True
             default = schema.default
 
         if (default is not colander_drop
@@ -672,7 +714,7 @@ def construct_schema_structure(request, schema, schema_type):
                 and default is not null):
             if isinstance(schema.typ, Number):
                 default = schema.typ.num(default)
-            elif isinstance(schema.typ, Boolean):
+            elif isinstance(schema.typ, BaseBoolean):
                 default = asbool(default)
             details['default'] = default
 
@@ -683,7 +725,72 @@ def get_colander_type_name(node):
     return camelcase(str(node.__class__.__name__).lower())
 
 
+class SchemaNode(BaseSchemaNode):
+    def __init__(self, *arg, **kw):
+        self.return_none_if_defined = kw.pop('return_none_if_defined', False)
+        super(SchemaNode, self).__init__(*arg, **kw)
+
+    def deserialize(self, cstruct=null):
+        result = BaseSchemaNode.deserialize(self, cstruct)
+        if self.return_none_if_defined and (result is null or result is colander_drop):
+            return None
+        else:
+            return result
+
+    def clone(self, **kwargs):
+        cloned = BaseSchemaNode.clone(self)
+        cloned.__dict__.update(kwargs)
+        return cloned
+
+
 class OneOfWithDescription(OneOf):
-    def __init__(self, choices_dict):
-        self.choices_dict = choices_dict
-        super(OneOfWithDescription, self).__init__(choices_dict.keys())
+    def __init__(self, choices):
+        if isinstance(choices, dict):
+            choices = choices.items()
+        self.choices_with_descripton = choices
+        super(OneOfWithDescription, self).__init__(dict(choices).keys())
+
+
+class DateTime(BaseDateTime):
+    def __init__(self, default_tzinfo=None):
+        super(DateTime, self).__init__(default_tzinfo=default_tzinfo)
+
+
+class Boolean(BaseBoolean):
+    def __init__(self, **kwargs):
+        if 'true_choices' not in kwargs:
+            kwargs['true_choices'] = TRUES
+        if 'false_choices' not in kwargs:
+            kwargs['false_choices'] = FALSES
+
+        super(Boolean, self).__init__(**kwargs)
+
+
+class InputField(SequenceSchema):
+    field = SchemaNode(String(), missing=None)
+
+
+class InputExcludeField(SequenceSchema):
+    exclude_field = SchemaNode(String(), missing=None)
+
+
+class InputFields(SequenceSchema):
+    fields = SchemaNode(String(), missing=None)
+
+
+class InputExcludeFields(SequenceSchema):
+    exclude_field = SchemaNode(String(), missing=None)
+
+
+def split_values(appstruct):
+    result = set()
+    for value in appstruct:
+        result.update(value.split(u','))
+    return list(result)
+
+
+class SearchFields(MappingSchema):
+    field = InputField()
+    exclude_field = InputExcludeField()
+    fields = InputFields(preparer=split_values)
+    exclude_fields = InputExcludeFields(preparer=split_values)

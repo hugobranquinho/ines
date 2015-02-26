@@ -15,12 +15,14 @@ import warnings
 
 from colander import Invalid
 from pyramid.httpexceptions import HTTPError
+from translationstring import TranslationString
 
 from ines.convert import camelcase
 from ines.convert import force_string
 from ines.convert import force_unicode
 from ines.convert import make_sha256
 from ines.convert import maybe_unicode
+from ines.i18n import translate_factory
 
 
 NOW_DATE = datetime.datetime.now
@@ -122,17 +124,33 @@ def last_read_file_time(path):
         return last_read_time
 
 
-def format_error_to_json_values(error, kwargs=None):
+def format_error_to_json_values(error, kwargs=None, request=None):
+    if request:
+        translate = translate_factory(request)
+    else:
+        translate = lambda tstring, **kw: tstring
+
     if isinstance(error, HTTPError):
         status = error.code
         key = error.title
         message = error.explanation
     elif isinstance(error, Invalid):
         status = 400
-        error_items = error.asdict()
-        if error_items:
-            key, message = error_items.items()[0]
-        kwargs = {'errors': error_items}
+        key = error._keyname()
+        message = error.msg
+
+        errors = MissingList()
+        for path in error.paths():
+            for exc in path:
+                key = exc._keyname()
+                if key and exc.msg:
+                    key = camelcase(key)
+                    for message in exc.messages():
+                        errors[key].append(translate(message))
+
+        if not kwargs:
+            kwargs = {}
+        kwargs['errors'] = errors
     else:
         status = getattr(error, 'code', 400)
         key = getattr(error, 'key', 'undefined')
@@ -141,14 +159,14 @@ def format_error_to_json_values(error, kwargs=None):
     values = {
         'status': status,
         'property': camelcase(key),
-        'message': message}
+        'message': translate(message)}
     if kwargs:
         values.update(kwargs)
     return values
 
 
-def format_error_to_json(error, kwargs=None):
-    return dumps(format_error_to_json_values(error, kwargs))
+def format_error_to_json(error, kwargs=None, request=None):
+    return dumps(format_error_to_json_values(error, kwargs, request=request))
 
 
 def file_modified_time(path):

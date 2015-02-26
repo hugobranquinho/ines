@@ -135,6 +135,9 @@ class APIConfigurator(Configurator):
         # Register package
         APPLICATIONS[self.application_name] = self
 
+        # Default translations dirs
+        self.add_translation_dirs('colander:locale')
+
     @reify
     def settings(self):
         return self.registry.settings

@@ -45,4 +45,4 @@ class LoggingMiddleware(Middleware):
             internal_server_error = HTTPInternalServerError()
             headers = [('Content-type', 'application/json')]
             start_response(internal_server_error.status, headers)
-            yield format_error_to_json(internal_server_error)
+            yield format_error_to_json(internal_server_error, request=request)

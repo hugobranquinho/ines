@@ -4,9 +4,6 @@
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
 from pyramid.httpexceptions import HTTPUnauthorized
-from translationstring import TranslationString
-
-from ines.utils import MissingList
 
 
 class Error(Exception):
