@@ -355,10 +355,12 @@ def construct_output_structure(schema, values, fields):
                 continue
 
             child_values = get_value(child.name, child.default)
-            result[camelcase(child.name)] = construct_output_structure(
+            value = construct_output_structure(
                 child,
                 child_values,
                 fields[child.name])
+            if value is not None or child.missing is not colander_drop:
+                result[camelcase(child.name)] = value
 
         return result
 
