@@ -191,3 +191,15 @@ def maybe_email(value):
 def get_content_type(value):
     if value:
         return force_string(value).split(';', 1)[0].strip()
+
+
+def different_values(first, second):
+    if first is None:
+        if second is None:
+            return False
+        else:
+            return True
+    elif second is None:
+        return True
+    else:
+        return bool(first != second)

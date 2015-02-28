@@ -50,7 +50,7 @@ requires = [
     'Paste',
     'WebOb',
     'PasteDeploy',
-    'colander']
+    'colander >= 1.0']
 
 python_version = sys.version_info[:2]
 if python_version <= (2, 6):

@@ -3,6 +3,7 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from pyramid.httpexceptions import HTTPBadRequest
 from pyramid.httpexceptions import HTTPUnauthorized
 
 
@@ -17,3 +18,7 @@ class Error(Exception):
 
 class HTTPTokenExpired(HTTPUnauthorized):
     explanation = u'Token expired'
+
+
+class HTTPInvalidJSONPayload(HTTPBadRequest):
+    explanation = u'Invalid json request'

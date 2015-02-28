@@ -145,9 +145,7 @@ class InputViewValidator(object):
             context.structure = {}
             if self.schema:
                 structure = get_request_structure(request, self.schema)
-                print 1, structure
                 context.structure = self.schema.deserialize(structure) or {}
-                print 2, context.structure
 
             # Construct output fields
             context.include_fields = set()
@@ -734,7 +732,10 @@ class SchemaNode(BaseSchemaNode):
 
     def deserialize(self, cstruct=null):
         result = BaseSchemaNode.deserialize(self, cstruct)
-        if self.return_none_if_defined and (result is null or result is colander_drop):
+        # Return None, only if request and cstruct is empty
+        if (self.return_none_if_defined
+                and (result is null or result is colander_drop)
+                and cstruct is not null and not cstruct):
             return None
         else:
             return result

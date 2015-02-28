@@ -10,3 +10,8 @@
 - script to read ini run application and compile apidocjs
 - script to read ini run application and compile postman requests
 - add thread with garbage collector
+- add core auto logs
+- improve get_cores
+    - code
+    - allow column on attributes
+- improve Core child/father objects

@@ -108,6 +108,7 @@ class BaseCoreSession(BaseSQLSession):
         else:
             attributes = dict((k, None) for k in attributes)
 
+        # Lookup for table columns
         columns = set()
         for key in attributes.keys():
             if key == 'active':
@@ -125,6 +126,7 @@ class BaseCoreSession(BaseSQLSession):
                     relate_with_core = True
                 columns.add(column)
 
+        # Lookup for branch columns
         branches_tables = MissingSet()
         for branch in CORE_TYPES[core_name]['branches']:
             for key in attributes.keys():
@@ -139,6 +141,7 @@ class BaseCoreSession(BaseSQLSession):
         if not columns:
             columns.add(Core.key)
 
+        # Lookup for child columns
         relate_with_child = {}
         if attributes:
             for child in CORE_TYPES[core_name]['childs']:
@@ -343,23 +346,27 @@ class BaseCoreSession(BaseSQLSession):
 
         query = self.session.query(*columns)
 
-        if branches_tables:
-            query = query.select_from(table)
+        if relate_with_child or branches_tables:
+            query = query.select_from(Core)
+            for child, alias_child in relate_with_child.values():
+                child_queries = [
+                    alias_child.type == child.core_name,
+                    alias_child.parent_id == Core.id]
+                if not return_inactives:
+                    child_queries.append(not_inactives_filter(alias_child))
+                query = query.outerjoin(alias_child, and_(*child_queries))
+
+                child_queries = [child.id_core == alias_child.id]
+                if hasattr(child, 'core_on_child_relation'):
+                    option = child.core_on_child_relation
+                    child_queries.append(getattr(child, option[0], option[1]))
+                query = query.outerjoin(child, and_(*child_queries))
+
             for branch in branches_tables.keys():
-                query = query.outerjoin(branch, branch.id_core == table.id_core)
+                query = query.outerjoin(branch, branch.id_core == Core.id)
 
         if queries:
             query = query.filter(and_(*queries))
-
-        if relate_with_child:
-            for child, alias_child in relate_with_child.values():
-                query = (
-                    query
-                    .filter(child.id_core == alias_child.id)
-                    .filter(alias_child.type == child.core_name)
-                    .filter(alias_child.parent_id == Core.id))
-                if not return_inactives:
-                    query = query.filter(not_inactives_filter(alias_child))
 
         if relate_with_father:
             query = (
@@ -383,7 +390,7 @@ class BaseCoreSession(BaseSQLSession):
         if with_pagination:
             number_of_results = (
                 query
-                .with_entities(func.count(1))
+                .with_entities(func.count(Core.id.distinct()))
                 .first()[0])
 
             last_page = int(ceil(number_of_results / float(limit_per_page))) or 1
@@ -392,6 +399,10 @@ class BaseCoreSession(BaseSQLSession):
             end_slice = page * limit_per_page
             start_slice = end_slice - limit_per_page
 
+        # Make sure if unique
+        query = query.group_by(Core.id)
+
+        if with_pagination:
             result = CorePagination(
                 page,
                 limit_per_page,
