@@ -9,7 +9,7 @@ from pyramid.compat import is_nonstr_iter
 from webob.request import environ_add_POST
 
 from ines.convert import force_string
-from ines.exceptions import Error
+from ines.exceptions import HTTPInvalidJSONPayload
 from ines.middlewares import Middleware
 from ines.utils import get_content_type
 from ines.utils import format_error_to_json
@@ -26,17 +26,17 @@ class Payload(Middleware):
                 arguments = []
                 try:
                     body_json = loads(body)
-                    for key, value in dict(body_json).items():
-                        if is_nonstr_iter(value):
-                            value = ','.join(force_string(v) for v in value)
-                        arguments.append('%s=%s' % (force_string(key), force_string(value)))
+                    for key, values in dict(body_json).items():
+                        if not is_nonstr_iter(values):
+                            values = [values]
+                        value = ','.join('' if v is None else force_string(v) for v in values)
+                        arguments.append('%s=%s' % (force_string(key), value))
+                    body = '&'.join(arguments)
                 except (ValueError, UnicodeEncodeError):
                     headers = [('Content-type', 'application/json')]
-                    start_response(400, headers)
-                    error = Error('json_loads', u'Invalid json request')
+                    error = HTTPInvalidJSONPayload()
+                    start_response(error.status, headers)
                     return format_error_to_json(error)
-
-                body = '&'.join(arguments)
 
             environ_add_POST(environ, body or '')
 
