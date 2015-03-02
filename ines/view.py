@@ -743,6 +743,7 @@ class SchemaNode(BaseSchemaNode):
     def clone(self, **kwargs):
         cloned = BaseSchemaNode.clone(self)
         cloned.__dict__.update(kwargs)
+        cloned._order = next(cloned._counter)
         return cloned
 
 
