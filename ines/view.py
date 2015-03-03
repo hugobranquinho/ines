@@ -293,10 +293,17 @@ class OutputView(object):
             exclude_fields = getattr(context, 'exclude_fields', None)
             if exclude_fields:
                 for field in exclude_fields:
-                    maybe_field_child = field + '.'
-                    for requested_field in context.output_fields.keys():
-                        if requested_field == field or requested_field.startswith(maybe_field_child):
-                            context.output_fields.pop(requested_field)
+                    if '.' not in field:
+                        context.output_fields.pop(field, None)
+                    else:
+                        field_blocks = field.split('.')
+                        previous = context.output_fields
+                        for field_block in field_blocks[:-1]:
+                            previous = previous.get(field_block)
+                            if not previous:
+                                break
+                        if previous:
+                            previous.pop(field_blocks[-1])
 
             if not context.output_fields:
                 keys = u'+'.join(allowed_fields_to_set(self.allowed_fields))
