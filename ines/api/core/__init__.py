@@ -95,7 +95,6 @@ class BaseCoreSession(BaseSQLSession):
             if not limit_per_page or limit_per_page < 1:
                 limit_per_page = 1000
 
-        relate_with_core = not return_inactives
         table = CORE_TYPES[core_name]['table']
 
         # Convert attributes do dict
@@ -123,7 +122,6 @@ class BaseCoreSession(BaseSQLSession):
                 column = getattr(table, key)
                 if isinstance(column, CoreColumnParent):
                     column = getattr(Core, key)
-                    relate_with_core = True
                 columns.add(column)
 
         # Lookup for branch columns
@@ -143,6 +141,7 @@ class BaseCoreSession(BaseSQLSession):
 
         # Lookup for child columns
         relate_with_child = {}
+        relate_with_foreign = {}
         if attributes:
             for child in CORE_TYPES[core_name]['childs']:
                 for key in attributes.keys():
@@ -153,7 +152,6 @@ class BaseCoreSession(BaseSQLSession):
                             if child.core_name not in relate_with_child:
                                 alias_child = aliased(Core)
                                 relate_with_child[child.core_name] = (child, alias_child)
-                                relate_with_core = True
                             else:
                                 alias_child = relate_with_child[child.core_name][1]
 
@@ -168,11 +166,48 @@ class BaseCoreSession(BaseSQLSession):
                         if child.core_name not in relate_with_child:
                             alias_child = aliased(Core)
                             relate_with_child[child.core_name] = (child, alias_child)
-                            relate_with_core = True
                         else:
                             alias_child = relate_with_child[child.core_name][1]
 
                         column = getattr(child, key)
+                        if isinstance(column, CoreColumnParent):
+                            column = getattr(alias_child, key)
+                        columns.add(column)
+
+            core_foreign = getattr(table, 'core_foreign_key', None)
+            if core_foreign is not None:
+                column_key, foreign_column = core_foreign
+                foreign_name = foreign_column.table.name
+                if foreign_name.startswith('core_'):
+                    foreign_name = foreign_name.split('core_', 1)[1]
+                foreign_table = CORE_TYPES[foreign_name]['table']
+
+                for key in attributes.keys():
+                    if is_nonstr_iter(key):
+                        child_core_name, child_key, label_name = key
+                        if child_core_name == foreign_table.core_name:
+                            attributes.pop(key)  # Dont need this attribute anymore
+                            if foreign_table.core_name not in relate_with_foreign:
+                                alias_child = aliased(Core)
+                                relate_with_foreign[foreign_table.core_name] = (foreign_table, alias_child, column_key)
+                            else:
+                                alias_child = relate_with_foreign[foreign_table.core_name][1]
+
+                            column = getattr(foreign_table, child_key)
+                            if isinstance(column, CoreColumnParent):
+                                column = getattr(alias_child, child_key)
+                            columns.add(column.label(label_name))
+
+                    elif hasattr(foreign_table, key):
+                        attributes.pop(key)  # Dont need this attribute anymore
+
+                        if foreign_table.core_name not in relate_with_foreign:
+                            alias_child = aliased(Core)
+                            relate_with_foreign[foreign_table.core_name] = (foreign_table, alias_child, column_key)
+                        else:
+                            alias_child = relate_with_foreign[foreign_table.core_name][1]
+
+                        column = getattr(foreign_table, key)
                         if isinstance(column, CoreColumnParent):
                             column = getattr(alias_child, key)
                         columns.add(column)
@@ -187,7 +222,6 @@ class BaseCoreSession(BaseSQLSession):
                     if parent_core_name == parent.core_name:
                         attributes.pop(key, None)  # Dont need this attribute anymore
                         relate_with_father = True
-                        relate_with_core = True
 
                         column = getattr(parent, parent_key)
                         if isinstance(column, CoreColumnParent):
@@ -197,7 +231,6 @@ class BaseCoreSession(BaseSQLSession):
                 elif hasattr(parent, key):
                     attributes.pop(key, None)  # Dont need this attribute anymore
                     relate_with_father = True
-                    relate_with_core = True
 
                     column = getattr(parent, key)
                     if isinstance(column, CoreColumnParent):
@@ -225,7 +258,6 @@ class BaseCoreSession(BaseSQLSession):
                     column = getattr(table, key)
                     if isinstance(column, CoreColumnParent):
                         column = getattr(Core, key)
-                        relate_with_core = True
 
                     if filter_type:
                         if filter_type == 'like':
@@ -240,6 +272,44 @@ class BaseCoreSession(BaseSQLSession):
                     else:
                         values = set(values)
                         queries.append(maybe_with_none(column, values))
+
+            core_foreign = getattr(table, 'core_foreign_key', None)
+            if core_foreign is not None:
+                column_key, foreign_column = core_foreign
+                foreign_name = foreign_column.table.name
+                if foreign_name.startswith('core_'):
+                    foreign_name = foreign_name.split('core_', 1)[1]
+
+                if foreign_name in filters:
+                    if foreign_name in relate_with_foreign:
+                        foreign_table, aliased_foreign, column_key = relate_with_foreign[foreign_name]
+                    else:
+                        foreign_table = CORE_TYPES[foreign_name]['table']
+                        aliased_foreign = aliased(Core)
+                        relate_with_foreign[foreign_name] = (foreign_table, aliased_foreign, column_key)
+
+                    for key, values in filters.pop(foreign_name).items():
+                        filter_type = None
+                        if isinstance(values, tuple):
+                            filter_type, values = values
+
+                        column = getattr(foreign_table, key)
+                        if isinstance(column, CoreColumnParent):
+                            column = getattr(aliased_foreign, key)
+
+                        if filter_type:
+                            if filter_type == 'like':
+                                value_filter = like_maybe_with_none(column, values)
+                                if value_filter is not None:
+                                    queries.append(value_filter)
+                            else:
+                                raise
+
+                        elif not is_nonstr_iter(values):
+                            queries.append(column == values)
+                        else:
+                            values = set(values)
+                            queries.append(maybe_with_none(column, values))
 
             cores_ids = set()
             looked_cores = False
@@ -274,13 +344,11 @@ class BaseCoreSession(BaseSQLSession):
                             child_found = True
                             alias_child = aliased(Core)
                             relate_with_child[child_core_name] = (child, alias_child)
-                            relate_with_core = True
 
                             for key, values in filters.pop(child_core_name).items():
                                 column = getattr(child, key)
                                 if isinstance(column, CoreColumnParent):
                                     column = getattr(alias_child, key)
-                                    relate_with_core = True
 
                                 if not is_nonstr_iter(values):
                                     queries.append(column == values)
@@ -312,7 +380,6 @@ class BaseCoreSession(BaseSQLSession):
                         if not relate_with_father:
                             alias_parent = aliased(Core)
                         relate_with_father = True
-                        relate_with_core = True
 
                         for key, values in filters.pop(child_core_name).items():
                             column = getattr(parent, key)
@@ -368,6 +435,12 @@ class BaseCoreSession(BaseSQLSession):
         if queries:
             query = query.filter(and_(*queries))
 
+        if relate_with_foreign:
+            for foreign_table, aliased_foreign, column_key in relate_with_foreign.values():
+                query = query.filter(aliased_foreign.id == getattr(table, column_key))
+                if not return_inactives:
+                    query = query.filter(not_inactives_filter(aliased_foreign))
+
         if relate_with_father:
             query = (
                 query
@@ -377,13 +450,13 @@ class BaseCoreSession(BaseSQLSession):
             if not return_inactives:
                 query = query.filter(not_inactives_filter(alias_parent))
 
-        if relate_with_core and table is not Core:
+        if table is not Core:
             query = query.filter(table.id_core == Core.id).filter(Core.type == table_type(table))
         if not return_inactives:
             query = query.filter(not_inactives_filter(Core))
 
         # Set order by
-        if order_by:
+        if order_by is not None:
             query = query.order_by(order_by)
 
         # Pagination for main query
