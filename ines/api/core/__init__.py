@@ -181,6 +181,7 @@ class BaseCoreSession(BaseSQLSession):
                 if foreign_name.startswith('core_'):
                     foreign_name = foreign_name.split('core_', 1)[1]
                 foreign_table = CORE_TYPES[foreign_name]['table']
+                foreign_possible_pattern = getattr(foreign_table, 'core_possible_pattern', None)
 
                 for key in attributes.keys():
                     if is_nonstr_iter(key):
@@ -211,6 +212,23 @@ class BaseCoreSession(BaseSQLSession):
                         if isinstance(column, CoreColumnParent):
                             column = getattr(alias_child, key)
                         columns.add(column)
+
+                    elif foreign_possible_pattern and key.startswith(foreign_possible_pattern):
+                        new_key = key.split(foreign_possible_pattern, 1)[1]
+
+                        if hasattr(foreign_table, new_key):
+                            attributes.pop(key, None)  # Dont need this attribute anymore
+
+                            if foreign_table.core_name not in relate_with_foreign:
+                                alias_child = aliased(Core)
+                                relate_with_foreign[foreign_table.core_name] = (foreign_table, alias_child, column_key)
+                            else:
+                                alias_child = relate_with_foreign[foreign_table.core_name][1]
+
+                            column = getattr(foreign_table, new_key)
+                            if isinstance(column, CoreColumnParent):
+                                column = getattr(alias_child, new_key)
+                            columns.add(column.label(key))
 
         relate_with_father = False
         parent = CORE_TYPES[core_name]['parent']
