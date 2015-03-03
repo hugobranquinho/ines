@@ -216,6 +216,7 @@ class BaseCoreSession(BaseSQLSession):
         parent = CORE_TYPES[core_name]['parent']
         if parent is not None and attributes:
             alias_parent = aliased(Core)
+            parent_possible_pattern = getattr(parent, 'core_possible_pattern', None)
             for key in attributes.keys():
                 if is_nonstr_iter(key):
                     parent_core_name, parent_key, label_name = key
@@ -236,6 +237,18 @@ class BaseCoreSession(BaseSQLSession):
                     if isinstance(column, CoreColumnParent):
                         column = getattr(alias_parent, key)
                     columns.add(column)
+
+                elif parent_possible_pattern and key.startswith(parent_possible_pattern):
+                    new_key = key.split(parent_possible_pattern, 1)[1]
+
+                    if hasattr(parent, new_key):
+                        attributes.pop(key, None)  # Dont need this attribute anymore
+                        relate_with_father = True
+
+                        column = getattr(parent, new_key)
+                        if isinstance(column, CoreColumnParent):
+                            column = getattr(alias_parent, new_key)
+                        columns.add(column.label(key))
 
         if attributes:
             childs_names = [t.core_name for t in CORE_TYPES[core_name]['childs']]
