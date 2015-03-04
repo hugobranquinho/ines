@@ -232,8 +232,9 @@ class BaseCoreSession(BaseSQLSession):
 
         relate_with_father = False
         parent = CORE_TYPES[core_name]['parent']
+        alias_parent = aliased(Core)
+        parent_possible_names = getattr(parent, 'core_possible_names', None)
         if parent is not None and attributes:
-            alias_parent = aliased(Core)
             parent_possible_pattern = getattr(parent, 'core_possible_pattern', None)
             for key in attributes.keys():
                 if is_nonstr_iter(key):
@@ -271,10 +272,19 @@ class BaseCoreSession(BaseSQLSession):
         if attributes:
             childs_names = [t.core_name for t in CORE_TYPES[core_name]['childs']]
             for key in attributes.keys():
-                if key not in childs_names:
-                    raise ValueError(
-                        'Attribute %s is not a child of %s'
-                        % (key, core_name))
+                if key in childs_names:
+                    continue
+
+                elif parent and (
+                        key == parent.core_name
+                        or (parent_possible_names and key in parent_possible_names)):
+                    columns.add(getattr(alias_parent, 'id').label('_parent_id_core'))
+                    relate_with_father = True
+                    continue
+
+                raise ValueError(
+                    'Attribute %s is not a child of %s'
+                    % (key, core_name))
             columns.add(Core.id)
 
         queries = []
@@ -529,34 +539,56 @@ class BaseCoreSession(BaseSQLSession):
         labels = tuple(labels)
 
         references = {}
+        parent_ids_reference = MissingList()
         for value in result:
             value._labels = labels
+            if hasattr(value, '_parent_id_core'):
+                parent_ids_reference[value._parent_id_core].append(value)
             references[value.id] = value
             for key in attributes.keys():
-                setattr(value, key, [])
+                if parent and (
+                    key == parent.core_name
+                    or (parent_possible_names and key in parent_possible_names)):
+                    setattr(value, key, None)
+                else:
+                    setattr(value, key, [])
 
         for key, key_attributes in attributes.items():
             key_filters = deepcopy(filters)
-            if key_filters:
-                key_parents_ids = references.keys()
-                if key in key_filters and 'parent_id' in key_filters[key]:
-                    key_parents_ids = set(key_parents_ids)
-                    if not is_nonstr_iter(key_filters[key]['parent_id']):
-                        key_parents_ids.add(key_filters[key]['parent_id'])
-                    else:
-                        key_parents_ids.update(key_filters[key]['parent_id'])
 
-                key_filters[key] = {'parent_id': key_parents_ids}
+            if parent and (
+                    key == parent.core_name
+                    or (parent_possible_names and key in parent_possible_names)):
+                key_filters = {parent.core_name: {'id_core': parent_ids_reference.keys()}}
+                key_attributes['id_core'] = None
+                for value in self.get_cores(
+                        parent.core_name,
+                        key_attributes,
+                        return_inactives=return_inactives,
+                        filters=key_filters):
+                    for child_value in parent_ids_reference[value.id_core]:
+                        setattr(child_value, key, value)
             else:
-                key_filters = {key: {'parent_id': references.keys()}}
+                if key_filters:
+                    key_parents_ids = references.keys()
+                    if key in key_filters and 'parent_id' in key_filters[key]:
+                        key_parents_ids = set(key_parents_ids)
+                        if not is_nonstr_iter(key_filters[key]['parent_id']):
+                            key_parents_ids.add(key_filters[key]['parent_id'])
+                        else:
+                            key_parents_ids.update(key_filters[key]['parent_id'])
 
-            key_attributes['parent_id'] = None
-            for value in self.get_cores(
-                    key,
-                    key_attributes,
-                    return_inactives=return_inactives,
-                    filters=key_filters):
-                getattr(references[value.parent_id], key).append(value)
+                    key_filters[key] = {'parent_id': key_parents_ids}
+                else:
+                    key_filters = {key: {'parent_id': references.keys()}}
+
+                key_attributes['parent_id'] = None
+                for value in self.get_cores(
+                        key,
+                        key_attributes,
+                        return_inactives=return_inactives,
+                        filters=key_filters):
+                    getattr(references[value.parent_id], key).append(value)
 
         if only_one:
             return result[0]
