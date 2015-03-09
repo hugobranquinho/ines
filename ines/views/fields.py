@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) Hugo Branquinho. All rights reserved.
-#
-# @author Hugo Branquinho <hugobranq@gmail.com>
 
 from colander import Boolean as BaseBoolean
 from colander import drop as colander_drop

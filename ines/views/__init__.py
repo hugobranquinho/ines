@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) Hugo Branquinho. All rights reserved.
-#
-# @author Hugo Branquinho <hugobranq@gmail.com>
 
 from ines.utils import format_error_to_json_values
 

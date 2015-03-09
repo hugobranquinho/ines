@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) Hugo Branquinho. All rights reserved.
-#
-# @author Hugo Branquinho <hugobranq@gmail.com>
 
 from pyramid.config.views import DefaultViewMapper
 from pyramid.view import view_config

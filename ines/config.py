@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) Hugo Branquinho. All rights reserved.
-#
-# @author Hugo Branquinho <hugobranq@gmail.com>
 
 from inspect import getargspec
 
@@ -103,26 +100,38 @@ class APIConfigurator(Configurator):
                     name, option = options
 
                 if option == 'session_path':
-                    sessions[name] = get_object_on_path(value)
+                    if isinstance(value, basestring):
+                        sessions[name] = get_object_on_path(value)
+                    else:
+                        sessions[name] = value
                 elif option == 'class_path':
-                    bases[name] = get_object_on_path(value)
+                    if isinstance(value, basestring):
+                        bases[name] = get_object_on_path(value)
+                    else:
+                        bases[name] = value
 
         # Find sessions on module
         for session in find_class_on_module(self.package, BaseSession):
-            sessions[session.__api_name__] = session
+            app_name = getattr(session, '__app_name__', None)
+            if not app_name or app_name == application_name:
+                sessions[session.__api_name__] = session
 
         # Find class on module
         for session_class in find_class_on_module(
                 self.package,
                 BaseSessionManager):
-            bases[session_class.__api_name__] = session_class
+            app_name = getattr(session_class, '__app_name__', None)
+            if not app_name or app_name == application_name:
+                bases[session_class.__api_name__] = session_class
 
         # Find default session class
         for session_class in find_class_on_module(
                 'ines.api',
                 BaseSessionManager):
             if session_class.__api_name__ not in bases:
-                bases[session_class.__api_name__] = session_class
+                app_name = getattr(session_class, '__app_name__', None)
+                if not app_name or app_name == application_name:
+                    bases[session_class.__api_name__] = session_class
 
         # Define extensions
         for api_name, session in sessions.items():

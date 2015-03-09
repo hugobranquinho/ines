@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) Hugo Branquinho. All rights reserved.
-#
-# @author Hugo Branquinho <hugobranq@gmail.com>
 
 from pyramid.httpexceptions import HTTPBadRequest
 from pyramid.httpexceptions import HTTPUnauthorized
