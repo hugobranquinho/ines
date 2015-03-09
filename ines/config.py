@@ -5,9 +5,9 @@
 
 from inspect import getargspec
 
-from colander import Invalid
 from pkg_resources import get_distribution
-from pyramid.compat import is_nonstr_iter
+
+from colander import Invalid
 from pyramid.config import Configurator
 from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPClientError
@@ -18,19 +18,25 @@ from pyramid.static import static_view
 
 from ines import API_CONFIGURATION_EXTENSIONS
 from ines import APPLICATIONS
+from ines import DEFAULT_METHODS
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
+from ines.convert import maybe_list
 from ines.exceptions import Error
 from ines.interfaces import IBaseSessionManager
+from ines.interfaces import IInputSchemaView
+from ines.interfaces import IOutputSchemaView
+from ines.interfaces import ISchemaView
 from ines.middlewares import DEFAULT_MIDDLEWARE_POSITION
 from ines.path import find_class_on_module
 from ines.path import get_object_on_path
+from ines.views.postman import PostmanCollection
+from ines.views.schema import SchemaView
 from ines.request import inesRequest
 from ines.route import RootFactory
-from ines.view import SchemaView
 from ines.utils import MissingDict
 from ines.utils import WarningDict
 
@@ -126,7 +132,7 @@ class APIConfigurator(Configurator):
 
             self.registry.registerUtility(
                 session_class,
-                IBaseSessionManager,
+                provided=IBaseSessionManager,
                 name=api_name)
 
         # Middlewares
@@ -167,57 +173,115 @@ class APIConfigurator(Configurator):
     def version(self):
         return get_distribution(self.package_name).version
 
-    def add_route_schema(self, pattern, routes_names, name=None, **kwargs):
-        if not is_nonstr_iter(routes_names):
-            routes_names = [routes_names]
-        if not routes_names:
-            raise ValueError('Define some routes_names')
-        if not name:
-            name = '%s_schema' % routes_names[0]
+    def register_input_schema(self, view, route_name, request_method):
+        for req_method in maybe_list(request_method) or ['']:
+            utility_name = '%s %s' % (route_name or '', req_method or '')
+            self.registry.registerUtility(
+                view,
+                provided=IInputSchemaView,
+                name=utility_name)
 
-        self.add_route(name=name, pattern=pattern)
-        view = SchemaView(routes_names)
-        self.add_view(view, route_name=name, renderer='json', request_method='GET', **kwargs)
+    def lookup_input_schema(self, route_name, request_method=None):
+        request_method = maybe_list(request_method or DEFAULT_METHODS)
+        request_method.append('')
+
+        schemas = []
+        for req_method in maybe_list(request_method):
+            utility_name = '%s %s' % (route_name or '', req_method or '')
+            view = self.registry.queryUtility(IInputSchemaView, name=utility_name)
+            if view is not None:
+                schemas.append(view)
+        return schemas
+
+    def register_output_schema(self, view, route_name, request_method):
+        for req_method in maybe_list(request_method) or ['']:
+            utility_name = '%s %s' % (route_name or '', req_method or '')
+            self.registry.registerUtility(
+                view,
+                provided=IOutputSchemaView,
+                name=utility_name)
+
+    def lookup_output_schema(self, route_name, request_method=None):
+        request_method = maybe_list(request_method or DEFAULT_METHODS)
+        request_method.append('')
+
+        schemas = []
+        for req_method in maybe_list(request_method):
+            utility_name = '%s %s' % (route_name, req_method or '')
+            view = self.registry.queryUtility(IOutputSchemaView, name=utility_name)
+            if view is not None:
+                schemas.append(view)
+        return schemas
+
+    def add_schema_manager(self, view, route_name, pattern, **view_kwargs):
+        self.registry.registerUtility(
+            view,
+            provided=ISchemaView,
+            name=route_name)
+        self.add_route(name=route_name, pattern=pattern)
+        self.add_view(
+            view,
+            route_name=route_name,
+            renderer='json',
+            request_method='GET',
+            **view_kwargs)
+
+    def add_schema(
+            self, pattern, routes_names, route_name=None,
+            title=None,
+            **view_kwargs):
+
+        if not isinstance(routes_names, dict):
+            routes_names = dict((k, None) for k in maybe_list(routes_names))
+        if not routes_names:
+            raise Error('schema', 'Define some routes_names')
+        if not route_name:
+            route_name = '%s_schema' % routes_names.keys()[0]
+
+        view = SchemaView(
+            route_name,
+            routes_names,
+            title=title)
+        self.add_schema_manager(view, route_name, pattern, **view_kwargs)
 
     def add_routes(self, *routes, **kwargs):
-        use_schema = kwargs.get('use_schema', False)
-        schema_permissions = kwargs.get('schema_permissions')
-
         for arguments in routes:
             if not arguments:
                 raise ValueError('Define some arguments')
             elif not isinstance(arguments, dict):
-                list_arguments = arguments
-                if not is_nonstr_iter(arguments):
-                    list_arguments = [list_arguments]
-
+                list_arguments = maybe_list(arguments)
                 arguments = {'name': list_arguments[0]}
                 if len(list_arguments) > 1:
                     arguments['pattern'] = list_arguments[1]
                 if len(list_arguments) > 2:
                     arguments['permission'] = list_arguments[2]
 
-            if use_schema:
-                name = arguments.get('name')
-                pattern = arguments.get('pattern')
-
-                schema_kwargs = {}
-                if schema_permissions and name in schema_permissions:
-                    schema_kwargs['permission'] = schema_permissions[name]
-
-                if name and pattern:
-                    if '.' in pattern:
-                        pattern = '%s/schema.json' % pattern.rsplit('.', 1)[0]
-                    else:
-                        pattern = '%s/schema.json' % (pattern.rstrip('/'))
-                    self.add_route_schema(pattern, [name], **schema_kwargs)
-
             self.add_route(**arguments)
+
+    @configuration_extensions('postman')
+    def add_postman_route(
+            self, pattern, name='postman', permission=None,
+            title=None, description=None):
+
+        kwargs = {}
+        if permission:
+            kwargs['permission'] = permission
+
+        self.add_route(name=name, pattern=pattern)
+        self.add_view(
+            PostmanCollection(
+                title=title or self.application_name,
+                description=description),
+            route_name=name,
+            renderer='json',
+            **kwargs)
 
     def add_view(self, *args, **kwargs):
         if 'permission' not in kwargs:
             # Force permission validation
             kwargs['permission'] = INES_POLICY
+        if 'renderer' not in kwargs:
+            kwargs['renderer'] = 'json'
         return super(APIConfigurator, self).add_view(*args, **kwargs)
 
     def lookup_extensions(self):

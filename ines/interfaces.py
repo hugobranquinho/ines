@@ -10,5 +10,13 @@ class IBaseSessionManager(Interface):
     pass
 
 
-class ISchemaViewManager(Interface):
+class ISchemaView(Interface):
+    pass
+
+
+class IInputSchemaView(Interface):
+    pass
+
+
+class IOutputSchemaView(Interface):
     pass

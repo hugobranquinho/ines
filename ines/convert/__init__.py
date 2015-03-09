@@ -3,6 +3,8 @@
 #
 # @author Hugo Branquinho <hugobranq@gmail.com>
 
+from pyramid.compat import is_nonstr_iter
+
 from ines.convert.codes import (inject_junk,
                                 make_sha256)
 
@@ -17,3 +19,12 @@ from ines.convert.strings import (camelcase,
                                   maybe_null,
                                   maybe_unicode,
                                   uncamelcase)
+
+
+def maybe_list(value):
+    if value is None:
+        return []
+    elif not is_nonstr_iter(value):
+        return [value]
+    else:
+        return list(value)

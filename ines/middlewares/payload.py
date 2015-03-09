@@ -5,10 +5,10 @@
 
 from json import loads
 
-from pyramid.compat import is_nonstr_iter
 from webob.request import environ_add_POST
 
 from ines.convert import force_string
+from ines.convert import maybe_list
 from ines.exceptions import HTTPInvalidJSONPayload
 from ines.middlewares import Middleware
 from ines.utils import get_content_type
@@ -27,8 +27,7 @@ class Payload(Middleware):
                 try:
                     body_json = loads(body)
                     for key, values in dict(body_json).items():
-                        if not is_nonstr_iter(values):
-                            values = [values]
+                        values = maybe_list(values)
                         value = ','.join('' if v is None else force_string(v) for v in values)
                         arguments.append('%s=%s' % (force_string(key), value))
                     body = '&'.join(arguments)

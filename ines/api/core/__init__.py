@@ -465,9 +465,9 @@ class BaseCoreSession(BaseSQLSession):
                 query = query.outerjoin(alias_child, and_(*child_queries))
 
                 child_queries = [child.id_core == alias_child.id]
-                if hasattr(child, 'core_on_child_relation'):
-                    option = child.core_on_child_relation
-                    child_queries.append(getattr(child, option[0], option[1]))
+                #if hasattr(child, 'core_on_child_relation'):
+                #    option = child.core_on_child_relation
+                #    child_queries.append(getattr(child, option[0], option[1]))
                 query = query.outerjoin(child, and_(*child_queries))
 
             for branch in branches_tables.keys():

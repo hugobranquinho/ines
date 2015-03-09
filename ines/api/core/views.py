@@ -13,9 +13,6 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from ines.api.core.database import CoreColumnParent
 from ines.convert import camelcase
-from ines.views import DateTimeField
-from ines.views import Field
-from ines.views import HrefField
 
 
 NOW_DATE = datetime.datetime.now
@@ -119,21 +116,3 @@ def detect_core_fields(
             params_key or url_key)
 
     return values
-
-
-class CoreActiveField(Field):
-    def __init__(self):
-        super(CoreActiveField, self).__init__(
-            'active',
-            attributes=['start_date', 'end_date'])
-
-    def __call__(self, request, value):
-        now = NOW_DATE()
-        start_date = getattr(value, 'start_date')
-        end_date = getattr(value, 'end_date')
-        if start_date and start_date > now:
-            return False
-        elif end_date and end_date < now:
-            return False
-        else:
-            return True
