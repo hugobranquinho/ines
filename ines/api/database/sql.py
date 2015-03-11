@@ -225,12 +225,8 @@ def create_rlike_filter(column, value):
 
 
 class Pagination(list):
-    def __init__(self, query, page, limit_per_page):
+    def __init__(self, query, page=1, limit_per_page=20):
         super(Pagination, self).__init__()
-
-        self.page = maybe_integer(page)
-        if not self.page or self.page < 1:
-            self.page = 1
 
         self.limit_per_page = maybe_integer(limit_per_page)
         if not self.limit_per_page or self.limit_per_page < 1:
@@ -241,6 +237,7 @@ class Pagination(list):
         if query is None:
             self.number_of_results = 1
             self.last_page = 1
+            self.page = 1
         else:
             self.number_of_results = (
                 query
@@ -249,10 +246,12 @@ class Pagination(list):
             self.last_page = int(ceil(
                 self.number_of_results / float(self.limit_per_page))) or 1
 
-        if self.page > self.last_page:
-            self.page = self.last_page
+            self.page = maybe_integer(page)
+            if not self.page or self.page < 1:
+                self.page = 1
+            elif self.page > self.last_page:
+                self.page = self.last_page
 
-        if query is not None:
             end_slice = self.page * self.limit_per_page
             start_slice = end_slice - self.limit_per_page
             self.extend(query.slice(start_slice, end_slice).all())
@@ -378,6 +377,6 @@ def get_object_tables(value):
 
 
 class Columns(list):
-    def __init__(self):
-        super(Columns, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super(Columns, self).__init__(*args, **kwargs)
         self.tables = TablesSet()
