@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from math import ceil
+from pkg_resources import get_distribution
 
 from pyramid.decorator import reify
 from pyramid.settings import asbool
@@ -27,6 +28,7 @@ from ines.utils import MissingSet
 
 
 SQL_DBS = MissingDict()
+SQLALCHEMY_VERSION = get_distribution('sqlalchemy').version
 
 
 class BaseDatabaseSessionManager(BaseSessionManager):
@@ -239,9 +241,15 @@ class Pagination(list):
             self.last_page = 1
             self.page = 1
         else:
+            # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
+            if SQLALCHEMY_VERSION >= '1.0':
+                entities = set(d['entity'] for d in query.column_descriptions)
+            else:
+                entities = set(e.entity_zero for e in query._entities if e.entity_zero)
+
             self.number_of_results = (
                 query
-                .with_entities(func.count(1))
+                .with_entities(func.count(1), *entities)
                 .first()[0])
             self.last_page = int(ceil(
                 self.number_of_results / float(self.limit_per_page))) or 1
