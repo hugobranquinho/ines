@@ -115,7 +115,7 @@ class PostmanCollection(object):
                                 response_key = camelcase(response_key)
                                 tests.append(
                                     'if (answer.%s){ postman.setEnvironmentVariable("%s", answer.%s); }'
-                                    % (environment_key, environment_key, response_key))
+                                    % (response_key, environment_key, response_key))
 
                     if tests:
                         tests.insert(0, 'var answer = JSON.parse(responseBody);')
