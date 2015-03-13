@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from colander import MappingSchema
-from colander import SequenceSchema
-from colander import TupleSchema
+from colander import Mapping
+from colander import Sequence
+from colander import Tuple
 from pyramid.compat import is_nonstr_iter
 from zope.interface import implementer
 
@@ -80,41 +80,41 @@ class InputSchemaView(object):
         if padding and name:
             name = '%s.%s' % (padding, name)
 
-        if isinstance(schema, SequenceSchema):
-            child = schema.children[0]
-            find_exact_name = not node_is_iterable(child)
+        if hasattr(schema, 'schema_type'):
+            if schema.schema_type is Sequence:
+                child = schema.children[0]
+                find_exact_name = not node_is_iterable(child)
 
-            result = []
-            for values in construct_sequence_items(name, values):
-                value = self.construct_structure(child, values, padding=name)
-                if value is not None:
-                    result.append(value)
+                result = []
+                for values in construct_sequence_items(name, values):
+                    value = self.construct_structure(child, values, padding=name)
+                    if value is not None:
+                        result.append(value)
 
-                if find_exact_name:
-                    exact_value = values.get(name)
-                    if exact_value:
-                        result.append(exact_value)
+                    if find_exact_name:
+                        exact_value = values.get(name)
+                        if exact_value:
+                            result.append(exact_value)
 
-            return result
+                return result
 
-        elif isinstance(schema, TupleSchema):
-            raise NotImplementedError('TupleSchema need to be implemented')
+            elif schema.schema_type is Tuple:
+                raise NotImplementedError('TupleSchema need to be implemented')
 
-        elif isinstance(schema, MappingSchema):
-            result = {}
-            for child in schema.children:
-                value = self.construct_structure(child, values, padding=name)
-                if value is not None:
-                    result[child.name] = value
-            return result
+            elif schema.schema_type is Mapping:
+                result = {}
+                for child in schema.children:
+                    value = self.construct_structure(child, values, padding=name)
+                    if value is not None:
+                        result[child.name] = value
+                return result
 
-        else:
-            for key, value in values.items():
-                if value and key == name:
-                    if is_nonstr_iter(value):
-                        return value.pop(0)
-                    else:
-                        return value
+        for key, value in values.items():
+            if value and key == name:
+                if is_nonstr_iter(value):
+                    return value.pop(0)
+                else:
+                    return value
 
 
 def construct_sequence_items(name, values):

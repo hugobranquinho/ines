@@ -6,11 +6,11 @@ from urllib2 import unquote
 from uuid import uuid4
 
 from colander import drop as colander_drop
-from colander import MappingSchema
+from colander import Mapping
 from colander import null
 from colander import required as colander_required
-from colander import SequenceSchema
-from colander import TupleSchema
+from colander import Sequence
+from colander import Tuple
 from pyramid.authorization import Everyone
 
 from ines import DEFAULT_METHODS
@@ -202,30 +202,31 @@ class PostmanCollection(object):
 
 def construct_postman_data(request, schema):
     response = []
-    if isinstance(schema, SequenceSchema):
-        child = schema.children[0]
-        response.extend(construct_postman_data(request, child))
-
-    elif isinstance(schema, TupleSchema):
-        raise NotImplementedError('TupleSchema need to be implemented')
-
-    elif isinstance(schema, MappingSchema):
-        for child in schema.children:
+    if hasattr(schema, 'schema_type'):
+        if schema.schema_type is Sequence:
+            child = schema.children[0]
             response.extend(construct_postman_data(request, child))
+            return response
 
-    else:
-        default = schema.serialize()
-        if default is null:
+        elif schema.schema_type is Tuple:
+            raise NotImplementedError('TupleSchema need to be implemented')
+
+        elif schema.schema_type is Mapping:
+            for child in schema.children:
+                response.extend(construct_postman_data(request, child))
+            return response
+
+    default = schema.serialize()
+    if default is null:
+        default = ''
+        if schema.missing not in (colander_drop, colander_required, null):
+            default = schema.missing
+        if default is None:
             default = ''
-            if schema.missing not in (colander_drop, colander_required, null):
-                default = schema.missing
-            if default is None:
-                default = ''
 
-        response.append({
-            'key': camelcase(schema.name),
-            'value': str(default),
-            'type': 'text',
-            'enabled': schema.required})
-
+    response.append({
+        'key': camelcase(schema.name),
+        'value': str(default),
+        'type': 'text',
+        'enabled': schema.required})
     return response

@@ -4,11 +4,11 @@ from copy import deepcopy
 
 from colander import Boolean
 from colander import drop
-from colander import MappingSchema
+from colander import Mapping
 from colander import null
 from colander import Number
-from colander import SequenceSchema
-from colander import TupleSchema
+from colander import Sequence
+from colander import Tuple
 from pyramid.settings import asbool
 from zope.interface import implementer
 
@@ -76,7 +76,7 @@ class OutputSchemaView(object):
             name = schema.name
 
         allowed_fields = {}
-        if isinstance(schema, SequenceSchema):
+        if hasattr(schema, 'schema_type') and schema.schema_type is Sequence:
             for child in schema.children:
                 allowed_fields.update(self.find_allowed_fields(child, name))
 
@@ -90,63 +90,63 @@ class OutputSchemaView(object):
         return camelcase(key)
 
     def construct_structure(self, schema, values, fields):
-        if isinstance(schema, SequenceSchema):
-            result = []
-            if values is None:
-                return result
-            elif values is null:
-                return []
+        if hasattr(schema, 'schema_type'):
+            if schema.schema_type is Sequence:
+                result = []
+                if values is None:
+                    return result
+                elif values is null:
+                    return []
 
-            child = schema.children[0]
-            for value in values:
-                child_value = self.construct_structure(child, value, fields)
-                if child_value is not None:
-                    result.append(child_value)
+                child = schema.children[0]
+                for value in values:
+                    child_value = self.construct_structure(child, value, fields)
+                    if child_value is not None:
+                        result.append(child_value)
 
-            return result
-
-        elif isinstance(schema, TupleSchema):
-            raise NotImplementedError('TupleSchema need to be implemented')
-
-        elif isinstance(schema, MappingSchema):
-            result = {}
-            if values is None:
                 return result
 
-            if isinstance(values, dict):
-                get_value = values.get
-            else:
-                get_value = lambda k, d: getattr(values, k, d)
+            elif schema.schema_type is Tuple:
+                raise NotImplementedError('TupleSchema need to be implemented')
 
-            for child in schema.children:
-                if child.name not in fields:
-                    continue
+            elif schema.schema_type is Mapping:
+                result = {}
+                if values is None:
+                    return result
 
-                child_values = get_value(child.name, child.default)
-                value = self.construct_structure(
-                    child,
-                    child_values,
-                    fields[child.name])
-                if value is not None or child.missing is not drop:
-                    result[self.encode_key(child.name)] = value
-
-            return result
-
-        else:
-            if values is not None:
-                values = schema.serialize(values)
-
-            if values is null:
-                return None
-            elif values is not None:
-                if isinstance(schema.typ, Number):
-                    return schema.typ.num(values)
-                elif isinstance(schema.typ, Boolean):
-                    return asbool(values)
+                if isinstance(values, dict):
+                    get_value = values.get
                 else:
-                    return values
+                    get_value = lambda k, d: getattr(values, k, d)
+
+                for child in schema.children:
+                    if child.name not in fields:
+                        continue
+
+                    child_values = get_value(child.name, child.default)
+                    value = self.construct_structure(
+                        child,
+                        child_values,
+                        fields[child.name])
+                    if value is not None or child.missing is not drop:
+                        result[self.encode_key(child.name)] = value
+
+                return result
+
+        if values is not None:
+            values = schema.serialize(values)
+
+        if values is null:
+            return None
+        elif values is not None:
+            if isinstance(schema.typ, Number):
+                return schema.typ.num(values)
+            elif isinstance(schema.typ, Boolean):
+                return asbool(values)
             else:
                 return values
+        else:
+            return values
 
     def allowed_fields_to_set(self, fields, padding=None):
         result = set()

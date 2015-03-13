@@ -4,13 +4,15 @@ from colander import Boolean as BaseBoolean
 from colander import drop as colander_drop
 from colander import DateTime as BaseDateTime
 from colander import Integer
-from colander import MappingSchema
+from colander import Mapping
 from colander import null
 from colander import OneOf
 from colander import SchemaNode as BaseSchemaNode
+from colander import Sequence
 from colander import SequenceSchema
 from colander import String
-from colander import TupleSchema
+from colander import Tuple
+from colander.compat import is_nonstr_iter
 
 from ines import _
 from ines import FALSES
@@ -23,20 +25,34 @@ class SchemaNode(BaseSchemaNode):
         super(SchemaNode, self).__init__(*arg, **kw)
 
     def deserialize(self, cstruct=null):
-        result = BaseSchemaNode.deserialize(self, cstruct)
+        appstruct = BaseSchemaNode.deserialize(self, cstruct)
+
         # Return None, only if request and cstruct is empty
         if (self.return_none_if_defined
-                and (result is null or result is colander_drop)
+                and (appstruct is null or appstruct is colander_drop)
                 and cstruct is not null and not cstruct):
             return None
-        else:
-            return result
+
+        if hasattr(self, 'after_deserialize'):
+            if is_nonstr_iter(self.after_deserialize):
+                for func in self.after_deserialize:
+                    appstruct = func(appstruct)
+            else:
+                appstruct = self.after_deserialize(appstruct)
+
+        return appstruct
 
     def clone(self, **kwargs):
         cloned = BaseSchemaNode.clone(self)
         cloned.__dict__.update(kwargs)
         cloned._order = next(cloned._counter)
         return cloned
+
+
+class Schema(SchemaNode):
+    schema_type = Mapping
+
+MappingSchema = Schema
 
 
 class OneOfWithDescription(OneOf):
@@ -98,7 +114,10 @@ class SearchFields(MappingSchema):
 
 
 def node_is_iterable(node):
-    return isinstance(node, (TupleSchema, MappingSchema, SequenceSchema))
+    if hasattr(node, 'schema_type'):
+        return node.schema_type in (Tuple, Mapping, Sequence)
+    else:
+        return False
 
 
 # Global attributes
