@@ -3,6 +3,7 @@
 from colander import Boolean as BaseBoolean
 from colander import drop as colander_drop
 from colander import DateTime as BaseDateTime
+from colander import Integer
 from colander import MappingSchema
 from colander import null
 from colander import OneOf
@@ -11,6 +12,7 @@ from colander import SequenceSchema
 from colander import String
 from colander import TupleSchema
 
+from ines import _
 from ines import FALSES
 from ines import TRUES
 
@@ -78,7 +80,7 @@ class InputFields(SequenceSchema):
 
 
 class InputExcludeFields(SequenceSchema):
-    exclude_field = SchemaNode(String(), missing=None)
+    exclude_fields = SchemaNode(String(), missing=None)
 
 
 def split_values(appstruct):
@@ -97,3 +99,34 @@ class SearchFields(MappingSchema):
 
 def node_is_iterable(node):
     return isinstance(node, (TupleSchema, MappingSchema, SequenceSchema))
+
+
+# Global attributes
+PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
+LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
+NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
+LAST_PAGE = SchemaNode(Integer(), title=_(u'Last page'))
+NEXT_PAGE_HREF = SchemaNode(String(), title=_(u'Next page url'))
+PREVIOUS_PAGE_HREF = SchemaNode(String(), title=_(u'Previous page url'))
+FIRST_PAGE_HREF = SchemaNode(String(), title=_(u'First page url'))
+LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
+
+
+class PaginationInput(MappingSchema):
+    page = PAGE.clone(missing=1)
+    limit_per_page = LIMIT_PER_PAGE.clone(missing=20)
+
+
+class PaginationOutput(MappingSchema):
+    page = PAGE
+    limit_per_page = LIMIT_PER_PAGE
+    last_page = LAST_PAGE
+    number_of_results = NUMBER_OF_RESULTS
+    next_page_href = NEXT_PAGE_HREF
+    previous_page_href = PREVIOUS_PAGE_HREF
+    first_page_href = FIRST_PAGE_HREF
+    last_page_href = LAST_PAGE_HREF
+
+
+class DeleteOutput(MappingSchema):
+    deleted = SchemaNode(Boolean(), title=_(u'Deleted'))

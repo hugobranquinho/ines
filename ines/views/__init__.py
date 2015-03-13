@@ -17,6 +17,16 @@ class DefaultAPIView(object):
         self.context = context
         self.api = self.request.api
 
+    def create_pagination(self, values_key, pagination, route_name, **params):
+        result = {
+            'page': pagination.page,
+            'limit_per_page': pagination.limit_per_page,
+            'last_page': pagination.last_page,
+            'number_of_results': pagination.number_of_results,
+            values_key: pagination}
+        result.update(self.create_pagination_href(route_name, pagination))
+        return result
+
     def create_pagination_href(self, route_name, pagination, **params):
         queries = {}
         for key, values in self.request.GET.dict_of_lists().items():

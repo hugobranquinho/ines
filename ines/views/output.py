@@ -28,7 +28,7 @@ class OutputSchemaView(object):
         self.schema = schema
         self.allowed_fields = self.find_allowed_fields(self.schema)
         if not self.allowed_fields:
-            raise Error('output', u'Define output schema')
+            raise Error('output', u'Define output fields for %s' % self.schema)
 
     def __call__(self, wrapped):
         def decorator(context, request):

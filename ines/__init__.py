@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from translationstring import TranslationStringFactory
+
+
+_ = TranslationStringFactory('ines')
 APPLICATIONS = {}
 CAMELCASE_UPPER_WORDS = set()
 MISSING = object()
