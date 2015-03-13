@@ -5,13 +5,13 @@ from urllib2 import unquote
 from colander import All
 from colander import Boolean as BaseBoolean
 from colander import drop as colander_drop
-from colander import Mapping
+from colander import MappingSchema
 from colander import null
 from colander import Number
 from colander import OneOf
 from colander import required as colander_required
-from colander import Sequence
-from colander import Tuple
+from colander import SequenceSchema
+from colander import TupleSchema
 from pyramid.compat import is_nonstr_iter
 from pyramid.settings import asbool
 from zope.interface import implementer
@@ -87,96 +87,92 @@ class SchemaView(object):
             'actions': actions}
 
     def construct_structure(self, request, model, schema, is_input_schema):
-        if hasattr(schema, 'schema_type'):
-            if schema.schema_type is Sequence:
-                child = schema.children[0]
-                if not schema.name:
-                    info = child
-                else:
-                    info = schema
+        if isinstance(schema, (SequenceSchema, TupleSchema)):
+            child = schema.children[0]
+            if not schema.name:
+                info = child
+            else:
+                info = schema
 
-                if not model:
-                    model.update({
-                        'type': 'sequence',
-                        'name': camelcase(info.name),
-                        'title': info.title,
-                        'description': info.description or None,
-                        'order': info._order})
+            if not model:
+                model.update({
+                    'type': 'sequence',
+                    'name': camelcase(info.name),
+                    'title': info.title,
+                    'description': info.description or None,
+                    'order': info._order})
 
-                # Update or add children
-                children_model = model.get('children')
-                if not children_model:
-                    children_model = model['children'] = {}
+            # Update or add children
+            children_model = model.get('children')
+            if not children_model:
+                children_model = model['children'] = {}
 
-                return self.construct_structure(request, children_model, child, is_input_schema)
+            return self.construct_structure(request, children_model, child, is_input_schema)
 
-            elif schema.schema_type is Tuple:
-                raise NotImplementedError('TupleSchema need to be implemented')
-
-            elif schema.schema_type is Mapping:
-                result = []
-                for child in schema.children:
-                    result.append(self.construct_structure(request, model, child, is_input_schema))
-                return result
-
-        details = {
-            'type': get_colander_type_name(schema.typ),
-            'name': camelcase(schema.name),
-            'title': schema.title,
-            'description': schema.description or None,
-            'order': schema._order}
-
-        request_validation = []
-        if schema.validator:
-            if isinstance(schema.validator, All):
-                validators = schema.validator.validators
-            elif not is_nonstr_iter(schema.validator):
-                validators = [schema.validator]
-
-            for validator in validators:
-                if isinstance(validator, OneOfWithDescription):
-                    details['options'] = []
-                    for choice, description in validator.choices_with_descripton:
-                        details['options'].append({
-                            'value': choice,
-                            'text': request.translate(description)})
-                elif isinstance(validator, OneOf):
-                    details['options'] = []
-                    for choice in validator.choices:
-                        choice_description = force_unicode(choice).replace(u'_', u' ').title()
-                        details['options'].append({
-                            'value': choice,
-                            'text': choice_description})
-                else:
-                    request_validation.append(validator)
-
-        if is_input_schema:
-            validation = {}
-            if schema.required:
-                validation['required'] = True
-
-            if request_validation:
-                for validator in request_validation:
-                    validation[get_colander_type_name(validator)] = True
-            if validation:
-                details['validation'] = validation
-
-            default = schema.missing
+        elif isinstance(schema, MappingSchema):
+            result = []
+            for child in schema.children:
+                result.append(self.construct_structure(request, model, child, is_input_schema))
+            return result
         else:
-            if schema.missing is colander_drop:
-                details['maybeNotSent'] = True
-            default = schema.default
+            details = {
+                'type': get_colander_type_name(schema.typ),
+                'name': camelcase(schema.name),
+                'title': schema.title,
+                'description': schema.description or None,
+                'order': schema._order}
 
-        if (default is not colander_drop
-                and default is not colander_required
-                and default is not null):
-            if isinstance(schema.typ, Number):
-                default = schema.typ.num(default)
-            elif isinstance(schema.typ, BaseBoolean):
-                default = asbool(default)
-            details['default'] = default
+            request_validation = []
+            if schema.validator:
+                if isinstance(schema.validator, All):
+                    validators = schema.validator.validators
+                elif not is_nonstr_iter(schema.validator):
+                    validators = [schema.validator]
 
-        return details
+                for validator in validators:
+                    if isinstance(validator, OneOfWithDescription):
+                        details['options'] = []
+                        for choice, description in validator.choices_with_descripton:
+                            details['options'].append({
+                                'value': choice,
+                                'text': request.translate(description)})
+                    elif isinstance(validator, OneOf):
+                        details['options'] = []
+                        for choice in validator.choices:
+                            choice_description = force_unicode(choice).replace(u'_', u' ').title()
+                            details['options'].append({
+                                'value': choice,
+                                'text': choice_description})
+                    else:
+                        request_validation.append(validator)
+
+            if is_input_schema:
+                validation = {}
+                if schema.required:
+                    validation['required'] = True
+
+                if request_validation:
+                    for validator in request_validation:
+                        validation[get_colander_type_name(validator)] = True
+                if validation:
+                    details['validation'] = validation
+
+                default = schema.missing
+            else:
+                if schema.missing is colander_drop:
+                    details['maybeNotSent'] = True
+                default = schema.default
+
+            if (default is not colander_drop
+                    and default is not colander_required
+                    and default is not null):
+                if isinstance(schema.typ, Number):
+                    default = schema.typ.num(default)
+                elif isinstance(schema.typ, BaseBoolean):
+                    default = asbool(default)
+                details['default'] = default
+
+            return details
 
 
 def get_colander_type_name(node):

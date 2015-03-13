@@ -4,14 +4,15 @@ from colander import Boolean as BaseBoolean
 from colander import drop as colander_drop
 from colander import DateTime as BaseDateTime
 from colander import Integer
-from colander import Mapping
+from colander import Invalid
+from colander import MappingSchema
 from colander import null
 from colander import OneOf
-from colander import SchemaNode as BaseSchemaNode
+from colander import SchemaNode
 from colander import Sequence
 from colander import SequenceSchema
 from colander import String
-from colander import Tuple
+from colander import TupleSchema
 from colander.compat import is_nonstr_iter
 
 from ines import _
@@ -19,40 +20,74 @@ from ines import FALSES
 from ines import TRUES
 
 
-class SchemaNode(BaseSchemaNode):
-    def __init__(self, *arg, **kw):
-        self.return_none_if_defined = kw.pop('return_none_if_defined', False)
-        super(SchemaNode, self).__init__(*arg, **kw)
-
-    def deserialize(self, cstruct=null):
-        appstruct = BaseSchemaNode.deserialize(self, cstruct)
-
-        # Return None, only if request and cstruct is empty
-        if (self.return_none_if_defined
-                and (appstruct is null or appstruct is colander_drop)
-                and cstruct is not null and not cstruct):
-            return None
-
-        if hasattr(self, 'after_deserialize'):
-            if is_nonstr_iter(self.after_deserialize):
-                for func in self.after_deserialize:
-                    appstruct = func(appstruct)
-            else:
-                appstruct = self.after_deserialize(appstruct)
-
-        return appstruct
-
-    def clone(self, **kwargs):
-        cloned = BaseSchemaNode.clone(self)
-        cloned.__dict__.update(kwargs)
-        cloned._order = next(cloned._counter)
-        return cloned
+def my_clone(self, **new_arguments):
+    # Submit this! SequenceSchema raise error when cloned
+    children = [node.clone() for node in self.children]
+    cloned = self.__class__(self.typ, *children)
+    cloned.__dict__.update(self.__dict__)
+    cloned.__dict__.update(new_arguments)  # Propose this! Update node attributes when cloning
+    cloned._order = next(cloned._counter)  # If we clone a node, should we keep the previous order?
+    return cloned
+my_clone.__name__ = 'clone'
+SchemaNode.clone = my_clone
 
 
-class Schema(SchemaNode):
-    schema_type = Mapping
+original_deserialize = SchemaNode.deserialize
+def my_deserialize(self, cstruct=null):
+    appstruct = original_deserialize(self, cstruct)
 
-MappingSchema = Schema
+    # Return None, only if request and cstruct is empty
+    if (self.return_none_if_defined
+            and (appstruct is null or appstruct is colander_drop)
+            and cstruct is not null and not cstruct):
+        return None
+
+    # Propose this!
+    if hasattr(self, 'after_deserialize'):
+        if is_nonstr_iter(self.after_deserialize):
+            for func in self.after_deserialize:
+                appstruct = func(appstruct)
+        else:
+            appstruct = self.after_deserialize(appstruct)
+
+    return appstruct
+my_deserialize.__name__ = 'deserialize'
+SchemaNode.deserialize = my_deserialize
+
+
+def my_init(self, *arg, **kw):
+    self.return_none_if_defined = kw.pop('return_none_if_defined', False)
+    super(SchemaNode, self).__init__(*arg, **kw)
+my_init.__name__ = '__init__'
+SchemaNode.__init__ = my_init
+
+
+# Propose this!
+def sequence_impl(self, node, value, callback, accept_scalar):
+    if accept_scalar is None:
+        accept_scalar = self.accept_scalar
+
+    value = self._validate(node, value, accept_scalar)
+
+    error = None
+    result = []
+
+    for num, subval in enumerate(value):
+        try:
+            result.append(callback(node.children[0], subval))
+        except Invalid as e:
+            if error is None:
+                error = Invalid(node)
+            error.add(e, num)
+
+    if error is not None:
+        raise error
+
+    if not result:
+        return null
+    return result
+sequence_impl.__name__ = '_impl'
+Sequence._impl = sequence_impl
 
 
 class OneOfWithDescription(OneOf):
@@ -114,10 +149,7 @@ class SearchFields(MappingSchema):
 
 
 def node_is_iterable(node):
-    if hasattr(node, 'schema_type'):
-        return node.schema_type in (Tuple, Mapping, Sequence)
-    else:
-        return False
+    return isinstance(node, (TupleSchema, MappingSchema, SequenceSchema))
 
 
 # Global attributes
