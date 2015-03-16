@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from colander import MappingSchema
-from colander import SequenceSchema
-from colander import TupleSchema
+from colander import Mapping
+from colander import Sequence
+from colander import Tuple
 from pyramid.compat import is_nonstr_iter
 from zope.interface import implementer
 
@@ -80,7 +80,7 @@ class InputSchemaView(object):
         if padding and name:
             name = '%s.%s' % (padding, name)
 
-        if isinstance(schema, (SequenceSchema, TupleSchema)):
+        if schema.typ is (Sequence, Tuple):
             child = schema.children[0]
             find_exact_name = not node_is_iterable(child)
 
@@ -97,7 +97,7 @@ class InputSchemaView(object):
 
             return result
 
-        elif isinstance(schema, MappingSchema):
+        elif schema.typ is Mapping:
             result = {}
             for child in schema.children:
                 value = self.construct_structure(child, values, padding=name)

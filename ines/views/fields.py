@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from colander import _ as colander_i18n
 from colander import Boolean as BaseBoolean
 from colander import drop as colander_drop
 from colander import DateTime as BaseDateTime
@@ -20,11 +21,21 @@ from ines import FALSES
 from ines import TRUES
 
 
-def my_clone(self, **new_arguments):
-    # Submit this! SequenceSchema raise error when cloned
+# See https://github.com/Pylons/colander/pull/212
+def clone_sequenceschema_fix(self):
     children = [node.clone() for node in self.children]
     cloned = self.__class__(self.typ, *children)
-    cloned.__dict__.update(self.__dict__)
+
+    attributes = self.__dict__.copy()
+    attributes.pop('children', None)
+    cloned.__dict__.update(attributes)
+    return cloned
+clone_sequenceschema_fix.__name__ = 'clone'
+SchemaNode.clone = clone_sequenceschema_fix
+
+
+def my_clone(self, **new_arguments):
+    cloned = clone_sequenceschema_fix(self)
     cloned.__dict__.update(new_arguments)  # Propose this! Update node attributes when cloning
     cloned._order = next(cloned._counter)  # If we clone a node, should we keep the previous order?
     return cloned
@@ -88,6 +99,29 @@ def sequence_impl(self, node, value, callback, accept_scalar):
     return result
 sequence_impl.__name__ = '_impl'
 Sequence._impl = sequence_impl
+
+
+# See https://github.com/Pylons/colander/pull/211
+def my_range_call(self, node, value):
+    if self.min is not None:
+        min_value = self.min
+        if callable(min_value):
+            min_value = min_value()
+
+        if value < min_value:
+            min_err = colander_i18n(
+                self.min_err, mapping={'val':value, 'min':min_value})
+            raise Invalid(node, min_err)
+
+    if self.max is not None:
+        max_value = self.max
+        if callable(max_value):
+            max_value = max_value()
+
+        if value > max_value:
+            max_err = colander_i18n(
+                self.max_err, mapping={'val':value, 'max':max_value})
+            raise Invalid(node, max_err)
 
 
 class OneOfWithDescription(OneOf):

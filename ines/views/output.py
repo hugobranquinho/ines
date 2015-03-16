@@ -4,11 +4,11 @@ from copy import deepcopy
 
 from colander import Boolean
 from colander import drop
-from colander import MappingSchema
+from colander import Mapping
 from colander import null
 from colander import Number
-from colander import SequenceSchema
-from colander import TupleSchema
+from colander import Sequence
+from colander import Tuple
 from pyramid.settings import asbool
 from zope.interface import implementer
 
@@ -76,7 +76,7 @@ class OutputSchemaView(object):
             name = schema.name
 
         allowed_fields = {}
-        if isinstance(schema, (SequenceSchema, TupleSchema)):
+        if schema.typ is (Sequence, Tuple):
             for child in schema.children:
                 allowed_fields.update(self.find_allowed_fields(child, name))
 
@@ -90,7 +90,7 @@ class OutputSchemaView(object):
         return camelcase(key)
 
     def construct_structure(self, schema, values, fields):
-        if isinstance(schema, (SequenceSchema, TupleSchema)):
+        if schema.typ is (Sequence, Tuple):
             result = []
             if values is None:
                 return result
@@ -105,7 +105,7 @@ class OutputSchemaView(object):
 
             return result
 
-        elif isinstance(schema, MappingSchema):
+        elif schema.typ is Mapping:
             result = {}
             if values is None:
                 return result

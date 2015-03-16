@@ -6,11 +6,11 @@ from urllib2 import unquote
 from uuid import uuid4
 
 from colander import drop as colander_drop
-from colander import MappingSchema
+from colander import Mapping
 from colander import null
 from colander import required as colander_required
-from colander import SequenceSchema
-from colander import TupleSchema
+from colander import Sequence
+from colander import Tuple
 from pyramid.authorization import Everyone
 
 from ines import DEFAULT_METHODS
@@ -36,6 +36,7 @@ class PostmanCollection(object):
     def __call__(self, context, request):
         requests = []
         folders = MissingList()
+        folders_descriptions = {}
         config = request.registry.config
 
         for schema_view in request.registry.getAllUtilitiesRegisteredFor(ISchemaView):
@@ -67,12 +68,13 @@ class PostmanCollection(object):
                     'helperAttributes': {},
                     'time': self.collection_time,
                     'name': u'Schema: %s' % schema_view.title,
-                    'description': '',
+                    'description': schema_view.description or '',
                     'collectionId': self.collection_id,
                     'responses': [],
                     'owner': 0,
                     'synced': False})
                 folders[schema_view.title].append(request_id)
+                folders_descriptions[schema_view.title] = schema_view.description
 
             for route_name, request_methods in schema_view.routes_names.items():
                 # Make route for url
@@ -94,6 +96,7 @@ class PostmanCollection(object):
 
                 for request_method, schemas in schemas_by_methods.items():
                     title = None
+                    description = None
                     schema_data = []
                     tests = []
 
@@ -107,6 +110,8 @@ class PostmanCollection(object):
 
                         if schema.schema and not title:
                             title = schema.schema.title
+                        if schema.schema and not description:
+                            description = schema.schema.description
 
                         variables = getattr(schema.schema, 'postman_environment_variables', None)
                         if variables:
@@ -165,7 +170,7 @@ class PostmanCollection(object):
                         'helperAttributes': {},
                         'time': self.collection_time,
                         'name': title,
-                        'description': '',
+                        'description': description or '',
                         'collectionId': self.collection_id,
                         'responses': [],
                         'owner': 0,
@@ -177,7 +182,7 @@ class PostmanCollection(object):
             response_folders.append({
                 'id': self.new_unique_id(),
                 'name': key,
-                'description': '',
+                'description': folders_descriptions.get(key) or '',
                 'order': requests_ids,
                 'collection_name': self.title,
                 'collection_id': self.collection_id,
@@ -202,12 +207,12 @@ class PostmanCollection(object):
 
 def construct_postman_data(request, schema):
     response = []
-    if isinstance(schema, (SequenceSchema, TupleSchema)):
+    if schema.typ in (Sequence, Tuple):
         child = schema.children[0]
         response.extend(construct_postman_data(request, child))
         return response
 
-    elif isinstance(schema, MappingSchema):
+    elif schema.typ is Mapping:
         for child in schema.children:
             response.extend(construct_postman_data(request, child))
         return response

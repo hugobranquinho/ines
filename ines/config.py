@@ -238,6 +238,7 @@ class APIConfigurator(Configurator):
     def add_schema(
             self, pattern, routes_names, route_name=None,
             title=None,
+            description=None,
             **view_kwargs):
 
         if not isinstance(routes_names, dict):
@@ -250,7 +251,8 @@ class APIConfigurator(Configurator):
         view = SchemaView(
             route_name,
             routes_names,
-            title=title)
+            title=title,
+            description=description)
         self.add_schema_manager(view, route_name, pattern, **view_kwargs)
 
     def add_routes(self, *routes, **kwargs):

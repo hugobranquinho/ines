@@ -5,13 +5,13 @@ from urllib2 import unquote
 from colander import All
 from colander import Boolean as BaseBoolean
 from colander import drop as colander_drop
-from colander import MappingSchema
+from colander import Mapping
 from colander import null
 from colander import Number
 from colander import OneOf
 from colander import required as colander_required
-from colander import SequenceSchema
-from colander import TupleSchema
+from colander import Sequence
+from colander import Tuple
 from pyramid.compat import is_nonstr_iter
 from pyramid.settings import asbool
 from zope.interface import implementer
@@ -27,10 +27,11 @@ from ines.views.fields import OneOfWithDescription
 
 @implementer(ISchemaView)
 class SchemaView(object):
-    def __init__(self, route_name, routes_names, title=None):
+    def __init__(self, route_name, routes_names, title=None, description=None):
         self.route_name = route_name
         self.routes_names = routes_names
         self.title = title
+        self.description = description
 
     def __call__(self, context, request):
         model = {}
@@ -87,7 +88,7 @@ class SchemaView(object):
             'actions': actions}
 
     def construct_structure(self, request, model, schema, is_input_schema):
-        if isinstance(schema, (SequenceSchema, TupleSchema)):
+        if schema.typ in (Sequence, Tuple):
             child = schema.children[0]
             if not schema.name:
                 info = child
@@ -109,7 +110,7 @@ class SchemaView(object):
 
             return self.construct_structure(request, children_model, child, is_input_schema)
 
-        elif isinstance(schema, MappingSchema):
+        elif schema.typ is Mapping:
             result = []
             for child in schema.children:
                 result.append(self.construct_structure(request, model, child, is_input_schema))
