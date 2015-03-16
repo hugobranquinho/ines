@@ -76,7 +76,7 @@ class OutputSchemaView(object):
             name = schema.name
 
         allowed_fields = {}
-        if schema.typ is (Sequence, Tuple):
+        if isinstance(schema.typ, (Sequence, Tuple)):
             for child in schema.children:
                 allowed_fields.update(self.find_allowed_fields(child, name))
 
@@ -90,7 +90,7 @@ class OutputSchemaView(object):
         return camelcase(key)
 
     def construct_structure(self, schema, values, fields):
-        if schema.typ is (Sequence, Tuple):
+        if isinstance(schema.typ, (Sequence, Tuple)):
             result = []
             if values is None:
                 return result
@@ -105,7 +105,7 @@ class OutputSchemaView(object):
 
             return result
 
-        elif schema.typ is Mapping:
+        elif isinstance(schema.typ, Mapping):
             result = {}
             if values is None:
                 return result

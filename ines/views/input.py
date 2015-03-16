@@ -80,7 +80,7 @@ class InputSchemaView(object):
         if padding and name:
             name = '%s.%s' % (padding, name)
 
-        if schema.typ is (Sequence, Tuple):
+        if isinstance(schema.typ, (Sequence, Tuple)):
             child = schema.children[0]
             find_exact_name = not node_is_iterable(child)
 
@@ -97,7 +97,7 @@ class InputSchemaView(object):
 
             return result
 
-        elif schema.typ is Mapping:
+        elif isinstance(schema.typ, Mapping):
             result = {}
             for child in schema.children:
                 value = self.construct_structure(child, values, padding=name)

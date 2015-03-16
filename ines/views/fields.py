@@ -170,8 +170,9 @@ class InputExcludeFields(SequenceSchema):
 
 def split_values(appstruct):
     result = set()
-    for value in appstruct:
-        result.update(value.split(u','))
+    if appstruct is not null:
+        for value in appstruct:
+            result.update(value.split(u','))
     return list(result)
 
 
