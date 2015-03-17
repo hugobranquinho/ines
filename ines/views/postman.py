@@ -207,12 +207,12 @@ class PostmanCollection(object):
 
 def construct_postman_data(request, schema):
     response = []
-    if schema.typ in (Sequence, Tuple):
+    if isinstance(schema.typ, (Sequence, Tuple)):
         child = schema.children[0]
         response.extend(construct_postman_data(request, child))
         return response
 
-    elif schema.typ is Mapping:
+    elif isinstance(schema.typ, Mapping):
         for child in schema.children:
             response.extend(construct_postman_data(request, child))
         return response

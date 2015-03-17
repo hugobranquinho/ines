@@ -88,7 +88,7 @@ class SchemaView(object):
             'actions': actions}
 
     def construct_structure(self, request, model, schema, is_input_schema):
-        if schema.typ in (Sequence, Tuple):
+        if isinstance(schema.typ, (Sequence, Tuple)):
             child = schema.children[0]
             if not schema.name:
                 info = child
@@ -110,11 +110,12 @@ class SchemaView(object):
 
             return self.construct_structure(request, children_model, child, is_input_schema)
 
-        elif schema.typ is Mapping:
+        elif isinstance(schema.typ, Mapping):
             result = []
             for child in schema.children:
                 result.append(self.construct_structure(request, model, child, is_input_schema))
             return result
+
         else:
             details = {
                 'type': get_colander_type_name(schema.typ),

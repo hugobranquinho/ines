@@ -6,6 +6,7 @@ from colander import drop as colander_drop
 from colander import DateTime as BaseDateTime
 from colander import Integer
 from colander import Invalid
+from colander import Mapping
 from colander import MappingSchema
 from colander import null
 from colander import OneOf
@@ -13,7 +14,7 @@ from colander import SchemaNode
 from colander import Sequence
 from colander import SequenceSchema
 from colander import String
-from colander import TupleSchema
+from colander import Tuple
 from colander.compat import is_nonstr_iter
 
 from ines import _
@@ -184,7 +185,7 @@ class SearchFields(MappingSchema):
 
 
 def node_is_iterable(node):
-    return isinstance(node, (TupleSchema, MappingSchema, SequenceSchema))
+    return isinstance(node.typ, (Tuple, Mapping, Sequence))
 
 
 # Global attributes
