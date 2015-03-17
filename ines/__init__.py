@@ -6,7 +6,7 @@ from translationstring import TranslationStringFactory
 _ = TranslationStringFactory('ines')
 APPLICATIONS = {}
 CAMELCASE_UPPER_WORDS = set()
-MISSING = object()
+MARKER = object()
 API_CONFIGURATION_EXTENSIONS = {}
 
 DEFAULT_METHODS = ['GET', 'PUT', 'POST', 'DELETE']
