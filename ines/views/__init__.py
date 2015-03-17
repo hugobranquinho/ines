@@ -24,7 +24,7 @@ class DefaultAPIView(object):
             'last_page': pagination.last_page,
             'number_of_results': pagination.number_of_results,
             values_key: pagination}
-        result.update(self.create_pagination_href(route_name, pagination))
+        result.update(self.create_pagination_href(route_name, pagination, **params))
         return result
 
     def create_pagination_href(self, route_name, pagination, **params):
