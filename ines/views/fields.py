@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
 from colander import _ as colander_i18n
+from colander import _SchemaMeta
+from colander import _SchemaNode
+from colander import _marker
 from colander import Boolean as BaseBoolean
 from colander import drop
 from colander import DateTime as BaseDateTime
@@ -10,6 +13,7 @@ from colander import Mapping
 from colander import MappingSchema
 from colander import null
 from colander import OneOf
+from colander import Range
 from colander import SchemaNode
 from colander import Sequence
 from colander import SequenceSchema
@@ -132,6 +136,32 @@ def my_range_call(self, node, value):
             max_err = colander_i18n(
                 self.max_err, mapping={'val':value, 'max':max_value})
             raise Invalid(node, max_err)
+my_range_call.__name__ = '__call__'
+Range.__call__ = my_range_call
+
+
+# Propose this!
+# If a diferent name is defined, should we clone? and set a new name?
+def my_schemameta(cls, name, bases, clsattrs):
+    nodes = []
+    for name, value in clsattrs.items():
+        if isinstance(value, _SchemaNode):
+            delattr(cls, name)
+            # If a diferent name is defined, should we clone? and set a new name?
+            if value.name:
+                value = value.clone()
+            value.name = name
+            if value.raw_title is _marker:
+                value.title = name.replace('_', ' ').title()
+            nodes.append((value._order, value))
+    nodes.sort()
+    cls.__class_schema_nodes__ = [ n[1] for n in nodes ]
+    cls.__all_schema_nodes__ = []
+    for c in reversed(cls.__mro__):
+        csn = getattr(c, '__class_schema_nodes__', [])
+        cls.__all_schema_nodes__.extend(csn)
+my_schemameta.__name__ = '__init__'
+_SchemaMeta.__init__ = my_schemameta
 
 
 class OneOfWithDescription(OneOf):
