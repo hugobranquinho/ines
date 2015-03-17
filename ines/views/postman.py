@@ -103,7 +103,8 @@ class PostmanCollection(object):
                     for schema in schemas:
                         if schema.schema_type == 'request':
                             if schema.schema:
-                                schema_data.extend(construct_postman_data(request, schema.schema))
+                                schema_data.extend(
+                                    construct_postman_data(request, schema.schema))
                             if schema.fields_schema:
                                 schema_data.extend(
                                     construct_postman_data(request, schema.fields_schema))
@@ -129,7 +130,7 @@ class PostmanCollection(object):
                     method_url = url
                     request_schema_data = []
                     request_method = request_method.upper()
-                    if request_method in 'GET':
+                    if request_method == 'GET':
                         queries = []
                         for url_param in schema_data:
                             if url_param['value']:
@@ -205,11 +206,11 @@ class PostmanCollection(object):
             'requests': requests}
 
 
-def construct_postman_data(request, schema):
+def construct_postman_data(request, schema, keep_parent_name=None):
     response = []
     if isinstance(schema.typ, (Sequence, Tuple)):
         child = schema.children[0]
-        response.extend(construct_postman_data(request, child))
+        response.extend(construct_postman_data(request, child, keep_parent_name=schema.name))
         return response
 
     elif isinstance(schema.typ, Mapping):
@@ -227,7 +228,7 @@ def construct_postman_data(request, schema):
                 default = ''
 
         response.append({
-            'key': camelcase(schema.name),
+            'key': camelcase(keep_parent_name or schema.name),
             'value': str(default),
             'type': 'text',
             'enabled': schema.required})
