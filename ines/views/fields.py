@@ -2,7 +2,7 @@
 
 from colander import _ as colander_i18n
 from colander import Boolean as BaseBoolean
-from colander import drop as colander_drop
+from colander import drop
 from colander import DateTime as BaseDateTime
 from colander import Integer
 from colander import Invalid
@@ -35,13 +35,22 @@ clone_sequenceschema_fix.__name__ = 'clone'
 SchemaNode.clone = clone_sequenceschema_fix
 
 
-def my_clone(self, **new_arguments):
+# If we clone a node, should we keep the previous order?
+def clone_with_new_order(self):
     cloned = clone_sequenceschema_fix(self)
-    cloned.__dict__.update(new_arguments)  # Propose this! Update node attributes when cloning
-    cloned._order = next(cloned._counter)  # If we clone a node, should we keep the previous order?
+    cloned._order = next(cloned._counter)
     return cloned
-my_clone.__name__ = 'clone'
-SchemaNode.clone = my_clone
+clone_with_new_order.__name__ = 'clone'
+SchemaNode.clone = clone_with_new_order
+
+
+# Propose this! Update node attributes when cloning
+def update_node_attributes_on_clone(self, **kw):
+    cloned = clone_with_new_order(self)
+    cloned.__dict__.update(kw)
+    return cloned
+update_node_attributes_on_clone.__name__ = 'clone'
+SchemaNode.clone = update_node_attributes_on_clone
 
 
 original_deserialize = SchemaNode.deserialize
@@ -50,7 +59,7 @@ def my_deserialize(self, cstruct=null):
 
     # Return None, only if request and cstruct is empty
     if (self.return_none_if_defined
-            and (appstruct is null or appstruct is colander_drop)
+            and (appstruct is null or appstruct is drop)
             and cstruct is not null and not cstruct):
         return None
 
@@ -154,19 +163,19 @@ class Boolean(BaseBoolean):
 
 
 class InputField(SequenceSchema):
-    field = SchemaNode(String(), missing=None)
+    field = SchemaNode(String(), missing=drop)
 
 
 class InputExcludeField(SequenceSchema):
-    exclude_field = SchemaNode(String(), missing=None)
+    exclude_field = SchemaNode(String(), missing=drop)
 
 
 class InputFields(SequenceSchema):
-    fields = SchemaNode(String(), missing=None)
+    fields = SchemaNode(String(), missing=drop)
 
 
 class InputExcludeFields(SequenceSchema):
-    exclude_fields = SchemaNode(String(), missing=None)
+    exclude_fields = SchemaNode(String(), missing=drop)
 
 
 def split_values(appstruct):
@@ -178,10 +187,10 @@ def split_values(appstruct):
 
 
 class SearchFields(MappingSchema):
-    field = InputField()
-    exclude_field = InputExcludeField()
-    fields = InputFields(preparer=split_values)
-    exclude_fields = InputExcludeFields(preparer=split_values)
+    field = InputField(missing=drop)
+    exclude_field = InputExcludeField(missing=drop)
+    fields = InputFields(preparer=split_values, missing=drop)
+    exclude_fields = InputExcludeFields(preparer=split_values, missing=drop)
 
 
 def node_is_iterable(node):
