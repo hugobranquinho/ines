@@ -208,10 +208,13 @@ class PostmanCollection(object):
 
 def construct_postman_data(request, schema, keep_parent_name=None):
     response = []
-    if isinstance(schema.typ, (Sequence, Tuple)):
+    if isinstance(schema.typ, Sequence):
         child = schema.children[0]
         response.extend(construct_postman_data(request, child, keep_parent_name=schema.name))
         return response
+
+    elif isinstance(schema.typ, Tuple):
+        raise NotImplementedError('Tuple type need to be implemented')
 
     elif isinstance(schema.typ, Mapping):
         for child in schema.children:

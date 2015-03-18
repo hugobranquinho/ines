@@ -8,7 +8,6 @@
 - register cores in zope registry
 - script create babel templates / update / compile
 - script to read ini run application and compile apidocjs
-- script to read ini run application and compile postman requests
 - add thread with garbage collector
 - add core auto logs
 - improve get_cores
@@ -17,3 +16,4 @@
 - improve Core child/father objects
 - validar se o start e end date dos cores ao actualizar e adicionar ficam no timeline de outros do mesmo tipo
 - get core tem de relaccionar com o pai (e avos se preciso) para validar se o mesmo está activo
+- drop colander value if some condition applies

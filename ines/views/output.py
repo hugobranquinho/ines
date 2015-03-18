@@ -90,7 +90,7 @@ class OutputSchemaView(object):
         return camelcase(key)
 
     def construct_structure(self, schema, values, fields):
-        if isinstance(schema.typ, (Sequence, Tuple)):
+        if isinstance(schema.typ, Sequence):
             result = []
             if values is None:
                 return result
@@ -104,6 +104,9 @@ class OutputSchemaView(object):
                     result.append(child_value)
 
             return result
+
+        elif isinstance(schema.typ, Tuple):
+            raise NotImplementedError('Tuple type need to be implemented')
 
         elif isinstance(schema.typ, Mapping):
             result = {}

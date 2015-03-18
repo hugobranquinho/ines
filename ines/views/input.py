@@ -80,7 +80,7 @@ class InputSchemaView(object):
         if padding and name:
             name = '%s.%s' % (padding, name)
 
-        if isinstance(schema.typ, (Sequence, Tuple)):
+        if isinstance(schema.typ, Sequence):
             child = schema.children[0]
             find_exact_name = not node_is_iterable(child)
 
@@ -96,6 +96,9 @@ class InputSchemaView(object):
                         result.append(exact_value)
 
             return result
+
+        elif isinstance(schema.typ, Tuple):
+            raise NotImplementedError('Tuple type need to be implemented')
 
         elif isinstance(schema.typ, Mapping):
             result = {}

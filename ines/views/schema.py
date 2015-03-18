@@ -4,12 +4,13 @@ from urllib2 import unquote
 
 from colander import All
 from colander import Boolean as BaseBoolean
-from colander import drop as colander_drop
+from colander import drop
+from colander import Length
 from colander import Mapping
 from colander import null
 from colander import Number
 from colander import OneOf
-from colander import required as colander_required
+from colander import required
 from colander import Sequence
 from colander import Tuple
 from pyramid.compat import is_nonstr_iter
@@ -21,23 +22,22 @@ from ines.convert import camelcase
 from ines.convert import force_unicode
 from ines.convert import maybe_list
 from ines.interfaces import ISchemaView
-from ines.route import lookup_for_route_params
 from ines.views.fields import OneOfWithDescription
+from ines.utils import MissingDict
 
 
 @implementer(ISchemaView)
 class SchemaView(object):
-    def __init__(self, route_name, routes_names, title=None, description=None):
+    def __init__(self, route_name, routes_names, title=None, description=None, model=None):
         self.route_name = route_name
         self.routes_names = routes_names
         self.title = title
         self.description = description
+        self.model = model
 
     def __call__(self, context, request):
-        model = {}
-        actions = []
+        nodes = MissingDict()
         requested_methods = [key.lower() for key in request.GET.keys()]
-        config = request.registry.config
 
         for route_name, request_methods in self.routes_names.items():
             route_methods = []
@@ -47,73 +47,64 @@ class SchemaView(object):
             if not route_methods:
                 continue
 
-            # Make route for url
-            intr_route = request.registry.introspector.get('routes', route_name)
-            if intr_route is None:
-                continue
-            route = intr_route['object']
-            params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
-            url = '%s%s' % (request.application_url, unquote(route.generate(params)))
-
-            # Lookup for input and output schemas
-            schemas = config.lookup_input_schema(route_name, route_methods)
-            schemas.extend(config.lookup_output_schema(route_name, route_methods))
+            schemas = request.registry.config.lookup_input_schema(route_name, route_methods)
+            schemas.extend(request.registry.config.lookup_output_schema(route_name, route_methods))
             for schema in schemas:
-                is_input_schema = schema.schema_type == 'request'
-
-                fields = []
                 if schema.schema:
-                    fields.extend(self.construct_structure(
+                    structure = self.construct_structure(
                         request,
-                        model,
                         schema.schema,
-                        is_input_schema))
+                        schema.schema_type)
+                else:
+                    structure = []
 
-                if is_input_schema and schema.fields_schema:
-                    fields.extend(self.construct_structure(
+                if schema.schema_type == 'request' and schema.fields_schema:
+                    fields_structure = self.construct_structure(
                         request,
-                        model,
                         schema.fields_schema,
-                        is_input_schema))
+                        schema.schema_type)
 
-                if is_input_schema:
-                    for req_method in maybe_list(schema.request_method or route_methods):
-                        actions.append({
-                            'method': req_method.upper(),
-                            'href': url,
-                            'fields': fields})
+                    if not isinstance(structure, list):
+                        structure = [structure]
+                    structure.extend(fields_structure)
 
-        return {
-            'model': model.values(),
-            'actions': actions}
+                for method in route_methods:
+                    nodes[method][schema.schema_type] = structure
 
-    def construct_structure(self, request, model, schema, is_input_schema):
-        if isinstance(schema.typ, (Sequence, Tuple)):
+        return nodes
+
+    def construct_structure(self, request, schema, schema_type):
+        if isinstance(schema.typ, Sequence):
             child = schema.children[0]
+            children = self.construct_structure(request, child, schema_type)
+            if not is_nonstr_iter(children):
+                children = [children]
+
+            details = {
+                'type': 'sequence',
+                'order': schema._order,
+                'children': children}
+
             if not schema.name:
-                info = child
+                details.update({
+                    'name': camelcase(child.name),
+                    'title': child.title,
+                    'description': child.description or None})
             else:
-                info = schema
+                details.update({
+                    'name': camelcase(schema.name),
+                    'title': schema.title,
+                    'description': schema.description or None})
 
-            if not model:
-                model.update({
-                    'type': 'sequence',
-                    'name': camelcase(info.name),
-                    'title': info.title,
-                    'description': info.description or None,
-                    'order': info._order})
+            return details
 
-            # Update or add children
-            children_model = model.get('children')
-            if not children_model:
-                children_model = model['children'] = {}
-
-            return self.construct_structure(request, children_model, child, is_input_schema)
+        elif isinstance(schema.typ, Tuple):
+            raise NotImplementedError('Tuple type need to be implemented')
 
         elif isinstance(schema.typ, Mapping):
             result = []
             for child in schema.children:
-                result.append(self.construct_structure(request, model, child, is_input_schema))
+                result.append(self.construct_structure(request, child, schema_type))
             return result
 
         else:
@@ -146,27 +137,36 @@ class SchemaView(object):
                                 'value': choice,
                                 'text': choice_description})
                     else:
-                        request_validation.append(validator)
+                        if isinstance(validator, Length):
+                            validation_option = {}
+                            if validator.min is not None:
+                                validation_option['min'] = validator.min
+                            if validator.max is not None:
+                                validation_option['max'] = validator.max
+                        else:
+                            validation_option = True
 
-            if is_input_schema:
+                        request_validation.append((validator, validation_option))
+
+            if schema_type == 'request':
                 validation = {}
                 if schema.required:
                     validation['required'] = True
 
                 if request_validation:
-                    for validator in request_validation:
-                        validation[get_colander_type_name(validator)] = True
+                    for validator, validation_option in request_validation:
+                        validation[get_colander_type_name(validator)] = validation_option
                 if validation:
                     details['validation'] = validation
 
                 default = schema.missing
             else:
-                if schema.missing is colander_drop:
+                if schema.missing is drop:
                     details['maybeNotSent'] = True
                 default = schema.default
 
-            if (default is not colander_drop
-                    and default is not colander_required
+            if (default is not drop
+                    and default is not required
                     and default is not null):
                 if isinstance(schema.typ, Number):
                     default = schema.typ.num(default)
