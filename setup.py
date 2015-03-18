@@ -50,7 +50,10 @@ requires = [
     'Paste',
     'WebOb',
     'PasteDeploy',
-    'colander >= 1.0']
+    'colander >= 1.0',
+    'transaction',
+    'zope.sqlalchemy',
+    'repoze.tm2']
 
 python_version = sys.version_info[:2]
 if python_version <= (2, 6):
