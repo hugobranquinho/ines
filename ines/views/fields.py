@@ -39,18 +39,9 @@ clone_sequenceschema_fix.__name__ = 'clone'
 SchemaNode.clone = clone_sequenceschema_fix
 
 
-# If we clone a node, should we keep the previous order?
-def clone_with_new_order(self):
-    cloned = clone_sequenceschema_fix(self)
-    cloned._order = next(cloned._counter)
-    return cloned
-clone_with_new_order.__name__ = 'clone'
-SchemaNode.clone = clone_with_new_order
-
-
 # Propose this! Update node attributes when cloning
 def update_node_attributes_on_clone(self, **kw):
-    cloned = clone_with_new_order(self)
+    cloned = clone_sequenceschema_fix(self)
     cloned.__dict__.update(kw)
     return cloned
 update_node_attributes_on_clone.__name__ = 'clone'

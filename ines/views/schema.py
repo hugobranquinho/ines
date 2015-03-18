@@ -22,6 +22,7 @@ from ines.convert import camelcase
 from ines.convert import force_unicode
 from ines.convert import maybe_list
 from ines.interfaces import ISchemaView
+from ines.route import lookup_for_route_params
 from ines.views.fields import OneOfWithDescription
 from ines.utils import MissingDict
 
@@ -39,62 +40,99 @@ class SchemaView(object):
         nodes = MissingDict()
         requested_methods = [key.lower() for key in request.GET.keys()]
 
+        types = {}
+        models = {}
+        nodes['fieldTypes'] = types
+        nodes['models'] = models
+
         for route_name, request_methods in self.routes_names.items():
             route_methods = []
             for request_method in maybe_list(request_methods or DEFAULT_METHODS):
-                if not requested_methods or request_method in requested_methods:
+                if not requested_methods or request_method.lower() in requested_methods:
                     route_methods.append(request_method)
             if not route_methods:
                 continue
 
+            intr_route = request.registry.introspector.get('routes', route_name)
+            if intr_route is None:
+                continue
+            route = intr_route['object']
+            params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
+            url = '%s%s' % (request.application_url, unquote(route.generate(params)))
+
             schemas = request.registry.config.lookup_input_schema(route_name, route_methods)
             schemas.extend(request.registry.config.lookup_output_schema(route_name, route_methods))
             for schema in schemas:
+                fields = []
                 if schema.schema:
-                    structure = self.construct_structure(
+                    details = self.construct_structure(
                         request,
                         schema.schema,
-                        schema.schema_type)
-                else:
-                    structure = []
+                        schema.schema_type,
+                        types,
+                        models)
+                    if isinstance(details, dict):
+                        fields.append(details)
+                    else:
+                        fields.extend(details)
 
                 if schema.schema_type == 'request' and schema.fields_schema:
-                    fields_structure = self.construct_structure(
+                    details = self.construct_structure(
                         request,
                         schema.fields_schema,
-                        schema.schema_type)
+                        schema.schema_type,
+                        types,
+                        models)
+                    if isinstance(details, dict):
+                        fields.append(details)
+                    else:
+                        fields.extend(details)
 
-                    if not isinstance(structure, list):
-                        structure = [structure]
-                    structure.extend(fields_structure)
-
-                for method in route_methods:
-                    nodes[method][schema.schema_type] = structure
+                name = camelcase('%s_%s' % (schema.request_method, schema.route_name))
+                nodes[name][schema.schema_type] = fields
+                nodes[name]['method'] = schema.request_method.upper()
+                nodes[name]['url'] = url
 
         return nodes
 
-    def construct_structure(self, request, schema, schema_type):
+    def construct_structure(self, request, schema, schema_type, types, models, parent_name=None):
         if isinstance(schema.typ, Sequence):
             child = schema.children[0]
-            children = self.construct_structure(request, child, schema_type)
-            if not is_nonstr_iter(children):
-                children = [children]
-
-            details = {
-                'type': 'sequence',
-                'order': schema._order,
-                'children': children}
-
             if not schema.name:
-                details.update({
-                    'name': camelcase(child.name),
-                    'title': child.title,
-                    'description': child.description or None})
+                schema = child
+
+            name = camelcase(schema.name)
+            model_details = {
+                'type': 'sequence',
+                'title': schema.title,
+                'description': schema.description or None}
+            details = {
+                'model': name}
+
+            # Find and add child
+            child_details = self.construct_structure(
+                request,
+                child,
+                schema_type,
+                types,
+                models,
+                schema.name)
+
+            if isinstance(model_details, dict):
+                if isinstance(child.typ, Mapping):
+                    model_details['type'] = 'model'
+                    model_details.update(child_details)
+                else:
+                    model_details['fields'] = [child_details]
             else:
-                details.update({
-                    'name': camelcase(schema.name),
-                    'title': schema.title,
-                    'description': schema.description or None})
+                model_details['fields'] = child_details
+
+            if name not in models:
+                models[name] = model_details
+            else:
+                for key, value in model_details.items():
+                    if value != models[name].get(key):
+                        details[key] = value
 
             return details
 
@@ -102,18 +140,46 @@ class SchemaView(object):
             raise NotImplementedError('Tuple type need to be implemented')
 
         elif isinstance(schema.typ, Mapping):
-            result = []
+            fields = []
             for child in schema.children:
-                result.append(self.construct_structure(request, child, schema_type))
-            return result
+                fields.append(self.construct_structure(
+                    request,
+                    child,
+                    schema_type,
+                    types,
+                    models,
+                    schema.name))
 
-        else:
-            details = {
-                'type': get_colander_type_name(schema.typ),
-                'name': camelcase(schema.name),
+            name = schema.name or parent_name
+            if not name:
+                return fields
+
+            name = camelcase(name)
+            model_details = {
+                'type': 'model',
                 'title': schema.title,
                 'description': schema.description or None,
-                'order': schema._order}
+                'fields': fields}
+            details = {
+                'model': name}
+
+            if name not in models:
+                models[name] = model_details
+            else:
+                for key, value in model_details.items():
+                    if value != models[name].get(key):
+                        model_details[key] = value
+
+            return details
+
+        else:
+            name = camelcase(schema.name)
+            type_details = {
+                'type': get_colander_type_name(schema.typ),
+                'title': schema.title,
+                'description': schema.description or None}
+            details = {
+                'fieldType': name}
 
             request_validation = []
             if schema.validator:
@@ -124,16 +190,16 @@ class SchemaView(object):
 
                 for validator in validators:
                     if isinstance(validator, OneOfWithDescription):
-                        details['options'] = []
+                        type_details['options'] = []
                         for choice, description in validator.choices_with_descripton:
-                            details['options'].append({
+                            type_details['options'].append({
                                 'value': choice,
                                 'text': request.translate(description)})
                     elif isinstance(validator, OneOf):
-                        details['options'] = []
+                        type_details['options'] = []
                         for choice in validator.choices:
                             choice_description = force_unicode(choice).replace(u'_', u' ').title()
-                            details['options'].append({
+                            type_details['options'].append({
                                 'value': choice,
                                 'text': choice_description})
                     else:
@@ -157,7 +223,7 @@ class SchemaView(object):
                     for validator, validation_option in request_validation:
                         validation[get_colander_type_name(validator)] = validation_option
                 if validation:
-                    details['validation'] = validation
+                    type_details['validation'] = validation
 
                 default = schema.missing
             else:
@@ -172,7 +238,14 @@ class SchemaView(object):
                     default = schema.typ.num(default)
                 elif isinstance(schema.typ, BaseBoolean):
                     default = asbool(default)
-                details['default'] = default
+                type_details['default'] = default
+
+            if name not in types:
+                types[name] = type_details
+            else:
+                for key, value in type_details.items():
+                    if value != types[name].get(key):
+                        details[key] = value
 
             return details
 
