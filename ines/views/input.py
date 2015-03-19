@@ -12,7 +12,6 @@ from ines.convert import maybe_list
 from ines.convert import uncamelcase
 from ines.interfaces import IInputSchemaView
 from ines.utils import MissingDict
-from ines.views.fields import node_is_iterable
 from ines.views.fields import SearchFields
 
 
@@ -82,7 +81,7 @@ class InputSchemaView(object):
 
         if isinstance(schema.typ, Sequence):
             child = schema.children[0]
-            find_exact_name = not node_is_iterable(child)
+            find_exact_name = not isinstance(child.typ, (Sequence, Tuple, Mapping))
 
             result = []
             for values in construct_sequence_items(name, values):

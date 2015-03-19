@@ -15,7 +15,6 @@ from zope.interface import implementer
 from ines.convert import camelcase
 from ines.exceptions import Error
 from ines.interfaces import IOutputSchemaView
-from ines.views.fields import node_is_iterable
 
 
 @implementer(IOutputSchemaView)
@@ -80,7 +79,7 @@ class OutputSchemaView(object):
             for child in schema.children:
                 allowed_fields.update(self.find_allowed_fields(child, name))
 
-        elif node_is_iterable(schema):
+        elif isinstance(schema.typ, Mapping):
             for child in schema.children:
                 allowed_fields[child.name] = self.find_allowed_fields(child, name)
 

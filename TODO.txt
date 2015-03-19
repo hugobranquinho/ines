@@ -17,3 +17,4 @@
 - validar se o start e end date dos cores ao actualizar e adicionar ficam no timeline de outros do mesmo tipo
 - get core tem de relaccionar com o pai (e avos se preciso) para validar se o mesmo está activo
 - drop colander value if some condition applies
+- definir ZopeTransactionExtension() como setting
