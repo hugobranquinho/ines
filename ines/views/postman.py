@@ -1,17 +1,24 @@
 # -*- coding: utf-8 -*-
 
+import datetime
 from time import time as NOW_TIME
 from urllib2 import quote
 from urllib2 import unquote
 from uuid import uuid4
 
-from colander import drop as colander_drop
+from colander import Boolean
+from colander import Date
+from colander import DateTime
+from colander import drop
 from colander import Mapping
 from colander import null
-from colander import required as colander_required
+from colander import OneOf
+from colander import required
 from colander import Sequence
+from colander import String
 from colander import Tuple
 from pyramid.authorization import Everyone
+from pyramid.compat import is_nonstr_iter
 
 from ines import DEFAULT_METHODS
 from ines.authorization import NotAuthenticated
@@ -21,6 +28,10 @@ from ines.interfaces import ISchemaView
 from ines.route import lookup_for_route_params
 from ines.route import lookup_for_route_permissions
 from ines.utils import MissingList
+
+
+TODAY_DATE = datetime.date.today
+NOW_DATE = datetime.datetime.now
 
 
 class PostmanCollection(object):
@@ -104,10 +115,10 @@ class PostmanCollection(object):
                         if schema.schema_type == 'request':
                             if schema.schema:
                                 schema_data.extend(
-                                    construct_postman_data(request, schema.schema))
+                                    self.construct_data(request_method, schema.schema))
                             if schema.fields_schema:
                                 schema_data.extend(
-                                    construct_postman_data(request, schema.fields_schema))
+                                    self.construct_data(request_method, schema.fields_schema))
 
                         if schema.schema and not title:
                             title = schema.schema.title
@@ -205,34 +216,63 @@ class PostmanCollection(object):
             'folders': response_folders,
             'requests': requests}
 
+    def construct_data(self, request_method, schema, keep_parent_name=None):
+        response = []
+        if isinstance(schema.typ, Sequence):
+            child = schema.children[0]
+            response.extend(self.construct_data(
+                request_method,
+                child,
+                keep_parent_name=schema.name))
+            return response
 
-def construct_postman_data(request, schema, keep_parent_name=None):
-    response = []
-    if isinstance(schema.typ, Sequence):
-        child = schema.children[0]
-        response.extend(construct_postman_data(request, child, keep_parent_name=schema.name))
-        return response
+        elif isinstance(schema.typ, Tuple):
+            raise NotImplementedError('Tuple type need to be implemented')
 
-    elif isinstance(schema.typ, Tuple):
-        raise NotImplementedError('Tuple type need to be implemented')
+        elif isinstance(schema.typ, Mapping):
+            for child in schema.children:
+                response.extend(
+                    self.construct_data(
+                        request_method,
+                        child))
+            return response
 
-    elif isinstance(schema.typ, Mapping):
-        for child in schema.children:
-            response.extend(construct_postman_data(request, child))
-        return response
+        else:
+            default = schema.serialize()
+            if default is null:
+                default = ''
+                if schema.missing not in (drop, required, null):
+                    default = schema.missing
 
-    else:
-        default = schema.serialize()
-        if default is null:
-            default = ''
-            if schema.missing not in (colander_drop, colander_required, null):
-                default = schema.missing
+            if hasattr(schema, 'postman_default'):
+                default = schema.postman_default
+
+            if default == '' and schema.missing is required and request_method.upper() == 'POST':
+                if not schema.validator:
+                    if isinstance(schema.typ, String):
+                        default = '%s {{$randomInt}}' % schema.name.replace('_', ' ').title()
+                    elif isinstance(schema.typ, Boolean):
+                        default = 'true'
+                    elif isinstance(schema.typ, Date):
+                        default = TODAY_DATE()
+                    elif isinstance(schema.typ, DateTime):
+                        default = NOW_DATE()
+                else:
+                    validators = schema.validator
+                    if not is_nonstr_iter(validators):
+                        validators = [validators]
+
+                    for validator in validators:
+                        if isinstance(validator, OneOf):
+                            default = validator.choices[0]
+                            break
+
             if default is None:
                 default = ''
 
-        response.append({
-            'key': camelcase(keep_parent_name or schema.name),
-            'value': str(default),
-            'type': 'text',
-            'enabled': schema.required})
-        return response
+            response.append({
+                'key': camelcase(keep_parent_name or schema.name),
+                'value': str(default),
+                'type': 'text',
+                'enabled': schema.required})
+            return response
