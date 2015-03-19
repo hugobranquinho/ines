@@ -25,3 +25,12 @@ def maybe_list(value):
         return [value]
     else:
         return list(value)
+
+
+def maybe_set(value):
+    if value is None:
+        return set()
+    elif not is_nonstr_iter(value):
+        return set([value])
+    else:
+        return set(value)

@@ -21,6 +21,7 @@ from zope.sqlalchemy import ZopeTransactionExtension
 from ines.api import BaseSessionManager
 from ines.api.database import BaseSQLSession
 from ines.convert import maybe_integer
+from ines.convert import maybe_set
 from ines.convert import maybe_unicode
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.utils import MissingDict
@@ -159,7 +160,7 @@ def append_arguments(obj, key, value):
 
 def maybe_with_none(column, values, query=None):
     queries = []
-    values = set(values)
+    values = maybe_set(values)
     if None in values:
         values.remove(None)
         queries.append(column.is_(None))
@@ -185,7 +186,7 @@ def maybe_with_none(column, values, query=None):
 
 def like_maybe_with_none(column, values, query=None):
     queries = []
-    values = set(values)
+    values = maybe_set(values)
     if None in values:
         values.remove(None)
         queries.append(column.is_(None))
