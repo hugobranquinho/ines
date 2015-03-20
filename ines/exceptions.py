@@ -6,7 +6,7 @@ from pyramid.httpexceptions import HTTPUnauthorized
 
 class Error(Exception):
     def __init__(self, key, message, exception=None):
-        Exception.__init__(self, message)
+        super(Exception, self).__init__(message)
 
         self.key = key
         self.message = message

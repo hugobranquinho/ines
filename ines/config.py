@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from collections import OrderedDict
 from inspect import getargspec
-
 from pkg_resources import get_distribution
 
 from colander import Invalid
@@ -243,7 +243,7 @@ class APIConfigurator(Configurator):
             **view_kwargs):
 
         if not isinstance(routes_names, dict):
-            routes_names = dict((k, None) for k in maybe_list(routes_names))
+            routes_names = OrderedDict((k, None) for k in maybe_list(routes_names))
         if not routes_names:
             raise Error('schema', 'Define some routes_names')
         if not route_name:

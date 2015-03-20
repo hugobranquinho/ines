@@ -31,6 +31,6 @@ def maybe_set(value):
     if value is None:
         return set()
     elif not is_nonstr_iter(value):
-        return set([value])
+        return {value}
     else:
         return set(value)
