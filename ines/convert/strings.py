@@ -102,3 +102,36 @@ def uncamelcase(value):
         if letters:
             final_words.append(u''.join(letters))
     return u'_'.join(final_words).lower()
+
+
+VOWEL = frozenset(('a', 'e', 'i', 'o', 'u'))
+
+# See http://www.csse.monash.edu.au/~damian/papers/HTML/Plurals.html # Pluralizing algorithms
+def pluralizing_word(word):
+    word = force_unicode(word)
+
+    # By default add "S"
+    to_append = u's'
+
+    lower_word = word.lower()
+    if lower_word.endswith('ss'):
+        to_append = u'es'
+
+    elif lower_word.isnumeric():
+        return word
+
+    elif (lower_word.endswith('y')
+            and len(lower_word) > 1
+            and lower_word[-2] not in VOWEL
+            and lower_word != 'soliloquy'):
+        word = word[:-1]
+        to_append = u'ies'
+
+    if word.isupper():
+        return word + to_append.upper()
+    else:
+        return word + to_append
+
+
+def pluralizing_key(key):
+    return '_'.join(pluralizing_word(word) for word in key.split('_'))

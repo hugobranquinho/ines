@@ -15,6 +15,8 @@ from ines.convert.strings import (camelcase,
                                   maybe_integer,
                                   maybe_null,
                                   maybe_unicode,
+                                  pluralizing_key,
+                                  pluralizing_word,
                                   uncamelcase)
 
 
