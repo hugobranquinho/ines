@@ -494,6 +494,7 @@ class BaseCoreSession(BaseSQLSession):
             query = query.filter(not_inactives_filter(Core))
 
         # Set order by
+        order_by = create_order_by(table, order_by)
         if order_by is not None:
             query = query.order_by(order_by)
 
@@ -1153,3 +1154,24 @@ class BaseCoreSession(BaseSQLSession):
                 number_of_results=0)
         else:
             return []
+
+
+def create_order_by(table, order_by):
+    if isinstance(order_by, basestring):
+        return getattr(table, order_by, None)
+
+    elif is_nonstr_iter(order_by) and order_by:
+        if isinstance(order_by[0], basestring):
+            column = getattr(table, order_by[0], None)
+            if column is not None:
+                if isinstance(column, CoreColumnParent):
+                    column = getattr(Core, order_by[0])
+
+                if len(order_by) > 1 and order_by[1].lower() in ('desc', 'd'):
+                    return column.desc()
+                else:
+                    return column
+        else:
+            return [create_order_by(table, ob) for ob in order_by]
+    else:
+        return order_by
