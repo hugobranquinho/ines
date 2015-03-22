@@ -227,7 +227,13 @@ class PostmanCollection(object):
             return response
 
         elif isinstance(schema.typ, Tuple):
-            raise NotImplementedError('Tuple type need to be implemented')
+            for child in schema.children:
+                response.extend(
+                    self.construct_data(
+                        request_method,
+                        child,
+                        keep_parent_name=schema.name))
+            return response
 
         elif isinstance(schema.typ, Mapping):
             for child in schema.children:
@@ -238,6 +244,12 @@ class PostmanCollection(object):
             return response
 
         else:
+            if hasattr(schema.typ, 'typ'):
+                return self.construct_data(
+                    request_method,
+                    schema.typ,
+                    keep_parent_name=keep_parent_name)
+
             default = schema.serialize()
             if default is null:
                 default = ''
