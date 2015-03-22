@@ -22,6 +22,7 @@ from colander.compat import is_nonstr_iter
 from ines import _
 from ines import FALSES
 from ines import TRUES
+from ines.convert import pluralizing_key
 
 
 # See https://github.com/Pylons/colander/pull/212
@@ -57,12 +58,14 @@ def my_deserialize(self, cstruct=null):
         return None
 
     # Propose this!
-    if hasattr(self, 'after_deserialize'):
-        if is_nonstr_iter(self.after_deserialize):
-            for func in self.after_deserialize:
-                appstruct = func(appstruct)
-        else:
-            appstruct = self.after_deserialize(appstruct)
+    if hasattr(self, 'finisher'):
+        # if the finisher is a function, call a single preparer
+        if callable(self.finisher):
+            appstruct = self.finisher(appstruct)
+        # if the finisher is a list, call each separate preparer
+        elif is_nonstr_iter(self.finisher):
+            for preparer in self.finisher:
+                appstruct = preparer(self, appstruct)
 
     return appstruct
 my_deserialize.__name__ = 'deserialize'
@@ -197,12 +200,19 @@ class InputExcludeFields(SequenceSchema):
     exclude_fields = SchemaNode(String(), missing=drop)
 
 
-def split_values(appstruct):
-    result = set()
-    if appstruct is not null:
-        for value in appstruct:
-            result.update(value.split(u','))
-    return list(result)
+class SplitValues(object):
+    def __init__(self, break_with=u',', break_limit=-1):
+        self.break_with = break_with
+        self.break_limit = break_limit
+
+    def __call__(self, appstruct):
+        result = []
+        if appstruct is not null:
+            for value in appstruct:
+                result.extend(value.split(self.break_with, self.break_limit))
+        return result
+
+split_values = SplitValues()
 
 
 class SearchFields(MappingSchema):
@@ -215,6 +225,7 @@ class SearchFields(MappingSchema):
 # Global attributes
 PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
 LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
+ORDER_BY = SchemaNode(String(), title=_(u'Order by'), missing=drop)
 NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
 LAST_PAGE = SchemaNode(Integer(), title=_(u'Last page'))
 NEXT_PAGE_HREF = SchemaNode(String(), title=_(u'Next page url'))
@@ -223,9 +234,76 @@ FIRST_PAGE_HREF = SchemaNode(String(), title=_(u'First page url'))
 LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
 
 
+def OrderFinisher(node, appstruct):
+    if appstruct and appstruct.get('order_by'):
+        order_way = 'ASC'
+        order_by = appstruct['order_by'].split(' ', 1)
+        if len(order_by) == 2 and order_by[1].lower() in ('desc', 'd'):
+            order_way = 'DESC'
+        appstruct['order_by'] = (order_by[0], order_way)
+    return appstruct
+
+
+class SequenceFinisher(object):
+    def __init__(self, single_key, plural_key):
+        self.single_key = single_key
+        self.plural_key = plural_key
+
+    def __call__(self, node, appstruct):
+        if appstruct:
+            if self.single_key in appstruct:
+                appstruct.setdefault(self.plural_key, []).extend(appstruct.pop(self.single_key))
+            if not appstruct.get(self.plural_key):
+                appstruct.pop(self.plural_key, None)
+        return appstruct
+
+
 class PaginationInput(MappingSchema):
     page = PAGE.clone(missing=1)
     limit_per_page = LIMIT_PER_PAGE.clone(missing=20)
+    order_by = ORDER_BY.clone(missing=drop)
+    finisher = [OrderFinisher]
+
+
+def add_sequence_node(schema, sequence_node, single_key, plural_key=None):
+    single_node = SequenceSchema(Sequence(), sequence_node, missing=drop, name=single_key)
+    schema.__class_schema_nodes__.append(single_node)
+    schema.__all_schema_nodes__.append(single_node)
+
+    if not plural_key:
+        plural_key = pluralizing_key(single_key)
+
+    plural_node = SequenceSchema(
+        Sequence(),
+        sequence_node,
+        missing=drop,
+        preparer=split_values,
+        name=plural_key)
+    schema.__class_schema_nodes__.append(plural_node)
+    schema.__all_schema_nodes__.append(plural_node)
+
+    sequence_finisher = SequenceFinisher(single_key, plural_key)
+    if hasattr(schema, 'finisher'):
+        if not is_nonstr_iter(schema.finisher):
+            previous_finisher = schema.finisher
+            def decorator(cls, appstruct):
+                appstruct = sequence_finisher(cls, appstruct)
+                return previous_finisher(cls, appstruct)
+            schema.finisher = decorator
+        else:
+            schema.finisher.append(sequence_finisher)
+    else:
+        schema.finisher = [sequence_finisher]
+
+
+def add_sequence_nodes(schema, *sequence_nodes):
+    for sequence_node in sequence_nodes:
+        if isinstance(sequence_node, dict):
+            add_sequence_node(schema, **sequence_node)
+        elif is_nonstr_iter(sequence_node):
+            add_sequence_node(schema, *sequence_node)
+        else:
+            add_sequence_node(schema, sequence_node, sequence_node.name)
 
 
 class PaginationOutput(MappingSchema):
