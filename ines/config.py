@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 
-from collections import OrderedDict
+try:
+    from collections import OrderedDict
+except ImportError:
+    OrderedDict = dict
+
 from inspect import getargspec
 from pkg_resources import get_distribution
 
