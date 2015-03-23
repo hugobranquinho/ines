@@ -51,15 +51,12 @@ update_node_attributes_on_clone.__name__ = 'clone'
 SchemaNode.clone = update_node_attributes_on_clone
 
 
-original_deserialize = SchemaNode.deserialize
 def my_deserialize(self, cstruct=null):
-    appstruct = original_deserialize(self, cstruct)
-
     # Return None, only if request and cstruct is empty
-    if (self.return_none_if_defined
-            and (appstruct is null or appstruct is drop)
-            and cstruct is not null and not cstruct):
+    if self.return_none_if_defined and cstruct == '':
         return None
+
+    appstruct = super(SchemaNode, self).deserialize(cstruct)
 
     # Propose this!
     if hasattr(self, 'finisher'):
