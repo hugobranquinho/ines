@@ -34,6 +34,8 @@ from ines.api.database.sql import SQL_DBS
 from ines.convert import maybe_integer
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
+from ines.views.fields import FilterBy
+from ines.views.fields import OrderBy
 from ines.utils import MissingList
 from ines.utils import MissingSet
 
@@ -289,27 +291,10 @@ class BaseCoreSession(BaseSQLSession):
             filters = deepcopy(filters)
             if core_name in filters:
                 for key, values in filters.pop(core_name).items():
-                    filter_type = None
-                    if isinstance(values, tuple):
-                        filter_type, values = values
-
                     column = getattr(table, key)
                     if isinstance(column, CoreColumnParent):
                         column = getattr(Core, key)
-
-                    if filter_type:
-                        if filter_type == 'like':
-                            value_filter = like_maybe_with_none(column, values)
-                            if value_filter is not None:
-                                queries.append(value_filter)
-                        else:
-                            raise
-
-                    elif not is_nonstr_iter(values):
-                        queries.append(column == values)
-                    else:
-                        values = set(values)
-                        queries.append(maybe_with_none(column, values))
+                    queries.extend(create_filter_by(column, values))
 
             core_foreign = getattr(table, 'core_foreign_key', None)
             if core_foreign is not None:
@@ -327,27 +312,10 @@ class BaseCoreSession(BaseSQLSession):
                         relate_with_foreign[foreign_name] = (foreign_table, aliased_foreign, column_key)
 
                     for key, values in filters.pop(foreign_name).items():
-                        filter_type = None
-                        if isinstance(values, tuple):
-                            filter_type, values = values
-
                         column = getattr(foreign_table, key)
                         if isinstance(column, CoreColumnParent):
                             column = getattr(aliased_foreign, key)
-
-                        if filter_type:
-                            if filter_type == 'like':
-                                value_filter = like_maybe_with_none(column, values)
-                                if value_filter is not None:
-                                    queries.append(value_filter)
-                            else:
-                                raise
-
-                        elif not is_nonstr_iter(values):
-                            queries.append(column == values)
-                        else:
-                            values = set(values)
-                            queries.append(maybe_with_none(column, values))
+                        queries.extend(create_filter_by(column, values))
 
             cores_ids = set()
             looked_cores = False
@@ -1156,22 +1124,58 @@ class BaseCoreSession(BaseSQLSession):
             return []
 
 
-def create_order_by(table, order_by):
-    if isinstance(order_by, basestring):
-        return getattr(table, order_by, None)
+def create_order_by(table, maybe_column, descendant=False):
+    if isinstance(maybe_column, basestring):
+        column = getattr(table, maybe_column, None)
+        return create_order_by(table, column, descendant)
 
-    elif is_nonstr_iter(order_by) and order_by:
-        if isinstance(order_by[0], basestring):
-            column = getattr(table, order_by[0], None)
-            if column is not None:
-                if isinstance(column, CoreColumnParent):
-                    column = getattr(Core, order_by[0])
+    elif isinstance(maybe_column, OrderBy):
+        return create_order_by(table, maybe_column.column_name, maybe_column.descendant)
 
-                if len(order_by) > 1 and order_by[1].lower() in ('desc', 'd'):
-                    return column.desc()
-                else:
-                    return column
+    elif is_nonstr_iter(maybe_column):
+        if len(maybe_column) == 2 and maybe_column[1].lower() == 'desc':
+            return create_order_by(table, maybe_column[0], descendant=True)
         else:
-            return [create_order_by(table, ob) for ob in order_by]
+            return [create_order_by(table, ob, descendant) for ob in maybe_column]
+
+    elif maybe_column is not None:
+        if isinstance(maybe_column, CoreColumnParent):
+            maybe_column = maybe_column.get_core_column()
+
+        if descendant:
+            return maybe_column.desc()
+        else:
+            return maybe_column
+
+
+def create_filter_by(column, values):
+    queries = []
+    if isinstance(values, FilterBy):
+        if values.filter_type == 'like':
+            value_filter = like_maybe_with_none(column, values.value)
+            if value_filter is not None:
+                queries.append(value_filter)
+
+        elif values.filter_type == '>':
+            queries.append(column > values.value)
+
+        elif values.filter_type == '>=':
+            queries.append(column >= values.value)
+
+        elif values.filter_type == '<':
+            queries.append(column < values.value)
+
+        elif values.filter_type == '<=':
+            queries.append(column <= values.value)
+
+        else:
+            raise KeyError('Invalid filter type %s' % values.filter_type)
+
+    elif isinstance(values, tuple) and len(values) == 2:
+        return create_filter_by(
+            column,
+            values=FilterBy(*values))
     else:
-        return order_by
+        queries.append(maybe_with_none(column, values))
+
+    return queries

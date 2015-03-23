@@ -14,6 +14,7 @@ from colander import null
 from colander import OneOf
 from colander import Range
 from colander import SchemaNode
+from colander import SchemaType
 from colander import Sequence
 from colander import SequenceSchema
 from colander import String
@@ -234,13 +235,24 @@ FIRST_PAGE_HREF = SchemaNode(String(), title=_(u'First page url'))
 LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
 
 
+class OrderBy(object):
+    def __init__(self, column_name, descendant=False):
+        self.column_name = column_name
+        self.descendant = descendant
+
+    def repr(self):
+        if self.descendant:
+            order = 'DESC'
+        else:
+            order = 'ASC'
+        return '%s %s' % (self.column_name, order)
+
+
 def OrderFinisher(node, appstruct):
     if appstruct and appstruct.get('order_by'):
-        order_way = 'ASC'
         order_by = appstruct['order_by'].split(' ', 1)
-        if len(order_by) == 2 and order_by[1].lower() in ('desc', 'd'):
-            order_way = 'DESC'
-        appstruct['order_by'] = (order_by[0], order_way)
+        descendant = bool(len(order_by) == 2 and order_by[1].lower() in ('desc', 'd'))
+        appstruct['order_by'] = OrderBy(order_by[0], descendant)
     return appstruct
 
 
@@ -319,3 +331,30 @@ class PaginationOutput(MappingSchema):
 
 class DeleteOutput(MappingSchema):
     deleted = SchemaNode(Boolean(), title=_(u'Deleted'))
+
+
+FILTER_BY_OPTIONS = ['>', '>=', '<', '<=', 'like']
+
+class FilterBy(object):
+    def __init__(self, filter_type, value):
+        self.filter_type = filter_type
+        self.value = value
+
+
+class FilterByField(SchemaType):
+    def deserialize(self, node, cstruct):
+        filter_type = None
+        if cstruct and isinstance(cstruct, basestring):
+            options = cstruct.split(' ', 1)
+            if len(options) == 2 and options[0] in FILTER_BY_OPTIONS:
+                filter_type, cstruct = options
+
+        cstruct = super(FilterByField, self).deserialize(node, cstruct)
+        if filter_type:
+            return FilterBy(filter_type, cstruct)
+        else:
+            return cstruct
+
+
+class FilterByDateTime(FilterByField, DateTime):
+    pass
