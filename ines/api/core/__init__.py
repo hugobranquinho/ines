@@ -58,7 +58,7 @@ class BaseCoreSessionManager(BaseSessionManager):
 def not_inactives_filter(column):
     return and_(
         or_(column.start_date <= func.now(), column.start_date.is_(None)),
-        or_(column.end_date >= func.now(), column.end_date.is_(None)))
+        or_(column.end_date > func.now(), column.end_date.is_(None)))
 
 
 def table_type(table):

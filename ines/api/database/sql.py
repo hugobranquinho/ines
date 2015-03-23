@@ -3,8 +3,10 @@
 from math import ceil
 from pkg_resources import get_distribution
 
+from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.settings import asbool
+from sqlalchemy import and_
 from sqlalchemy import Column
 from sqlalchemy import create_engine
 from sqlalchemy import func
@@ -16,6 +18,8 @@ from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.pool import NullPool
+from sqlalchemy.sql.expression import false
+from sqlalchemy.sql.expression import true
 from zope.sqlalchemy import ZopeTransactionExtension
 
 from ines.api import BaseSessionManager
@@ -389,3 +393,42 @@ class Columns(list):
     def __init__(self, *args, **kwargs):
         super(Columns, self).__init__(*args, **kwargs)
         self.tables = TablesSet()
+
+
+def active_filter(columns):
+    if not is_nonstr_iter(columns):
+        columns = [columns]
+
+    and_queries = []
+    for column in columns:
+        and_queries.append(or_(column.start_date <= func.now(), column.start_date.is_(None)))
+        and_queries.append(or_(column.end_date > func.now(), column.end_date.is_(None)))
+    return and_(*and_queries)
+
+
+def inactive_filter(columns):
+    if not is_nonstr_iter(columns):
+        columns = [columns]
+
+    or_queries = []
+    for column in columns:
+        or_queries.append(
+            and_(or_(column.start_date > func.now(), column.start_date.is_(None)),
+                 column.end_date < func.now()))
+    return or_(*or_queries)
+
+
+def get_active_column(columns, active=True):
+    if active is None:
+        return active_filter(columns).label('active')
+    elif active:
+        return true().label('active')
+    else:
+        return false().label('active')
+
+
+def get_active_filter(columns, active=True):
+    if active:
+        return active_filter(columns)
+    else:
+        return inactive_filter(columns)
