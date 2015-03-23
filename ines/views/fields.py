@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 
+from json import loads
+
 from colander import _ as colander_i18n
 from colander import _SchemaMeta
 from colander import _SchemaNode
 from colander import _marker
 from colander import Boolean as BaseBoolean
 from colander import drop
+from colander import Date
 from colander import DateTime as BaseDateTime
 from colander import Integer
 from colander import Invalid
@@ -210,7 +213,8 @@ class SplitValues(object):
         result = []
         if appstruct is not null:
             for value in appstruct:
-                result.extend(value.split(self.break_with, self.break_limit))
+                if isinstance(value, basestring) and not value.startswith(u'{"'):
+                    result.extend(value.split(self.break_with, self.break_limit))
         return result
 
 split_values = SplitValues()
@@ -333,8 +337,6 @@ class DeleteOutput(MappingSchema):
     deleted = SchemaNode(Boolean(), title=_(u'Deleted'))
 
 
-FILTER_BY_OPTIONS = ['>', '>=', '<', '<=', 'like']
-
 class FilterBy(object):
     def __init__(self, filter_type, value):
         self.filter_type = filter_type
@@ -343,18 +345,66 @@ class FilterBy(object):
 
 class FilterByField(SchemaType):
     def deserialize(self, node, cstruct):
-        filter_type = None
         if cstruct and isinstance(cstruct, basestring):
-            options = cstruct.split(' ', 1)
-            if len(options) == 2 and options[0] in FILTER_BY_OPTIONS:
-                filter_type, cstruct = options
+            try:
+                json_cstruct = loads(cstruct)
+            except (ValueError, UnicodeEncodeError):
+                pass
+            else:
+                return self.create_filter_by(node, json_cstruct)
 
-        cstruct = super(FilterByField, self).deserialize(node, cstruct)
-        if filter_type:
-            return FilterBy(filter_type, cstruct)
+        return super(FilterByField, self).deserialize(node, cstruct)
+
+    def create_filter_by(self, node, json_value, filter_type=None):
+        if isinstance(json_value, dict):
+            and_values = []
+            for value_filter_type, value in json_value.items():
+                if isinstance(value, dict):
+                    query = self.create_filter_by(node, value, value_filter_type)
+                    if isinstance(query, FilterBy):
+                        and_values.append(query)
+
+                elif not is_nonstr_iter(value):
+                    query = self.create_filter_by(node, value, value_filter_type)
+                    if isinstance(query, FilterBy):
+                        and_values.append(query)
+
+                else:
+                    for deep_value in value:
+                        query = self.create_filter_by(node, deep_value, value_filter_type)
+                        if isinstance(query, FilterBy):
+                            and_values.append(query)
+
+            filter_type = (filter_type or 'and').lower()
+            if filter_type not in ('and', 'or'):
+                message = u'Invalid filter type %s for %s' % (value_filter_type, json_value)
+                raise Invalid('filter_type', message)
+            else:
+                return FilterBy(filter_type, and_values)
+
+        elif is_nonstr_iter(json_value):
+            filter_type = filter_type or 'or'
+            return self.create_filter_by(node, {filter_type: json_value}, filter_type)
+
         else:
-            return cstruct
+            value = super(FilterByField, self).deserialize(node, json_value)
+            if value is not null:
+                return FilterBy(filter_type or '==', value)
+            else:
+                return value
+
+
+class FilterByDate(FilterByField, Date):
+    pass
 
 
 class FilterByDateTime(FilterByField, DateTime):
+    pass
+
+
+class FilterByInteger(FilterByField, Integer):
+    pass
+
+
+class FilterByString(FilterByField, String):
     pass

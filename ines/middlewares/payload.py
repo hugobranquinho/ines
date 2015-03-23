@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from json import dumps
 from json import loads
 
 from webob.request import environ_add_POST
@@ -25,7 +26,7 @@ class Payload(Middleware):
                     body_json = loads(body)
                     for key, values in dict(body_json).items():
                         values = maybe_list(values)
-                        value = ','.join('' if v is None else force_string(v) for v in values)
+                        value = ','.join('' if v is None else dump_query_value(v) for v in values)
                         arguments.append('%s=%s' % (force_string(key), value))
                     body = '&'.join(arguments)
                 except (ValueError, UnicodeEncodeError):
@@ -37,3 +38,9 @@ class Payload(Middleware):
             environ_add_POST(environ, body or '')
 
         return self.application(environ, start_response)
+
+def dump_query_value(value):
+    if isinstance(value, basestring):
+        return force_string(value)
+    else:
+        return force_string(dumps(value))

@@ -294,7 +294,10 @@ class BaseCoreSession(BaseSQLSession):
                     column = getattr(table, key)
                     if isinstance(column, CoreColumnParent):
                         column = getattr(Core, key)
-                    queries.extend(create_filter_by(column, values))
+
+                    query_filter = create_filter_by(column, values)
+                    if query_filter is not None:
+                        queries.append(query_filter)
 
             core_foreign = getattr(table, 'core_foreign_key', None)
             if core_foreign is not None:
@@ -315,7 +318,10 @@ class BaseCoreSession(BaseSQLSession):
                         column = getattr(foreign_table, key)
                         if isinstance(column, CoreColumnParent):
                             column = getattr(aliased_foreign, key)
-                        queries.extend(create_filter_by(column, values))
+
+                        query_filter = create_filter_by(column, values)
+                        if query_filter is not None:
+                            queries.append(query_filter)
 
             cores_ids = set()
             looked_cores = False
@@ -356,11 +362,9 @@ class BaseCoreSession(BaseSQLSession):
                                 if isinstance(column, CoreColumnParent):
                                     column = getattr(alias_child, key)
 
-                                if not is_nonstr_iter(values):
-                                    queries.append(column == values)
-                                else:
-                                    values = set(values)
-                                    queries.append(maybe_with_none(column, values))
+                                query_filter = create_filter_by(column, values)
+                                if query_filter is not None:
+                                    queries.append(query_filter)
                     if child_found:
                         continue
 
@@ -372,11 +376,10 @@ class BaseCoreSession(BaseSQLSession):
                             branches_tables[branch] = None
                             for key, values in filters.pop(child_core_name).items():
                                 column = getattr(branch, key)
-                                if not is_nonstr_iter(values):
-                                    queries.append(column == values)
-                                else:
-                                    values = set(values)
-                                    queries.append(maybe_with_none(column, values))
+
+                                query_filter = create_filter_by(column, values)
+                                if query_filter is not None:
+                                    queries.append(query_filter)
                     if branch_found:
                         continue
 
@@ -391,11 +394,10 @@ class BaseCoreSession(BaseSQLSession):
                             column = getattr(parent, key)
                             if isinstance(column, CoreColumnParent):
                                 column = getattr(alias_parent, key)
-                            if not is_nonstr_iter(values):
-                                queries.append(column == values)
-                            else:
-                                values = set(values)
-                                queries.append(maybe_with_none(column, values))
+
+                            query_filter = create_filter_by(column, values)
+                            if query_filter is not None:
+                                queries.append(query_filter)
                         continue
 
                     raise ValueError(
@@ -1149,33 +1151,70 @@ def create_order_by(table, maybe_column, descendant=False):
 
 
 def create_filter_by(column, values):
-    queries = []
     if isinstance(values, FilterBy):
-        if values.filter_type == 'like':
-            value_filter = like_maybe_with_none(column, values.value)
-            if value_filter is not None:
-                queries.append(value_filter)
+        filter_type = values.filter_type.lower()
+        if filter_type == 'like':
+            return like_maybe_with_none(column, values.value)
 
-        elif values.filter_type == '>':
-            queries.append(column > values.value)
+        elif filter_type == '>':
+            return column > values.value
 
-        elif values.filter_type == '>=':
-            queries.append(column >= values.value)
+        elif filter_type == '>=':
+            return column >= values.value
 
-        elif values.filter_type == '<':
-            queries.append(column < values.value)
+        elif filter_type == '<':
+            return column < values.value
 
-        elif values.filter_type == '<=':
-            queries.append(column <= values.value)
+        elif filter_type == '<=':
+            return column <= values.value
+
+        elif filter_type in ('=', '=='):
+            return column == values.value
+
+        elif filter_type == 'or':
+            or_queries = []
+            for value in values.value:
+                query = create_filter_by(column, value)
+                if query is not None:
+                    or_queries.append(query)
+
+            if len(or_queries) == 1:
+                return or_queries[0]
+            elif or_queries:
+                return or_(*or_queries)
+
+        elif filter_type == 'and':
+            and_queries = []
+            for value in values.value:
+                query = create_filter_by(column, value)
+                if query is not None:
+                    and_queries.append(query)
+
+            if len(and_queries) == 1:
+                return and_queries[0]
+            elif and_queries:
+                return and_(*and_queries)
 
         else:
-            raise KeyError('Invalid filter type %s' % values.filter_type)
+            raise Error('filter_type', u'Invalid filter type %s' % values.filter_type)
 
-    elif isinstance(values, tuple) and len(values) == 2:
-        return create_filter_by(
-            column,
-            values=FilterBy(*values))
+    elif not is_nonstr_iter(values):
+        return column == values
+
     else:
-        queries.append(maybe_with_none(column, values))
+        and_queries = []
+        other_values = set()
+        for value in values:
+            if isinstance(value, FilterBy) or is_nonstr_iter(value):
+                query = create_filter_by(column, value)
+                if query is not None:
+                    and_queries.append(query)
+            else:
+                other_values.add(value)
 
-    return queries
+        if other_values:
+            and_queries.append(maybe_with_none(column, other_values))
+        if len(and_queries) == 1:
+            return and_queries[0]
+        elif and_queries:
+            return and_(*and_queries)
