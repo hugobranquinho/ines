@@ -25,16 +25,15 @@ from ines.api.core.views import CorePagination
 from ines.api.core.views import define_pagination
 from ines.api.core.views import QueryPagination
 from ines.api.database import BaseSQLSession
+from ines.api.database.sql import create_filter_by
 from ines.api.database.sql import initialize_sql
 from ines.api.database.sql import get_object_tables
 from ines.api.database.sql import get_sql_settings_from_config
-from ines.api.database.sql import like_maybe_with_none
 from ines.api.database.sql import maybe_with_none
 from ines.api.database.sql import SQL_DBS
 from ines.convert import maybe_integer
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
-from ines.views.fields import FilterBy
 from ines.views.fields import OrderBy
 from ines.utils import MissingList
 from ines.utils import MissingSet
@@ -466,12 +465,7 @@ class BaseCoreSession(BaseSQLSession):
             query = query.filter(not_inactives_filter(Core))
 
         # Set order by
-        order_by = create_order_by(table, order_by)
-        if order_by is not None:
-            if is_nonstr_iter(order_by):
-                query = query.order_by(*order_by)
-            else:
-                query = query.order_by(order_by)
+        query = query_order_by(query, table, order_by)
 
         # Pagination for main query
         if with_pagination:
@@ -1134,6 +1128,18 @@ class BaseCoreSession(BaseSQLSession):
             return []
 
 
+def query_order_by(query, table, maybe_column):
+    order = create_order_by(table, maybe_column)
+    if order is not None:
+        if is_nonstr_iter(order):
+            order = [ob for ob in order if ob is not None]
+            if order:
+                return query.order_by(*order)
+        else:
+            return query.order_by(order)
+    return query
+
+
 def create_order_by(table, maybe_column, descendant=False):
     if isinstance(maybe_column, basestring):
         column = getattr(table, maybe_column, None)
@@ -1158,73 +1164,3 @@ def create_order_by(table, maybe_column, descendant=False):
             return maybe_column.desc()
         else:
             return maybe_column
-
-
-def create_filter_by(column, values):
-    if isinstance(values, FilterBy):
-        filter_type = values.filter_type.lower()
-        if filter_type == 'like':
-            return like_maybe_with_none(column, values.value)
-
-        elif filter_type == '>':
-            return column > values.value
-
-        elif filter_type == '>=':
-            return column >= values.value
-
-        elif filter_type == '<':
-            return column < values.value
-
-        elif filter_type == '<=':
-            return column <= values.value
-
-        elif filter_type in ('=', '=='):
-            return column == values.value
-
-        elif filter_type == 'or':
-            or_queries = []
-            for value in values.value:
-                query = create_filter_by(column, value)
-                if query is not None:
-                    or_queries.append(query)
-
-            if len(or_queries) == 1:
-                return or_queries[0]
-            elif or_queries:
-                return or_(*or_queries)
-
-        elif filter_type == 'and':
-            and_queries = []
-            for value in values.value:
-                query = create_filter_by(column, value)
-                if query is not None:
-                    and_queries.append(query)
-
-            if len(and_queries) == 1:
-                return and_queries[0]
-            elif and_queries:
-                return and_(*and_queries)
-
-        else:
-            raise Error('filter_type', u'Invalid filter type %s' % values.filter_type)
-
-    elif not is_nonstr_iter(values):
-        return column == values
-
-    else:
-        and_queries = []
-        other_values = set()
-        for value in values:
-            if isinstance(value, FilterBy) or is_nonstr_iter(value):
-                query = create_filter_by(column, value)
-                if query is not None:
-                    and_queries.append(query)
-            else:
-                other_values.add(value)
-
-        if other_values:
-            and_queries.append(maybe_with_none(column, other_values))
-        if len(and_queries) == 1:
-            return and_queries[0]
-        elif and_queries:
-            return and_(*and_queries)
