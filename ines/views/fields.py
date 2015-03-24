@@ -26,7 +26,8 @@ from colander.compat import is_nonstr_iter
 from ines import _
 from ines import FALSES
 from ines import TRUES
-from ines.convert import pluralizing_key
+from ines.convert import force_string
+from ines.convert import force_unicode
 from ines.convert import uncamelcase
 
 
@@ -245,9 +246,12 @@ class SequenceFinisher(object):
         return appstruct
 
 
-def add_sequence_node(schema, sequence_node, single_key, plural_key=None):
+def add_sequence_node(schema, sequence_node, single_key, plural_key=None, with_filter_by=False):
     if not sequence_node.name:
         sequence_node = sequence_node.clone(name=single_key)
+
+    if with_filter_by:
+        sequence_node = set_node_with_filter_by(sequence_node)
 
     single_node = SequenceSchema(Sequence(), sequence_node, missing=drop, name=single_key)
     schema.__class_schema_nodes__.append(single_node)
@@ -280,14 +284,15 @@ def add_sequence_node(schema, sequence_node, single_key, plural_key=None):
             schema.finisher = [sequence_finisher]
 
 
-def add_sequence_nodes(schema, *sequence_nodes):
+def add_sequence_nodes(schema, *sequence_nodes, **kwargs):
     for sequence_node in sequence_nodes:
         if isinstance(sequence_node, dict):
+            sequence_node.update(kwargs)
             add_sequence_node(schema, **sequence_node)
         elif is_nonstr_iter(sequence_node):
-            add_sequence_node(schema, *sequence_node)
+            add_sequence_node(schema, *sequence_node, **kwargs)
         else:
-            add_sequence_node(schema, sequence_node, sequence_node.name)
+            add_sequence_node(schema, sequence_node, sequence_node.name, **kwargs)
 
 
 class SearchFields(MappingSchema):
@@ -337,6 +342,21 @@ class FilterBy(object):
         self.filter_type = filter_type
         self.value = value
 
+    def __repr__(self):
+        return '%s(%s)' % (self.filter_type, repr(self.value))
+
+    def __str__(self):
+        if not is_nonstr_iter(self.value):
+            return force_string(self.value)
+        else:
+            return self.value
+
+    def __unicode__(self):
+        if not is_nonstr_iter(self.value):
+            return force_unicode(self.value)
+        else:
+            return self.value
+
 
 class FilterByType(SchemaType):
     def deserialize(self, node, cstruct):
@@ -352,30 +372,33 @@ class FilterByType(SchemaType):
 
     def create_filter_by(self, node, json_value, filter_type=None):
         if isinstance(json_value, dict):
-            and_values = []
+            queries = []
             for value_filter_type, value in json_value.items():
+                if not filter_type and value_filter_type.lower() in ('and', 'or'):
+                    filter_type = value_filter_type
+
                 if isinstance(value, dict):
                     query = self.create_filter_by(node, value, value_filter_type)
                     if isinstance(query, FilterBy):
-                        and_values.append(query)
+                        queries.append(query)
 
                 elif not is_nonstr_iter(value):
                     query = self.create_filter_by(node, value, value_filter_type)
                     if isinstance(query, FilterBy):
-                        and_values.append(query)
+                        queries.append(query)
 
                 else:
                     for deep_value in value:
                         query = self.create_filter_by(node, deep_value, value_filter_type)
                         if isinstance(query, FilterBy):
-                            and_values.append(query)
+                            queries.append(query)
 
             filter_type = (filter_type or 'and').lower()
             if filter_type not in ('and', 'or'):
                 message = u'Invalid filter type %s for %s' % (value_filter_type, json_value)
                 raise Invalid('filter_type', message)
             else:
-                return FilterBy(filter_type, and_values)
+                return FilterBy(filter_type, queries)
 
         elif is_nonstr_iter(json_value):
             filter_type = filter_type or 'or'
@@ -403,3 +426,16 @@ class FilterByInteger(FilterByType, Integer):
 
 class FilterByString(FilterByType, String):
     pass
+
+
+def set_node_with_filter_by(node):
+    if isinstance(node.typ, String):
+        return node.clone(typ=FilterByString())
+    elif isinstance(node.typ, Integer):
+        return node.clone(typ=FilterByInteger())
+    elif isinstance(node.typ, Date):
+        return node.clone(typ=FilterByDate())
+    elif isinstance(node.typ, DateTime):
+        return node.clone(typ=FilterByDateTime())
+    else:
+        return node

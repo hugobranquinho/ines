@@ -139,7 +139,10 @@ def format_error_to_json_values(error, kwargs=None, request=None):
         errors = MissingList()
         for path in error.paths():
             for exc in path:
-                key = exc._keyname()
+                key = str(exc.node.name)
+                if exc.positional and exc.pos:  # Ignore 0 position
+                    key += '.' + str(exc.pos)
+
                 if key and exc.msg:
                     key = camelcase(key)
                     for message in exc.messages():
