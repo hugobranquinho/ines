@@ -66,7 +66,7 @@ def camelcase(value):
             if word in CAMELCASE_UPPER_WORDS:
                 camelcase_words.append(word)
             else:
-                camelcase_words.append(word.title())
+                camelcase_words.append(word.capitalize())
         return u''.join(camelcase_words)
 
 
@@ -75,7 +75,7 @@ def uncamelcase(value):
     words = {}
     previous_is_upper = False
     for letter in force_unicode(value):
-        if letter.isupper():
+        if letter.isupper() or letter.isnumeric():
             if not previous_is_upper:
                 count += 1
             else:
@@ -114,7 +114,7 @@ def pluralizing_word(word):
 
     lower_word = word.lower()
     if lower_word.isnumeric():
-        return word
+        return word + 's'
     elif lower_word in IGNORE_WORDS:
         return word
     elif lower_word.endswith('ed'):
