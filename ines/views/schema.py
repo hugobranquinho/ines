@@ -23,6 +23,7 @@ from ines.convert import force_unicode
 from ines.convert import maybe_list
 from ines.interfaces import ISchemaView
 from ines.route import lookup_for_route_params
+from ines.views.fields import FilterByType
 from ines.views.fields import OneOfWithDescription
 from ines.utils import MissingDict
 
@@ -174,12 +175,22 @@ class SchemaView(object):
 
         else:
             name = camelcase(schema.name)
-            type_details = {
-                'type': get_colander_type_name(schema.typ),
-                'title': schema.title,
-                'description': schema.description or None}
             details = {
                 'fieldType': name}
+
+            if isinstance(schema.typ, FilterByType):
+                for cls in schema.typ.__class__.__mro__[1:]:
+                    if cls is not FilterByType:
+                        type_name = str(cls.__name__).lower()
+                        break
+                details['filter'] = True
+            else:
+                type_name = get_colander_type_name(schema.typ)
+
+            type_details = {
+                'type': type_name,
+                'title': schema.title,
+                'description': schema.description or None}
 
             request_validation = []
             if schema.validator:

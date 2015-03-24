@@ -338,7 +338,7 @@ class FilterBy(object):
         self.value = value
 
 
-class FilterByField(SchemaType):
+class FilterByType(SchemaType):
     def deserialize(self, node, cstruct):
         if cstruct and isinstance(cstruct, basestring):
             try:
@@ -348,7 +348,7 @@ class FilterByField(SchemaType):
             else:
                 return self.create_filter_by(node, json_cstruct)
 
-        return super(FilterByField, self).deserialize(node, cstruct)
+        return super(FilterByType, self).deserialize(node, cstruct)
 
     def create_filter_by(self, node, json_value, filter_type=None):
         if isinstance(json_value, dict):
@@ -382,24 +382,24 @@ class FilterByField(SchemaType):
             return self.create_filter_by(node, {filter_type: json_value}, filter_type)
 
         else:
-            value = super(FilterByField, self).deserialize(node, json_value)
+            value = super(FilterByType, self).deserialize(node, json_value)
             if value is not null:
                 return FilterBy(filter_type or '==', value)
             else:
                 return value
 
 
-class FilterByDate(FilterByField, Date):
+class FilterByDate(FilterByType, Date):
     pass
 
 
-class FilterByDateTime(FilterByField, DateTime):
+class FilterByDateTime(FilterByType, DateTime):
     pass
 
 
-class FilterByInteger(FilterByField, Integer):
+class FilterByInteger(FilterByType, Integer):
     pass
 
 
-class FilterByString(FilterByField, String):
+class FilterByString(FilterByType, String):
     pass
