@@ -811,7 +811,7 @@ class BaseCoreSession(BaseSQLSession):
         else:
             return True
 
-    def count_cores(self, core_name, group_by=None, return_inactives=False):
+    def count_cores(self, core_name, group_by=None, return_inactives=False, other_filter=None):
         table = CORE_TYPES[core_name]['table']
         columns = [func.count(table.id_core)]
         if group_by is not None:
@@ -823,6 +823,9 @@ class BaseCoreSession(BaseSQLSession):
                 query
                 .filter(not_inactives_filter(Core))
                 .filter(table.id_core == Core.id))
+
+        if other_filter:
+            query = other_filter(query)
 
         if group_by is not None:
             return dict(query.group_by(group_by).all())
