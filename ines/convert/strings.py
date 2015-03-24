@@ -105,20 +105,26 @@ def uncamelcase(value):
 
 
 VOWEL = frozenset(('a', 'e', 'i', 'o', 'u'))
+IGNORE_WORDS = frozenset(('by', ))
 
 # See http://www.csse.monash.edu.au/~damian/papers/HTML/Plurals.html # Pluralizing algorithms
+# @@ TODO: improve this
 def pluralizing_word(word):
     word = force_unicode(word)
+
+    lower_word = word.lower()
+    if lower_word.isnumeric():
+        return word
+    elif lower_word in IGNORE_WORDS:
+        return word
+    elif lower_word.endswith('ed'):
+        return word
 
     # By default add "S"
     to_append = u's'
 
-    lower_word = word.lower()
     if lower_word.endswith('ss'):
         to_append = u'es'
-
-    elif lower_word.isnumeric():
-        return word
 
     elif (lower_word.endswith('y')
             and len(lower_word) > 1
