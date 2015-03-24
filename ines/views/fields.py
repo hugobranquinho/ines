@@ -217,28 +217,16 @@ class OrderBy(object):
 
 
 def OrderFinisher(node, appstruct):
-    if appstruct:
-        if appstruct.get('order_by'):
-            order_by = appstruct['order_by']
-            if not is_nonstr_iter(order_by):
-                order_by = [order_by]
+    if appstruct and appstruct.get('order_by'):
+        order_by = appstruct['order_by']
+        if not is_nonstr_iter(order_by):
+            order_by = [order_by]
 
-            appstruct['order_by'] = []
-            for ob in order_by:
-                ob = ob.split(' ', 1)
-                descendant = bool(len(ob) == 2 and ob[1].lower() in ('desc', 'd'))
-                appstruct['order_by'].append(OrderBy(ob[0], descendant))
-
-        if appstruct.get('orders_by'):
-            orders_by = appstruct['orders_by']
-            if not is_nonstr_iter(orders_by):
-                orders_by = [orders_by]
-
-            appstruct['orders_by'] = []
-            for ob in orders_by:
-                ob = ob.split(' ', 1)
-                descendant = bool(len(ob) == 2 and ob[1].lower() in ('desc', 'd'))
-                appstruct['orders_by'].append(OrderBy(ob[0], descendant))
+        appstruct['order_by'] = []
+        for ob in order_by:
+            ob = ob.split(' ', 1)
+            descendant = bool(len(ob) == 2 and ob[1].lower() in ('desc', 'd'))
+            appstruct['order_by'].append(OrderBy(ob[0], descendant))
 
     return appstruct
 
@@ -258,34 +246,38 @@ class SequenceFinisher(object):
 
 
 def add_sequence_node(schema, sequence_node, single_key, plural_key=None):
+    if not sequence_node.name:
+        sequence_node = sequence_node.clone(name=single_key)
+
     single_node = SequenceSchema(Sequence(), sequence_node, missing=drop, name=single_key)
     schema.__class_schema_nodes__.append(single_node)
     schema.__all_schema_nodes__.append(single_node)
 
-    if not plural_key:
-        plural_key = pluralizing_key(single_key)
+    if plural_key:
+        if not sequence_node.name:
+            sequence_node = sequence_node.clone(name=plural_key)
 
-    plural_node = SequenceSchema(
-        Sequence(),
-        sequence_node,
-        missing=drop,
-        preparer=split_values,
-        name=plural_key)
-    schema.__class_schema_nodes__.append(plural_node)
-    schema.__all_schema_nodes__.append(plural_node)
+        plural_node = SequenceSchema(
+            Sequence(),
+            sequence_node,
+            missing=drop,
+            preparer=split_values,
+            name=plural_key)
+        schema.__class_schema_nodes__.append(plural_node)
+        schema.__all_schema_nodes__.append(plural_node)
 
-    sequence_finisher = SequenceFinisher(single_key, plural_key)
-    if hasattr(schema, 'finisher'):
-        if not is_nonstr_iter(schema.finisher):
-            previous_finisher = schema.finisher
-            def decorator(cls, appstruct):
-                appstruct = sequence_finisher(cls, appstruct)
-                return previous_finisher(cls, appstruct)
-            schema.finisher = decorator
+        sequence_finisher = SequenceFinisher(single_key, plural_key)
+        if hasattr(schema, 'finisher'):
+            if not is_nonstr_iter(schema.finisher):
+                previous_finisher = schema.finisher
+                def decorator(cls, appstruct):
+                    appstruct = sequence_finisher(cls, appstruct)
+                    return previous_finisher(cls, appstruct)
+                schema.finisher = decorator
+            else:
+                schema.finisher.append(sequence_finisher)
         else:
-            schema.finisher.append(sequence_finisher)
-    else:
-        schema.finisher = [sequence_finisher]
+            schema.finisher = [sequence_finisher]
 
 
 def add_sequence_nodes(schema, *sequence_nodes):
@@ -309,7 +301,7 @@ add_sequence_nodes(
 
 PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
 LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
-ORDER_BY = SchemaNode(String(), title=_(u'Order by'))
+ORDER_BY = SchemaNode(String(), title=_(u'Order by'), name='order_by')
 NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
 LAST_PAGE = SchemaNode(Integer(), title=_(u'Last page'))
 NEXT_PAGE_HREF = SchemaNode(String(), title=_(u'Next page url'))
@@ -321,9 +313,8 @@ LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
 class PaginationInput(MappingSchema):
     page = PAGE.clone(missing=1)
     limit_per_page = LIMIT_PER_PAGE.clone(missing=20)
+    order_by = SequenceSchema(Sequence(), ORDER_BY, missing=drop, preparer=split_values)
     finisher = [OrderFinisher]
-
-add_sequence_node(PaginationInput, ORDER_BY, 'order_by')
 
 
 class PaginationOutput(MappingSchema):
