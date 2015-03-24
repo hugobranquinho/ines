@@ -76,7 +76,9 @@ class BaseCoreSession(BaseSQLSession):
             self,
             core_name,
             attributes,
-            order_by=None, page=None, limit_per_page=None,
+            orders_by=None,
+            page=None,
+            limit_per_page=None,
             return_inactives=False,
             filters=None,
             only_one=False):
@@ -464,9 +466,12 @@ class BaseCoreSession(BaseSQLSession):
             query = query.filter(not_inactives_filter(Core))
 
         # Set order by
-        order_by = create_order_by(table, order_by)
-        if order_by is not None:
-            query = query.order_by(order_by)
+        orders_by = create_orders_by(table, orders_by)
+        if orders_by is not None:
+            if is_nonstr_iter(orders_by):
+                query = query.order_by(*orders_by)
+            else:
+                query = query.order_by(orders_by)
 
         # Pagination for main query
         if with_pagination:
@@ -1126,19 +1131,21 @@ class BaseCoreSession(BaseSQLSession):
             return []
 
 
-def create_order_by(table, maybe_column, descendant=False):
+def create_orders_by(table, maybe_column, descendant=False):
     if isinstance(maybe_column, basestring):
         column = getattr(table, maybe_column, None)
-        return create_order_by(table, column, descendant)
+        return create_orders_by(table, column, descendant)
 
     elif isinstance(maybe_column, OrderBy):
-        return create_order_by(table, maybe_column.column_name, maybe_column.descendant)
+        return create_orders_by(table, maybe_column.column_name, maybe_column.descendant)
 
     elif is_nonstr_iter(maybe_column):
-        if len(maybe_column) == 2 and maybe_column[1].lower() == 'desc':
-            return create_order_by(table, maybe_column[0], descendant=True)
+        if (len(maybe_column) == 2
+                and not isinstance(maybe_column[1], OrderBy)
+                and maybe_column[1].lower() == 'desc'):
+            return create_orders_by(table, maybe_column[0], descendant=True)
         else:
-            return [create_order_by(table, ob, descendant) for ob in maybe_column]
+            return [create_orders_by(table, ob, descendant) for ob in maybe_column]
 
     elif maybe_column is not None:
         if isinstance(maybe_column, CoreColumnParent):

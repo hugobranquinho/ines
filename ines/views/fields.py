@@ -27,6 +27,7 @@ from ines import _
 from ines import FALSES
 from ines import TRUES
 from ines.convert import pluralizing_key
+from ines.convert import uncamelcase
 
 
 # See https://github.com/Pylons/colander/pull/212
@@ -227,7 +228,7 @@ class SearchFields(MappingSchema):
 # Global attributes
 PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
 LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
-ORDER_BY = SchemaNode(String(), title=_(u'Order by'), missing=drop)
+ORDER_BY = SchemaNode(String(), title=_(u'Order by'))
 NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
 LAST_PAGE = SchemaNode(Integer(), title=_(u'Last page'))
 NEXT_PAGE_HREF = SchemaNode(String(), title=_(u'Next page url'))
@@ -237,11 +238,12 @@ LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
 
 
 class OrderBy(object):
-    def __init__(self, column_name, descendant=False):
-        self.column_name = column_name
+    def __init__(self, argument_name, descendant=False):
+        self.argument_name = argument_name
+        self.column_name = uncamelcase(argument_name)
         self.descendant = descendant
 
-    def repr(self):
+    def __repr__(self):
         if self.descendant:
             order = 'DESC'
         else:
@@ -250,10 +252,29 @@ class OrderBy(object):
 
 
 def OrderFinisher(node, appstruct):
-    if appstruct and appstruct.get('order_by'):
-        order_by = appstruct['order_by'].split(' ', 1)
-        descendant = bool(len(order_by) == 2 and order_by[1].lower() in ('desc', 'd'))
-        appstruct['order_by'] = OrderBy(order_by[0], descendant)
+    if appstruct:
+        if appstruct.get('order_by'):
+            order_by = appstruct['order_by']
+            if not is_nonstr_iter(order_by):
+                order_by = [order_by]
+
+            appstruct['order_by'] = []
+            for ob in order_by:
+                ob = ob.split(' ', 1)
+                descendant = bool(len(ob) == 2 and ob[1].lower() in ('desc', 'd'))
+                appstruct['order_by'].append(OrderBy(ob[0], descendant))
+
+        if appstruct.get('orders_by'):
+            orders_by = appstruct['orders_by']
+            if not is_nonstr_iter(orders_by):
+                orders_by = [orders_by]
+
+            appstruct['orders_by'] = []
+            for ob in orders_by:
+                ob = ob.split(' ', 1)
+                descendant = bool(len(ob) == 2 and ob[1].lower() in ('desc', 'd'))
+                appstruct['orders_by'].append(OrderBy(ob[0], descendant))
+
     return appstruct
 
 
@@ -269,13 +290,6 @@ class SequenceFinisher(object):
             if not appstruct.get(self.plural_key):
                 appstruct.pop(self.plural_key, None)
         return appstruct
-
-
-class PaginationInput(MappingSchema):
-    page = PAGE.clone(missing=1)
-    limit_per_page = LIMIT_PER_PAGE.clone(missing=20)
-    order_by = ORDER_BY.clone(missing=drop)
-    finisher = [OrderFinisher]
 
 
 def add_sequence_node(schema, sequence_node, single_key, plural_key=None):
@@ -317,6 +331,14 @@ def add_sequence_nodes(schema, *sequence_nodes):
             add_sequence_node(schema, *sequence_node)
         else:
             add_sequence_node(schema, sequence_node, sequence_node.name)
+
+
+class PaginationInput(MappingSchema):
+    page = PAGE.clone(missing=1)
+    limit_per_page = LIMIT_PER_PAGE.clone(missing=20)
+    finisher = [OrderFinisher]
+
+add_sequence_node(PaginationInput, ORDER_BY, 'order_by')
 
 
 class PaginationOutput(MappingSchema):
