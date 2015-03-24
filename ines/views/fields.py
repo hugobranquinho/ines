@@ -295,8 +295,8 @@ class SearchFields(MappingSchema):
 
 add_sequence_nodes(
     SearchFields,
-    (SchemaNode(String()), 'field'),
-    (SchemaNode(String()), 'exclude_field'))
+    (SchemaNode(String(), title=_(u'Show fields')), 'field'),
+    (SchemaNode(String(), title=_(u'Exclude fields')), 'exclude_field'))
 
 
 PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
