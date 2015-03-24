@@ -139,5 +139,10 @@ def pluralizing_word(word):
         return word + to_append
 
 
-def pluralizing_key(key):
-    return '_'.join(pluralizing_word(word) for word in key.split('_'))
+def pluralizing_key(key, only_last=True):
+    if only_last:
+        words = key.rsplit('_', 1)
+        words[-1] = pluralizing_word(words[-1])
+        return '_'.join(words)
+    else:
+        return '_'.join(pluralizing_word(word) for word in key.split('_'))

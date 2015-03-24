@@ -186,22 +186,6 @@ class Boolean(BaseBoolean):
             return super(Boolean, self).deserialize(node, cstruct)
 
 
-class InputField(SequenceSchema):
-    field = SchemaNode(String(), missing=drop)
-
-
-class InputExcludeField(SequenceSchema):
-    exclude_field = SchemaNode(String(), missing=drop)
-
-
-class InputFields(SequenceSchema):
-    fields = SchemaNode(String(), missing=drop)
-
-
-class InputExcludeFields(SequenceSchema):
-    exclude_fields = SchemaNode(String(), missing=drop)
-
-
 class SplitValues(object):
     def __init__(self, break_with=u',', break_limit=-1):
         self.break_with = break_with
@@ -216,25 +200,6 @@ class SplitValues(object):
         return result
 
 split_values = SplitValues()
-
-
-class SearchFields(MappingSchema):
-    field = InputField(missing=drop)
-    exclude_field = InputExcludeField(missing=drop)
-    fields = InputFields(preparer=split_values, missing=drop)
-    exclude_fields = InputExcludeFields(preparer=split_values, missing=drop)
-
-
-# Global attributes
-PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
-LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
-ORDER_BY = SchemaNode(String(), title=_(u'Order by'))
-NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
-LAST_PAGE = SchemaNode(Integer(), title=_(u'Last page'))
-NEXT_PAGE_HREF = SchemaNode(String(), title=_(u'Next page url'))
-PREVIOUS_PAGE_HREF = SchemaNode(String(), title=_(u'Previous page url'))
-FIRST_PAGE_HREF = SchemaNode(String(), title=_(u'First page url'))
-LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
 
 
 class OrderBy(object):
@@ -331,6 +296,26 @@ def add_sequence_nodes(schema, *sequence_nodes):
             add_sequence_node(schema, *sequence_node)
         else:
             add_sequence_node(schema, sequence_node, sequence_node.name)
+
+
+class SearchFields(MappingSchema):
+    pass
+
+add_sequence_nodes(
+    SearchFields,
+    (SchemaNode(String()), 'field'),
+    (SchemaNode(String()), 'exclude_field'))
+
+
+PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
+LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
+ORDER_BY = SchemaNode(String(), title=_(u'Order by'))
+NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
+LAST_PAGE = SchemaNode(Integer(), title=_(u'Last page'))
+NEXT_PAGE_HREF = SchemaNode(String(), title=_(u'Next page url'))
+PREVIOUS_PAGE_HREF = SchemaNode(String(), title=_(u'Previous page url'))
+FIRST_PAGE_HREF = SchemaNode(String(), title=_(u'First page url'))
+LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
 
 
 class PaginationInput(MappingSchema):
