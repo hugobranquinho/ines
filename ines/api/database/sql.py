@@ -11,6 +11,7 @@ from sqlalchemy import Column
 from sqlalchemy import create_engine
 from sqlalchemy import func
 from sqlalchemy import MetaData
+from sqlalchemy import not_
 from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
@@ -27,7 +28,9 @@ from ines.api.database import BaseSQLSession
 from ines.convert import maybe_integer
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
+from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
+from ines.views.fields import FilterBy
 from ines.utils import MissingDict
 from ines.utils import MissingSet
 
@@ -162,23 +165,15 @@ def append_arguments(obj, key, value):
             obj.__table_args__ = tuple(new_arguments)
 
 
-def maybe_with_none(column, values, query=None):
-    queries = []
-    values = maybe_set(values)
-    if None in values:
-        values.remove(None)
-        queries.append(column.is_(None))
-
-    if len(values) == 1:
-        queries.append(column == values.pop())
-    elif values:
-        queries.append(column.in_(values))
-
-    query_filter = None
+def filter_query_with_queries(queries, query=None):
+    """Filter 'query' with none/single/multiple OR'ed queries"""
+    queries = [q for q in queries if q is not None]
     if len(queries) == 1:
         query_filter = queries[0]
     elif queries:
         query_filter = or_(*queries)
+    else:
+        return query
 
     if query is None:
         return query_filter
@@ -188,9 +183,25 @@ def maybe_with_none(column, values, query=None):
         return query
 
 
+def maybe_with_none(column, values, query=None):
+    queries = []
+    values = maybe_set(values)
+
+    if None in values:
+        values.remove(None)
+        queries.append(column.is_(None))
+    if len(values) == 1:
+        queries.append(column == values.pop())
+    elif values:
+        queries.append(column.in_(values))
+
+    return filter_query_with_queries(queries, query)
+
+
 def like_maybe_with_none(column, values, query=None):
     queries = []
     values = maybe_set(values)
+
     if None in values:
         values.remove(None)
         queries.append(column.is_(None))
@@ -199,18 +210,7 @@ def like_maybe_with_none(column, values, query=None):
         if like_filter is not None:
             queries.append(like_filter)
 
-    query_filter = None
-    if len(queries) == 1:
-        query_filter = queries[0]
-    elif queries:
-        query_filter = or_(*queries)
-
-    if query is None:
-        return query_filter
-    elif query_filter is not None:
-        return query.filter(query_filter)
-    else:
-        return query
+    return filter_query_with_queries(queries, query)
 
 
 def create_like_filter(column, value):
@@ -255,6 +255,7 @@ class Pagination(list):
             self.number_of_results = (
                 query
                 .with_entities(func.count(1), *entities)
+                .order_by(None)
                 .first()[0])
             self.last_page = int(ceil(
                 self.number_of_results / float(self.limit_per_page))) or 1
@@ -407,15 +408,7 @@ def active_filter(columns):
 
 
 def inactive_filter(columns):
-    if not is_nonstr_iter(columns):
-        columns = [columns]
-
-    or_queries = []
-    for column in columns:
-        or_queries.append(
-            and_(or_(column.start_date > func.now(), column.start_date.is_(None)),
-                 column.end_date < func.now()))
-    return or_(*or_queries)
+    return not_(active_filter(columns))
 
 
 def get_active_column(columns, active=True):
@@ -432,3 +425,91 @@ def get_active_filter(columns, active=True):
         return active_filter(columns)
     else:
         return inactive_filter(columns)
+
+
+def query_filter_by(query, column, values):
+    filter_query = create_filter_by(column, values)
+    if filter_query is not None:
+        return query.filter(filter_query)
+    else:
+        return query
+
+
+def create_filter_by(columns, values):
+    if not is_nonstr_iter(columns):
+        columns = [columns]
+
+    if isinstance(values, FilterBy):
+        filter_type = values.filter_type.lower()
+        if filter_type == 'like':
+            queries = [like_maybe_with_none(c, values.value) for c in columns]
+            return filter_query_with_queries(queries)
+
+        elif filter_type == '>':
+            queries = [c > values.value for c in columns]
+            return filter_query_with_queries(queries)
+
+        elif filter_type == '>=':
+            queries = [c >= values.value for c in columns]
+            return filter_query_with_queries(queries)
+
+        elif filter_type == '<':
+            queries = [c < values.value for c in columns]
+            return filter_query_with_queries(queries)
+
+        elif filter_type == '<=':
+            queries = [c <= values.value for c in columns]
+            return filter_query_with_queries(queries)
+
+        elif filter_type in ('=', '=='):
+            queries = [c == values.value for c in columns]
+            return filter_query_with_queries(queries)
+
+        elif filter_type == 'or':
+            or_queries = []
+            for value in values.value:
+                query = create_filter_by(columns, value)
+                if query is not None:
+                    or_queries.append(query)
+
+            if len(or_queries) == 1:
+                return or_queries[0]
+            elif or_queries:
+                return or_(*or_queries)
+
+        elif filter_type == 'and':
+            and_queries = []
+            for value in values.value:
+                query = create_filter_by(columns, value)
+                if query is not None:
+                    and_queries.append(query)
+
+            if len(and_queries) == 1:
+                return and_queries[0]
+            elif and_queries:
+                return and_(*and_queries)
+
+        else:
+            raise Error('filter_type', u'Invalid filter type %s' % values.filter_type)
+
+    elif not is_nonstr_iter(values):
+        queries = [c == values for c in columns]
+        return filter_query_with_queries(queries)
+
+    else:
+        and_queries = []
+        other_values = set()
+        for value in values:
+            if isinstance(value, FilterBy) or is_nonstr_iter(value):
+                query = create_filter_by(columns, value)
+                if query is not None:
+                    and_queries.append(query)
+            else:
+                other_values.add(value)
+
+        if other_values:
+            and_queries.extend(maybe_with_none(c, other_values) for c in columns)
+        if len(and_queries) == 1:
+            return and_queries[0]
+        elif and_queries:
+            return and_(*and_queries)
