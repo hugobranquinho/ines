@@ -65,7 +65,10 @@ class OutputSchemaView(object):
             context.fields = deepcopy(context.output_fields)
 
             result = wrapped(context, request)
-            return self.construct_structure(self.schema, result, context.output_fields)
+            return self.construct_structure(
+                self.schema,
+                result,
+                context.output_fields)
         return decorator
 
     def find_allowed_fields(self, schema, padding=None):
@@ -88,7 +91,7 @@ class OutputSchemaView(object):
     def encode_key(self, key):
         return camelcase(key)
 
-    def construct_structure(self, schema, values, fields):
+    def construct_structure(self, schema, values, fields, first_value=False):
         if isinstance(schema.typ, Sequence):
             result = []
             if values is None:
@@ -109,7 +112,7 @@ class OutputSchemaView(object):
 
         elif isinstance(schema.typ, Mapping):
             result = {}
-            if values is None:
+            if values is None or (values is null and not first_value):
                 return result
 
             if isinstance(values, dict):
