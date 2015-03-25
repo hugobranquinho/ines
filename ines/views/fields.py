@@ -304,13 +304,11 @@ def set_sequence_nodes(**kwargs):
     return decorator
 
 
+@set_sequence_nodes(
+    field=SchemaNode(String(), title=_(u'Show fields')),
+    exclude_field=SchemaNode(String(), title=_(u'Exclude fields')))
 class SearchFields(MappingSchema):
     pass
-
-add_sequence_nodes(
-    SearchFields,
-    (SchemaNode(String(), title=_(u'Show fields')), 'field'),
-    (SchemaNode(String(), title=_(u'Exclude fields')), 'exclude_field'))
 
 
 PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
@@ -444,7 +442,7 @@ def set_node_with_filter_by(node):
         return node.clone(typ=FilterByInteger())
     elif isinstance(node.typ, Date):
         return node.clone(typ=FilterByDate())
-    elif isinstance(node.typ, DateTime):
+    elif isinstance(node.typ, BaseDateTime):
         return node.clone(typ=FilterByDateTime())
     else:
         return node
