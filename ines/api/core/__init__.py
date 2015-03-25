@@ -12,7 +12,6 @@ from sqlalchemy import func
 from sqlalchemy import or_
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ClauseElement
-from sqlalchemy.sql.expression import true
 
 from ines.api import BaseSessionManager
 from ines.api.core.database import Core
@@ -27,6 +26,8 @@ from ines.api.core.views import QueryPagination
 from ines.api.database import BaseSQLSession
 from ines.api.database.sql import create_filter_by
 from ines.api.database.sql import initialize_sql
+from ines.api.database.sql import get_active_column
+from ines.api.database.sql import get_active_filter
 from ines.api.database.sql import get_object_tables
 from ines.api.database.sql import get_sql_settings_from_config
 from ines.api.database.sql import maybe_with_none
@@ -35,6 +36,7 @@ from ines.convert import maybe_integer
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.views.fields import OrderBy
+from ines.utils import different_values
 from ines.utils import MissingList
 from ines.utils import MissingSet
 
@@ -52,12 +54,6 @@ class BaseCoreSessionManager(BaseSessionManager):
         self.db_session = initialize_sql(
             'core',
             **get_sql_settings_from_config(self.config))
-
-
-def not_inactives_filter(column):
-    return and_(
-        or_(column.start_date <= func.now(), column.start_date.is_(None)),
-        or_(column.end_date > func.now(), column.end_date.is_(None)))
 
 
 def table_type(table):
@@ -78,9 +74,27 @@ class BaseCoreSession(BaseSQLSession):
             order_by=None,
             page=None,
             limit_per_page=None,
-            return_inactives=False,
             filters=None,
+            active=True,
+            key=None,
+            start_date=None,
+            end_date=None,
+            updated_date=None,
+            created_date=None,
             only_one=False):
+
+        # Set Core defaults
+        filters = filters or {}
+        if key:
+            filters.setdefault(core_name, {})['key'] = key
+        if start_date:
+            filters.setdefault(core_name, {})['start_date'] = start_date
+        if end_date:
+            filters.setdefault(core_name, {})['end_date'] = end_date
+        if updated_date:
+            filters.setdefault(core_name, {})['updated_date'] = updated_date
+        if created_date:
+            filters.setdefault(core_name, {})['created_date'] = created_date
 
         # Pagination
         with_pagination = bool(
@@ -112,10 +126,7 @@ class BaseCoreSession(BaseSQLSession):
         for key in attributes.keys():
             if key == 'active':
                 attributes.pop(key)  # Dont need this attribute anymore
-                if return_inactives:
-                    columns.add(not_inactives_filter(Core).label('active'))
-                else:
-                    columns.add(true().label('active'))
+                columns.add(get_active_column(Core, active))
 
             elif not is_nonstr_iter(key) and hasattr(table, key):
                 attributes.pop(key)  # Dont need this attribute anymore
@@ -340,11 +351,12 @@ class BaseCoreSession(BaseSQLSession):
                         else:
                             values = set(values)
                             child_query  = child_query.filter(maybe_with_none(column, values))
-                    if not return_inactives:
+
+                    if active is not None:
                         child_query = (
                             child_query
-                            .filter(not_inactives_filter(alias_child))
-                            .filter(alias_child.id == child.id_core))
+                                .filter(alias_child.id == child.id_core)
+                                .filter(get_active_filter(alias_child, active)))
 
                     cores_ids.update(q.parent_id for q in child_query.all())
                     looked_cores = True
@@ -428,8 +440,10 @@ class BaseCoreSession(BaseSQLSession):
                 child_queries = [
                     alias_child.type == child.core_name,
                     alias_child.parent_id == Core.id]
-                if not return_inactives:
-                    child_queries.append(not_inactives_filter(alias_child))
+
+                if active is not None:
+                    child_queries.append(get_active_filter(alias_child, active))
+
                 query = query.outerjoin(alias_child, and_(*child_queries))
 
                 child_queries = [child.id_core == alias_child.id]
@@ -447,8 +461,9 @@ class BaseCoreSession(BaseSQLSession):
         if relate_with_foreign:
             for foreign_table, aliased_foreign, column_key in relate_with_foreign.values():
                 query = query.filter(aliased_foreign.id == getattr(table, column_key))
-                if not return_inactives:
-                    query = query.filter(not_inactives_filter(aliased_foreign))
+
+                if active is not None:
+                    query = query.filter(get_active_filter(aliased_foreign, active))
 
         if relate_with_father:
             query = (
@@ -456,16 +471,25 @@ class BaseCoreSession(BaseSQLSession):
                 .filter(parent.id_core == alias_parent.id)
                 .filter(alias_parent.type == table_type(parent))
                 .filter(Core.parent_id == alias_parent.id))
-            if not return_inactives:
-                query = query.filter(not_inactives_filter(alias_parent))
+            if active is not None:
+                query = query.filter(get_active_filter(alias_parent, active))
 
         if table is not Core:
             query = query.filter(table.id_core == Core.id).filter(Core.type == table_type(table))
-        if not return_inactives:
-            query = query.filter(not_inactives_filter(Core))
+        if active is not None:
+            query = query.filter(get_active_filter(Core, active))
 
         # Set order by
-        query = query_order_by(query, table, order_by)
+        order_by = create_order_by(table, order_by)
+        if order_by is not None:
+            if is_nonstr_iter(order_by):
+                order_by = [ob for ob in order_by if ob is not None] or None
+                if order_by:
+                    query = query.order_by(*order_by)
+            else:
+                query = query.order_by(order_by)
+        if order_by is None and not only_one:
+            query = query.order_by(table.id_core)
 
         # Pagination for main query
         if with_pagination:
@@ -531,7 +555,7 @@ class BaseCoreSession(BaseSQLSession):
                 for value in self.get_cores(
                         parent.core_name,
                         key_attributes,
-                        return_inactives=return_inactives,
+                        active=active,
                         filters=key_filters):
                     for child_value in parent_ids_reference[value.id_core]:
                         setattr(child_value, key, value)
@@ -553,7 +577,7 @@ class BaseCoreSession(BaseSQLSession):
                 for value in self.get_cores(
                         key,
                         key_attributes,
-                        return_inactives=return_inactives,
+                        active=active,
                         filters=key_filters):
                     getattr(references[value.parent_id], key).append(value)
 
@@ -562,11 +586,11 @@ class BaseCoreSession(BaseSQLSession):
         else:
             return result
 
-    def get_core(self, core_name, attributes, return_inactives=False, filters=None):
+    def get_core(self, core_name, attributes, active=True, filters=None):
         return self.get_cores(
             core_name,
             attributes,
-            return_inactives=return_inactives,
+            active=active,
             filters=filters,
             only_one=True)
 
@@ -610,7 +634,7 @@ class BaseCoreSession(BaseSQLSession):
             parent = self.get_core(
                 'core',
                 attributes=['id', 'type'],
-                return_inactives=True,
+                active=None,
                 filters={'core': {'key': parent_key}})
             if not parent:
                 message = u'Missing parent "%s"' % parent_key
@@ -666,6 +690,11 @@ class BaseCoreSession(BaseSQLSession):
         if not values:
             return False
 
+        if update_inactives:
+            active = None
+        else:
+            active = True
+
         table = CORE_TYPES[core_name]['table']
 
         core_name_values = {}
@@ -684,7 +713,7 @@ class BaseCoreSession(BaseSQLSession):
             response = self.get_core(
                 core_name,
                 attributes,
-                return_inactives=update_inactives,
+                active=active,
                 filters=filters)
             if not response:
                 return False
@@ -692,9 +721,7 @@ class BaseCoreSession(BaseSQLSession):
             to_update = {}
             for key, value in core_name_values.items():
                 response_value = getattr(response, key)
-                if ((value is None or response_value is not None)
-                        or response_value is None
-                        or value != response_value):
+                if different_values(value, response_value):
                     to_update[key] = value
 
             if to_update:
@@ -711,7 +738,7 @@ class BaseCoreSession(BaseSQLSession):
             response = self.get_core(
                 core_name,
                 core_attributes,
-                return_inactives=update_inactives,
+                active=active,
                 filters=filters)
             if not response:
                 return False
@@ -719,9 +746,7 @@ class BaseCoreSession(BaseSQLSession):
             to_update = {}
             for key, value in core_values.items():
                 response_value = getattr(response, key)
-                if ((value is None or response_value is not None)
-                        or response_value is None
-                        or value != response_value):
+                if different_values(value, response_value):
                     to_update[key] = value
 
             if to_update or updated:
@@ -805,18 +830,18 @@ class BaseCoreSession(BaseSQLSession):
         else:
             return True
 
-    def count_cores(self, core_name, group_by=None, return_inactives=False, other_filter=None):
+    def count_cores(self, core_name, group_by=None, active=True, other_filter=None):
         table = CORE_TYPES[core_name]['table']
         columns = [func.count(table.id_core)]
         if group_by is not None:
             columns.insert(0, group_by)
 
         query = self.session.query(*columns)
-        if not return_inactives:
+        if active is not None:
             query = (
                 query
-                .filter(not_inactives_filter(Core))
-                .filter(table.id_core == Core.id))
+                    .filter(get_active_filter(Core, active))
+                    .filter(table.id_core == Core.id))
 
         if other_filter:
             query = other_filter(query)
@@ -844,8 +869,12 @@ class BaseCoreSession(BaseSQLSession):
         return SQL_DBS['core']['indexed_columns']
 
     def old_get_core_query(
-            self, columns, return_inactives=False,
-            order_by=None, page=None, limit_per_page=None,
+            self,
+            columns,
+            active=True,
+            order_by=None,
+            page=None,
+            limit_per_page=None,
             ignore_before_queries=True,
             **filters):
 
@@ -880,7 +909,7 @@ class BaseCoreSession(BaseSQLSession):
                     table = CORE_TYPES[name]['table']
                     tables.add(table)
 
-                    if not return_inactives:
+                    if active:
                         # Find parent tables
                         tables.update(find_parent_tables(table))
 
@@ -925,7 +954,7 @@ class BaseCoreSession(BaseSQLSession):
                 table = CORE_TYPES[name]['table']
                 tables.add(table)
 
-                if not return_inactives:
+                if active:
                     # Find parent tables
                     tables.update(find_parent_tables(table))
 
@@ -958,7 +987,7 @@ class BaseCoreSession(BaseSQLSession):
                 queries.append(alias.type == table.core_name)
 
             # Ignore inactive objects if requested
-            if not return_inactives:
+            if active:
                 table_inactives = table
                 if not is_core_table:
                     table_inactives = alias
@@ -972,7 +1001,7 @@ class BaseCoreSession(BaseSQLSession):
             # Define parent relation if requested
             # or to validate if parent is active
             # Define branch relation
-            if relation == 'parent' and (not return_inactives or relation_table in tables):
+            if relation == 'parent' and (active or relation_table in tables):
                 tables_with_relations.add(relation_table)
                 queries.append(alias.parent_id == relation_table.id_core)
 
