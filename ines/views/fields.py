@@ -295,6 +295,15 @@ def add_sequence_nodes(schema, *sequence_nodes, **kwargs):
             add_sequence_node(schema, sequence_node, sequence_node.name, **kwargs)
 
 
+def set_sequence_nodes(**kwargs):
+    def decorator(class_):
+        with_filter_by = kwargs.pop('with_filter_by', False)
+        for key, value in kwargs.items():
+            add_sequence_node(class_, value, key, with_filter_by=with_filter_by)
+        return class_
+    return decorator
+
+
 class SearchFields(MappingSchema):
     pass
 
