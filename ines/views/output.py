@@ -15,6 +15,7 @@ from zope.interface import implementer
 from ines.convert import camelcase
 from ines.exceptions import Error
 from ines.interfaces import IOutputSchemaView
+from ines.utils import different_values
 
 
 @implementer(IOutputSchemaView)
@@ -28,6 +29,8 @@ class OutputSchemaView(object):
         self.allowed_fields = self.find_allowed_fields(self.schema)
         if not self.allowed_fields:
             raise Error('output', u'Define output fields for %s' % self.schema)
+
+        self.required_fields = self.find_required_fields(self.schema)
 
     def __call__(self, wrapped):
         def decorator(context, request):
@@ -62,7 +65,9 @@ class OutputSchemaView(object):
             if not context.output_fields:
                 keys = u'+'.join(self.allowed_fields_to_set(self.allowed_fields))
                 raise Error(keys, u'Please define some fields to export')
+
             context.fields = deepcopy(context.output_fields)
+            self.add_required_fields(context.fields, self.required_fields)
 
             result = wrapped(context, request)
             return self.construct_structure(
@@ -71,20 +76,47 @@ class OutputSchemaView(object):
                 context.output_fields)
         return decorator
 
-    def find_allowed_fields(self, schema, padding=None):
-        if padding:
-            name = '%s.%s' % (padding, schema.name)
-        else:
-            name = schema.name
+    def add_required_fields(self, fields, required_fields):
+        if required_fields and fields:
+            for key, required_key in required_fields.items():
+                if not isinstance(required_key, dict):
+                    if key in fields and required_key not in fields:
+                        fields[required_key] = {}
+                else:
+                    self.add_required_fields(fields[key], required_key)
 
-        allowed_fields = {}
+    def find_required_fields(self, schema, previous=None):
+        required_fields = {}
         if isinstance(schema.typ, (Sequence, Tuple)):
             for child in schema.children:
-                allowed_fields.update(self.find_allowed_fields(child, name))
+                self.find_required_fields(child, required_fields)
 
         elif isinstance(schema.typ, Mapping):
             for child in schema.children:
-                allowed_fields[child.name] = self.find_allowed_fields(child, name)
+                response = self.find_required_fields(child, required_fields)
+                if response:
+                    required_fields[child.name] = response
+
+        if hasattr(schema, 'use_when'):
+            for key in schema.use_when.keys():
+                if previous is not None:
+                    if key not in previous:
+                        previous[schema.name] = key
+                else:
+                    if key not in required_fields:
+                        required_fields[schema.name] = key
+
+        return required_fields
+
+    def find_allowed_fields(self, schema):
+        allowed_fields = {}
+        if isinstance(schema.typ, (Sequence, Tuple)):
+            for child in schema.children:
+                allowed_fields.update(self.find_allowed_fields(child))
+
+        elif isinstance(schema.typ, Mapping):
+            for child in schema.children:
+                allowed_fields[child.name] = self.find_allowed_fields(child)
 
         return allowed_fields
 
@@ -118,7 +150,7 @@ class OutputSchemaView(object):
             if isinstance(values, dict):
                 get_value = values.get
             else:
-                get_value = lambda k, d: getattr(values, k, d)
+                get_value = lambda k, d=None: getattr(values, k, d)
 
             for child in schema.children:
                 if child.name not in fields:
@@ -129,7 +161,17 @@ class OutputSchemaView(object):
                     child,
                     child_values,
                     fields[child.name])
-                if value is not None or child.missing is not drop:
+
+                add_value = bool(value is not None or child.missing is not drop)
+                if not add_value and hasattr(child, 'use_when'):
+                    for key, compare_value in child.use_when.items():
+                        if different_values(get_value(key), compare_value):
+                            add_value = False
+                            break
+                        else:
+                            add_value = True
+
+                if add_value:
                     result[self.encode_key(child.name)] = value
 
             return result

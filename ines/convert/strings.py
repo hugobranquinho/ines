@@ -109,6 +109,7 @@ IGNORE_WORDS = frozenset(('by', ))
 
 # See http://www.csse.monash.edu.au/~damian/papers/HTML/Plurals.html # Pluralizing algorithms
 # @@ TODO: improve this
+# https://github.com/blakeembrey/pluralize/blob/master/pluralize.js
 def pluralizing_word(word):
     word = force_unicode(word)
 

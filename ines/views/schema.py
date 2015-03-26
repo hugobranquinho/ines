@@ -208,6 +208,9 @@ class SchemaView(object):
 
                         request_validation.append((validator, validation_option))
 
+            if hasattr(schema, 'use_when'):
+                details['useWhen'] = dict((camelcase(k), v) for k, v in schema.use_when.items())
+
             if schema_type == 'request':
                 validation = {}
                 if schema.required:
