@@ -82,7 +82,7 @@ class OutputSchemaView(object):
                 if not isinstance(required_key, dict):
                     if key in fields and required_key not in fields:
                         fields[required_key] = {}
-                else:
+                elif key in fields:
                     self.add_required_fields(fields[key], required_key)
 
     def find_required_fields(self, schema, previous=None):
@@ -285,10 +285,18 @@ def construct_allowed_fields(fields_dict, requested_fields, padding=None, add_al
         else:
             name = original_name
 
-        if name in requested_fields:
+        is_required = bool(name in requested_fields)
+        if is_required:
             # If not requested, no others fields will be added in this level
             level_field_added = True
+        else:
+            name_with_dot = name + '.'
+            for field in requested_fields:
+                if field.startswith(name_with_dot):
+                    is_required = True
+                    break
 
+        if is_required:
             if children:
                 # All children fields will be added!
                 result[original_name] = construct_allowed_fields(
