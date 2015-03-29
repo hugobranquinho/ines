@@ -9,6 +9,7 @@ from pyramid.decorator import reify
 from pyramid.settings import asbool
 from sqlalchemy import and_
 from sqlalchemy import func
+from sqlalchemy import not_
 from sqlalchemy import or_
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ClauseElement
@@ -659,6 +660,9 @@ class BaseCoreSession(BaseSQLSession):
             core.start_date = core.start_date.replace(tzinfo=None) + core.start_date.utcoffset()
             if self.application_time_zone:
                 core.start_date = core.start_date + self.application_time_zone
+        if core.start_date and core.end_date and core.end_date < core.start_date:
+            message = u'Start date must be lower than end date'
+            raise Error('start_date', message)
 
         # Insert core
         core_id = self.direct_insert(core).lastrowid
@@ -734,6 +738,7 @@ class BaseCoreSession(BaseSQLSession):
 
         if core_values or updated:
             core_attributes = set(core_values.keys())
+            core_attributes.update(['start_date', 'end_date'])
             core_attributes.add('id_core')
             response = self.get_core(
                 core_name,
@@ -743,11 +748,33 @@ class BaseCoreSession(BaseSQLSession):
             if not response:
                 return False
 
+            # Convert time zones
+            if 'start_date' in core_values:
+                start_date = core_values['start_date']
+                if start_date and start_date.utcoffset():
+                    start_date = start_date.replace(tzinfo=None) + start_date.utcoffset()
+                    if self.application_time_zone:
+                        start_date = start_date + self.application_time_zone
+                    core_values['start_date'] = start_date
+            if 'end_date' in core_values:
+                end_date = core_values['end_date']
+                if end_date and end_date.utcoffset():
+                    end_date = end_date.replace(tzinfo=None) + end_date.utcoffset()
+                    if self.application_time_zone:
+                        end_date = end_date + self.application_time_zone
+                    core_values['end_date'] = end_date
+
             to_update = {}
             for key, value in core_values.items():
                 response_value = getattr(response, key)
                 if different_values(value, response_value):
                     to_update[key] = value
+
+            start_date = to_update.get('start_date', response.start_date)
+            end_date = to_update.get('end_date', response.end_date)
+            if start_date and end_date and end_date < start_date:
+                message = u'Start date must be lower than end date'
+                raise Error('start_date', message)
 
             if to_update or updated:
                 # Prevent SQLAlchemy pre-executed queries
@@ -850,6 +877,17 @@ class BaseCoreSession(BaseSQLSession):
             return dict(query.group_by(group_by).all())
         else:
             return query.first()[0] or 0
+
+    def get_dates_in_period(self, core_name, start_date, end_date, attributes=None):
+        columns = get_core_columns(attributes)
+        return (
+            self.session
+            .query(*columns)
+            .filter(Core.type == core_name)
+            .filter(or_(
+                and_(Core.start_date.is_(None), Core.end_date.is_(None)),
+                not_(or_(Core.end_date < start_date, Core.start_date > end_date))))
+            .all())
 
 
 
@@ -1193,3 +1231,10 @@ def create_order_by(table, maybe_column, descendant=False):
             return maybe_column.desc()
         else:
             return maybe_column
+
+
+def get_core_columns(attributes=None):
+    if not attributes:
+        return Core._sa_class_manager.values()
+    else:
+        return [Core._sa_class_manager[k] for k in attributes]
