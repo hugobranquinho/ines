@@ -129,11 +129,11 @@ def format_error_to_json_values(error, kwargs=None, request=None):
 
     if isinstance(error, HTTPError):
         status = error.code
-        key = error.title
+        key = camelcase(error.title)
         message = error.explanation
     elif isinstance(error, Invalid):
         status = 400
-        key = error._keyname()
+        key = camelcase(error._keyname())
         message = error.msg
 
         errors = MissingList()
@@ -153,12 +153,12 @@ def format_error_to_json_values(error, kwargs=None, request=None):
         kwargs['errors'] = errors
     else:
         status = getattr(error, 'code', 400)
-        key = getattr(error, 'key', 'undefined')
+        key = camelcase(getattr(error, 'key', 'undefined'))
         message = getattr(error, 'msg', getattr(error, 'message', u'Undefined'))
 
     values = {
         'status': status,
-        'property': camelcase(key),
+        'property': key,
         'message': translate(message)}
     if kwargs:
         values.update(kwargs)
