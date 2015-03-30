@@ -497,19 +497,19 @@ def create_filter_by(columns, values):
         return filter_query_with_queries(queries)
 
     else:
-        and_queries = []
+        or_queries = []
         other_values = set()
         for value in values:
             if isinstance(value, FilterBy) or is_nonstr_iter(value):
                 query = create_filter_by(columns, value)
                 if query is not None:
-                    and_queries.append(query)
+                    or_queries.append(query)
             else:
                 other_values.add(value)
 
         if other_values:
-            and_queries.extend(maybe_with_none(c, other_values) for c in columns)
-        if len(and_queries) == 1:
-            return and_queries[0]
-        elif and_queries:
-            return and_(*and_queries)
+            or_queries.extend(maybe_with_none(c, other_values) for c in columns)
+        if len(or_queries) == 1:
+            return or_queries[0]
+        elif or_queries:
+            return or_(*or_queries)
