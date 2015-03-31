@@ -315,6 +315,7 @@ PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
 LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
 ORDER_BY = SchemaNode(String(), title=_(u'Order by'), name='order_by')
 NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
+NUMBER_OF_PAGE_RESULTS = SchemaNode(Integer(), title=_(u'Number of page results'))
 LAST_PAGE = SchemaNode(Integer(), title=_(u'Last page'))
 NEXT_PAGE_HREF = SchemaNode(String(), title=_(u'Next page url'))
 PREVIOUS_PAGE_HREF = SchemaNode(String(), title=_(u'Previous page url'))
@@ -334,6 +335,7 @@ class PaginationOutput(MappingSchema):
     limit_per_page = LIMIT_PER_PAGE
     last_page = LAST_PAGE
     number_of_results = NUMBER_OF_RESULTS
+    number_of_page_results = NUMBER_OF_PAGE_RESULTS
     next_page_href = NEXT_PAGE_HREF
     previous_page_href = PREVIOUS_PAGE_HREF
     first_page_href = FIRST_PAGE_HREF

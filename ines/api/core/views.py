@@ -73,3 +73,7 @@ class CorePagination(list):
         self.limit_per_page = limit_per_page
         self.last_page = last_page
         self.number_of_results = number_of_results
+
+    @property
+    def number_of_page_results(self):
+        return len(self)
