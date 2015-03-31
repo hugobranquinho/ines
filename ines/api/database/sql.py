@@ -242,7 +242,7 @@ class Pagination(list):
             self.limit_per_page = 5000
 
         if query is None:
-            self.number_of_results = 1
+            self.number_of_results = 0
             self.last_page = 1
             self.page = 1
         else:
@@ -269,6 +269,8 @@ class Pagination(list):
             end_slice = self.page * self.limit_per_page
             start_slice = end_slice - self.limit_per_page
             self.extend(query.slice(start_slice, end_slice).all())
+
+        self.number_of_page_results = len(self)
 
 
 class TablesSet(set):
