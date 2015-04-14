@@ -42,6 +42,7 @@ from ines.utils import MissingList
 from ines.utils import MissingSet
 
 
+DATETIME = datetime.datetime
 TIMEDELTA = datetime.timedelta
 
 
@@ -751,14 +752,15 @@ class BaseCoreSession(BaseSQLSession):
             # Convert time zones
             if 'start_date' in core_values:
                 start_date = core_values['start_date']
-                if start_date and start_date.utcoffset():
+                if isinstance(start_date, DATETIME) and start_date.utcoffset():
                     start_date = start_date.replace(tzinfo=None) + start_date.utcoffset()
                     if self.application_time_zone:
                         start_date = start_date + self.application_time_zone
                     core_values['start_date'] = start_date
+
             if 'end_date' in core_values:
                 end_date = core_values['end_date']
-                if end_date and end_date.utcoffset():
+                if isinstance(end_date, DATETIME) and end_date.utcoffset():
                     end_date = end_date.replace(tzinfo=None) + end_date.utcoffset()
                     if self.application_time_zone:
                         end_date = end_date + self.application_time_zone

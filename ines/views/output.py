@@ -70,10 +70,14 @@ class OutputSchemaView(object):
             self.add_required_fields(context.fields, self.required_fields)
 
             result = wrapped(context, request)
-            return self.construct_structure(
-                self.schema,
-                result,
-                context.output_fields)
+            if getattr(self.schema, 'ignore_construct', False):
+                return result
+            else:
+                return self.construct_structure(
+                    self.schema,
+                    result,
+                    context.output_fields)
+
         return decorator
 
     def add_required_fields(self, fields, required_fields):

@@ -20,6 +20,7 @@ from pyramid.static import static_view
 from ines import API_CONFIGURATION_EXTENSIONS
 from ines import APPLICATIONS
 from ines import DEFAULT_METHODS
+from ines import DEFAULT_RENDERERS
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
@@ -292,6 +293,13 @@ class APIConfigurator(Configurator):
             route_name=name,
             renderer='json',
             **kwargs)
+
+    def add_default_renderers(self):
+        super(APIConfigurator, self).add_default_renderers()
+
+        from ines import renderers
+        for key, renderer in DEFAULT_RENDERERS.items():
+            self.add_renderer(key, renderer)
 
     def add_view(self, *args, **kwargs):
         if 'permission' not in kwargs:
