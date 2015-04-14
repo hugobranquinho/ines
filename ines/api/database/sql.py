@@ -142,7 +142,7 @@ def sql_declarative_base(application_name):
 def append_arguments(obj, key, value):
     arguments = getattr(obj, '__table_args__', None)
     if arguments is None:
-        arguments = obj.__table_args__ = {key: value}
+        obj.__table_args__ = {key: value}
 
     elif isinstance(arguments, dict):
         if key not in arguments:
