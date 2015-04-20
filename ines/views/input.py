@@ -20,7 +20,8 @@ class InputSchemaView(object):
     schema_type = 'request'
 
     def __init__(
-            self, route_name, request_method, schema=None, use_fields=False):
+            self, route_name, request_method, schema=None, use_fields=False,
+            auto_camelcase=True):
         self.route_name = route_name
         self.request_method = request_method
 
@@ -28,6 +29,7 @@ class InputSchemaView(object):
         self.fields_schema = None
         if use_fields:
             self.fields_schema = SearchFields()
+        self.auto_camelcase = auto_camelcase
 
     def __call__(self, wrapped):
         def decorator(context, request):
@@ -58,10 +60,10 @@ class InputSchemaView(object):
         return decorator
 
     def decode_key(self, key):
-        return uncamelcase(key)
+        return uncamelcase(key) if self.auto_camelcase else key
 
     def encode_key(self, key):
-        return camelcase(key)
+        return camelcase(key) if self.auto_camelcase else key
 
     def get_structure(self, request, schema):
         method = request.method.upper()

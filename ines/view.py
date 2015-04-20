@@ -17,6 +17,7 @@ class api_config(view_config):
         use_fields = settings.pop('use_fields', False)
         input_option = settings.pop('input', None)
         output_option = settings.pop('output', None)
+        auto_camelcase = settings.pop('auto_camelcase', True)
 
         def callback(context, name, ob):
             route_name = settings.get('route_name')
@@ -34,14 +35,16 @@ class api_config(view_config):
                             route_name,
                             request_method,
                             schema=input_option,
-                            use_fields=use_fields)
+                            use_fields=use_fields,
+                            auto_camelcase=auto_camelcase)
                     else:
                         input_view = input_option
                 else:
                     input_view = InputSchemaView(
                         route_name,
                         request_method,
-                        use_fields=use_fields)
+                        use_fields=use_fields,
+                        auto_camelcase=auto_camelcase)
 
                 decorator = maybe_list(settings.pop('decorator', None))
                 decorator.append(input_view)
