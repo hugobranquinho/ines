@@ -33,6 +33,7 @@ from ines.api.database.sql import get_object_tables
 from ines.api.database.sql import get_sql_settings_from_config
 from ines.api.database.sql import maybe_with_none
 from ines.api.database.sql import SQL_DBS
+from ines.api.database.sql import SQLALCHEMY_VERSION
 from ines.convert import maybe_integer
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
@@ -44,6 +45,11 @@ from ines.utils import MissingSet
 
 DATETIME = datetime.datetime
 TIMEDELTA = datetime.timedelta
+
+if SQLALCHEMY_VERSION >= '1.0':
+    SQLALCHEMY_LABELS_KEY = '_fields'
+else:
+    SQLALCHEMY_LABELS_KEY = '_labels'
 
 
 class BaseCoreSessionManager(BaseSessionManager):
@@ -527,14 +533,14 @@ class BaseCoreSession(BaseSQLSession):
         if only_one:
             result = [result]
 
-        labels = set(result[0]._fields)
+        labels = set(getattr(result[0], SQLALCHEMY_LABELS_KEY))
         labels.update(attributes.keys())
         labels = tuple(labels)
 
         references = {}
         parent_ids_reference = MissingList()
         for value in result:
-            value._fields = labels
+            setattr(value, SQLALCHEMY_LABELS_KEY, labels)
 
             if hasattr(value, '_parent_id_core'):
                 parent_ids_reference[value._parent_id_core].append(value)
