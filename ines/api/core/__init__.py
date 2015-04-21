@@ -527,14 +527,15 @@ class BaseCoreSession(BaseSQLSession):
         if only_one:
             result = [result]
 
-        labels = set(result[0]._labels)
+        labels = set(result[0]._fields)
         labels.update(attributes.keys())
         labels = tuple(labels)
 
         references = {}
         parent_ids_reference = MissingList()
         for value in result:
-            value._labels = labels
+            value._fields = labels
+
             if hasattr(value, '_parent_id_core'):
                 parent_ids_reference[value._parent_id_core].append(value)
             references[value.id] = value

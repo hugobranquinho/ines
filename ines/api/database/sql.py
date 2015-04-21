@@ -248,7 +248,7 @@ class Pagination(list):
         else:
             # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
             if SQLALCHEMY_VERSION >= '1.0':
-                entities = set(d['entity'] for d in query.column_descriptions)
+                entities = set(d['entity'] for d in query.column_descriptions if d['entity'])
             else:
                 entities = set(e.entity_zero for e in query._entities if e.entity_zero)
 
@@ -398,35 +398,35 @@ class Columns(list):
         self.tables = TablesSet()
 
 
-def active_filter(columns):
-    if not is_nonstr_iter(columns):
-        columns = [columns]
+def active_filter(tables):
+    if not is_nonstr_iter(tables):
+        tables = [tables]
 
     and_queries = []
-    for column in columns:
-        and_queries.append(or_(column.start_date <= func.now(), column.start_date.is_(None)))
-        and_queries.append(or_(column.end_date > func.now(), column.end_date.is_(None)))
+    for table in tables:
+        and_queries.append(or_(table.start_date <= func.now(), table.start_date.is_(None)))
+        and_queries.append(or_(table.end_date > func.now(), table.end_date.is_(None)))
     return and_(*and_queries)
 
 
-def inactive_filter(columns):
-    return not_(active_filter(columns))
+def inactive_filter(tables):
+    return not_(active_filter(tables))
 
 
-def get_active_column(columns, active=True):
+def get_active_column(tables, active=True):
     if active is None:
-        return active_filter(columns).label('active')
+        return active_filter(tables).label('active')
     elif active:
         return true().label('active')
     else:
         return false().label('active')
 
 
-def get_active_filter(columns, active=True):
+def get_active_filter(tables, active=True):
     if active:
-        return active_filter(columns)
+        return active_filter(tables)
     else:
-        return inactive_filter(columns)
+        return inactive_filter(tables)
 
 
 def query_filter_by(query, column, values):
