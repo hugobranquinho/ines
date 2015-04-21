@@ -52,7 +52,7 @@ requires = [
     'PasteDeploy',
     'colander >= 1.0',
     'transaction',
-    'SQLAlchemy >= 1.0.0',
+    'SQLAlchemy',
     'zope.sqlalchemy',
     'repoze.tm2']
 
