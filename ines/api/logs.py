@@ -71,7 +71,7 @@ class BaseLogSession(BaseSession):
         return self.log(
             code,
             message,
-            level='WARNING')
+            level='WARN')
 
     def log_error(self, code, message):
         return self.log(

@@ -35,7 +35,8 @@ class LoggingMiddleware(Middleware):
             request.registry = self.config.registry
 
             try:
-                getattr(request.api, self.api_name).log_critical('internal_server_error', error)
+                message = error.split()[-1]
+                getattr(request.api, self.api_name).log_critical('internal_server_error', message)
             except (BaseException, Exception):
                 print error
 
