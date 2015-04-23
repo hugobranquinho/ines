@@ -3,6 +3,7 @@
 import datetime
 from json import dumps
 from os import getpid
+from os import SEEK_END
 from os import stat as os_stat
 from os.path import getmtime
 from re import compile as regex_compile
@@ -12,7 +13,6 @@ import warnings
 
 from colander import Invalid
 from pyramid.httpexceptions import HTTPError
-from translationstring import TranslationString
 
 from ines.convert import camelcase
 from ines.convert import force_string
@@ -203,3 +203,10 @@ def different_values(first, second):
         return True
     else:
         return bool(first != second)
+
+
+def get_file_size(source_file):
+    source_file.seek(0, SEEK_END)
+    size = source_file.tell()
+    source_file.seek(0)
+    return size
