@@ -21,7 +21,7 @@ class BaseLogSessionManager(BaseSessionManager):
 class BaseLogSession(BaseSession):
     __api_name__ = 'logging'
 
-    def log(self, code, message, level='INFO'):
+    def log(self, code, message, level='INFO', extra=None):
         header = ('-' * 30) + ' ' + level + ' ' + ('-' * 30)
         print header
 
@@ -33,6 +33,9 @@ class BaseLogSession(BaseSession):
             ('Date', NOW_DATE()),
             ('Language', self.request.locale_name),
             ('IP address', self.request.ip_address)]
+
+        if extra:
+            arguments.extend(extra.items())
 
         try:
             authenticated = self.request.authenticated
@@ -60,27 +63,31 @@ class BaseLogSession(BaseSession):
 
         print '-' * len(header)
 
-    def log_debug(self, code, message):
+    def log_debug(self, code, message, **kwargs):
         if self.config.debug:
             return self.log(
                 code,
                 message,
-                level='DEBUG')
+                level='DEBUG',
+                **kwargs)
 
-    def log_warning(self, code, message):
+    def log_warning(self, code, message, **kwargs):
         return self.log(
             code,
             message,
-            level='WARN')
+            level='WARN',
+            **kwargs)
 
-    def log_error(self, code, message):
+    def log_error(self, code, message, **kwargs):
         return self.log(
             code,
             message,
-            level='ERROR')
+            level='ERROR',
+            **kwargs)
 
-    def log_critical(self, code, message):
+    def log_critical(self, code, message, **kwargs):
         return self.log(
             code,
             message,
-            level='CRITICAL')
+            level='CRITICAL',
+            **kwargs)
