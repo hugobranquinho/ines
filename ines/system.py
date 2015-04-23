@@ -2,9 +2,11 @@
 
 import atexit
 from os import getpid
+import socket
 from time import sleep
 from threading import Thread
 
+from ines.convert import maybe_unicode
 from ines.utils import MissingDict
 
 
@@ -116,3 +118,7 @@ else:
         PROCESS_RUNNING.add(getpid())
         uwsgi.atexit = exit_system
     uwsgi.post_fork_hook = after_fork
+
+
+def get_host_domain_name():
+    return maybe_unicode(socket.getfqdn())
