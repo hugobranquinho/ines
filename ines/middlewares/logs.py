@@ -7,6 +7,7 @@ from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPInternalServerError
 from pyramid.interfaces import IRequestFactory
 
+from ines.convert import force_string
 from ines.middlewares import Middleware
 from ines.utils import format_error_to_json
 
@@ -26,19 +27,25 @@ class LoggingMiddleware(Middleware):
         try:
             for chunk in self.application(environ, start_response):
                 yield chunk
-        except (BaseException, Exception):
+        except (BaseException, Exception) as error:
             type_, value, tb = sys.exc_info()
-            error = ''.join(format_exception(type_, value, tb))
+            message = ''.join(format_exception(type_, value, tb))
 
             # Save / log error
             request = self.request_factory(environ)
             request.registry = self.config.registry
 
             try:
-                message = error.split()[-1]
-                getattr(request.api, self.api_name).log_critical('internal_server_error', message)
+                small_message = '%s: %s' % (error.__class__.__name__, force_string(error))
             except (BaseException, Exception):
-                print error
+                small_message = error
+
+            try:
+                getattr(request.api, self.api_name).log_critical(
+                    'internal_server_error',
+                    str(small_message))
+            except (BaseException, Exception):
+                print message
 
             internal_server_error = HTTPInternalServerError()
             headers = [('Content-type', 'application/json')]
