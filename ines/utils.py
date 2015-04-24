@@ -7,7 +7,6 @@ from os import SEEK_END
 from os import stat as os_stat
 from os.path import getmtime
 from re import compile as regex_compile
-from socket import getfqdn
 from uuid import uuid4
 import warnings
 
@@ -19,13 +18,11 @@ from ines.convert import camelcase
 from ines.convert import force_string
 from ines.convert import force_unicode
 from ines.convert import make_sha256
-from ines.convert import maybe_unicode
 from ines.i18n import translate_factory
 
 
 NOW_DATE = datetime.datetime.now
 PROCESS_ID = getpid()
-DOMAIN_NAME = maybe_unicode(getfqdn())
 
 # See: http://www.regular-expressions.info/email.html
 EMAIL_REGEX = regex_compile(

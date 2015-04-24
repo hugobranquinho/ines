@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from os import getpid
 from os import getpgid
 from os import listdir
 from os import mkdir as make_dir
@@ -9,7 +8,6 @@ from os import walk as walk_on_path
 from os.path import join as join_paths
 from os.path import isdir
 from os.path import isfile
-from socket import getfqdn
 from threading import Thread
 from time import sleep
 from time import time
@@ -17,12 +15,10 @@ from uuid import uuid4
 
 from pyramid.decorator import reify
 
+from ines import DOMAIN_NAME
+from ines import PROCESS_ID
 from ines.convert import make_sha256
 from ines.utils import file_modified_time
-
-
-PROCESS_ID = getpid()
-DOMAIN_NAME = getfqdn()
 
 
 class LockMe(object):
