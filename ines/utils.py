@@ -14,6 +14,7 @@ import warnings
 from colander import Invalid
 from pyramid.httpexceptions import HTTPError
 
+from ines.cleaner import normalize_full_name
 from ines.convert import camelcase
 from ines.convert import force_string
 from ines.convert import force_unicode
@@ -210,3 +211,67 @@ def get_file_size(source_file):
     size = source_file.tell()
     source_file.seek(0)
     return size
+
+
+def close_words(first, second, deep=1):
+    for i in xrange(deep):
+        close_word = first[:-1]
+        if close_word and close_word == second:
+            return True
+        close_word = second[:-1]
+        if close_word and close_word == first:
+            return True
+    return False
+
+
+def compare_full_name_factory(name):
+    normalized_name = normalize_full_name(name)
+    normalized_words = normalized_name.split()
+    normalized_length = len(normalized_words)
+
+    def replacer(name):
+        name = normalize_full_name(name)
+        if name == normalized_name:
+            return 100
+
+        found_sequence_words = 0
+        close_sequence_words = 0
+        not_so_close_sequence_words = 0
+        name_words = name.split()
+        length = len(name_words)
+
+        if normalized_length < length:
+            master = name_words
+            slave = normalized_words
+            percentage_length = length
+        else:
+            master = normalized_words
+            slave = name_words
+            percentage_length = normalized_length
+
+        for word in master:
+            for i, name_word in enumerate(slave):
+                if word == name_word:
+                    found_sequence_words += 1
+                    slave = slave[i + 1:]
+                    break
+                elif close_words(word, name_word, deep=2):
+                    close_sequence_words += 1
+                    break
+                elif word in name_word or name_word in word:
+                    not_so_close_sequence_words += 1
+                    break
+
+        percentage = (found_sequence_words * 100)
+        percentage += (close_sequence_words * 60)
+        percentage += (not_so_close_sequence_words * 20)
+        if percentage:
+            percentage = percentage / percentage_length
+
+        if percentage > 100:
+            return 100
+        elif percentage < 0:
+            return 0
+        else:
+            return percentage
+    return replacer
