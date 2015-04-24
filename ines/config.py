@@ -50,6 +50,19 @@ def configuration_extensions(setting_key):
     return decorator
 
 
+class APIWarningDict(WarningDict):
+    def __setitem__(self, key, value):
+        if key in self:
+            existing_value = self[key]
+            existing_path = '%s:%s' % (existing_value.__module__, existing_value.__name__)
+            path = '%s:%s' % (value.__module__, value.__name__)
+            if existing_path == path:
+                # Do nothing!
+                return
+
+        super(APIWarningDict, self).__setitem__(key, value)
+
+
 class APIConfigurator(Configurator):
     def __init__(
             self,
@@ -93,9 +106,11 @@ class APIConfigurator(Configurator):
         self.application_name = application_name or self.package_name
         self.registry.application_name = self.application_name
 
+
+
         # Find extensions on settings
-        bases = WarningDict('Duplicated name "{key}" for API Class')
-        sessions = WarningDict('Duplicated name "{key}" for API Session')
+        bases = APIWarningDict('Duplicated name "{key}" for API Class')
+        sessions = APIWarningDict('Duplicated name "{key}" for API Session')
         for key, value in self.settings.items():
             if key.startswith('api.extension.'):
                 options = key.split('.', 3)[2:]
