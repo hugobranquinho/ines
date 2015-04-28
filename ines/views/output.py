@@ -42,7 +42,9 @@ class OutputSchemaView(object):
             # Look and validate requested fields
             include_fields = getattr(context, 'include_fields', None)
             if include_fields:
-                context.output_fields = construct_allowed_fields(self.allowed_fields, include_fields)
+                context.output_fields = construct_allowed_fields(
+                    self.allowed_fields,
+                    include_fields)
             else:
                 context.output_fields = deepcopy(self.allowed_fields)
 

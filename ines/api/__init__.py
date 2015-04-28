@@ -18,28 +18,25 @@ class BaseSessionManager(object):
 
 
 class BaseSession(object):
-    def __init__(self, api_session_class, request):
-        self.api_session_class = api_session_class
-        self.package_name = self.api_session_class.config.package_name
-        self.application_name = self.api_session_class.config.application_name
-        self.config = self.api_session_class.config
+    def __init__(self, api_session_manager, request):
+        self.api_session_manager = api_session_manager
+        self.package_name = self.api_session_manager.config.package_name
+        self.application_name = self.api_session_manager.config.application_name
+        self.config = self.api_session_manager.config
         self.registry = self.config.registry
         self.settings = self.registry.settings
         self.request = request
 
-    def __getattribute__(self, key):
-        try:
-            attribute = object.__getattribute__(self, key)
-        except AttributeError:
-            if self.__api_name__ == key:
-                return self
+    def __getattr__(self, name):
+        if self.__api_name__ == name:
+            return self
 
-            extension = self.registry.queryUtility(IBaseSessionManager, name=key)
-            if not extension:
-                raise
-            else:
-                attribute = extension(self.request)
-                setattr(self, key, attribute)
+        extension = self.registry.queryUtility(IBaseSessionManager, name=name)
+        if not extension:
+            raise AttributeError(u'Missing api.%s method %s' % (self.__api_name__, name))
+        else:
+            attribute = extension(self.request)
+            setattr(self, name, attribute)
 
         return attribute
 

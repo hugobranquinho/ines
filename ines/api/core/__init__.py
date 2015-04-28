@@ -209,7 +209,10 @@ class BaseCoreSession(BaseSQLSession):
                             attributes.pop(key)  # Dont need this attribute anymore
                             if foreign_table.core_name not in relate_with_foreign:
                                 alias_child = aliased(Core)
-                                relate_with_foreign[foreign_table.core_name] = (foreign_table, alias_child, column_key)
+                                relate_with_foreign[foreign_table.core_name] = (
+                                    foreign_table,
+                                    alias_child,
+                                    column_key)
                             else:
                                 alias_child = relate_with_foreign[foreign_table.core_name][1]
 
@@ -223,7 +226,10 @@ class BaseCoreSession(BaseSQLSession):
 
                         if foreign_table.core_name not in relate_with_foreign:
                             alias_child = aliased(Core)
-                            relate_with_foreign[foreign_table.core_name] = (foreign_table, alias_child, column_key)
+                            relate_with_foreign[foreign_table.core_name] = (
+                                foreign_table,
+                                alias_child,
+                                column_key)
                         else:
                             alias_child = relate_with_foreign[foreign_table.core_name][1]
 
@@ -240,7 +246,10 @@ class BaseCoreSession(BaseSQLSession):
 
                             if foreign_table.core_name not in relate_with_foreign:
                                 alias_child = aliased(Core)
-                                relate_with_foreign[foreign_table.core_name] = (foreign_table, alias_child, column_key)
+                                relate_with_foreign[foreign_table.core_name] = (
+                                    foreign_table,
+                                    alias_child,
+                                    column_key)
                             else:
                                 alias_child = relate_with_foreign[foreign_table.core_name][1]
 
@@ -328,11 +337,15 @@ class BaseCoreSession(BaseSQLSession):
 
                 if foreign_name in filters:
                     if foreign_name in relate_with_foreign:
-                        foreign_table, aliased_foreign, column_key = relate_with_foreign[foreign_name]
+                        (foreign_table, aliased_foreign,
+                         column_key) = relate_with_foreign[foreign_name]
                     else:
                         foreign_table = CORE_TYPES[foreign_name]['table']
                         aliased_foreign = aliased(Core)
-                        relate_with_foreign[foreign_name] = (foreign_table, aliased_foreign, column_key)
+                        relate_with_foreign[foreign_name] = (
+                            foreign_table,
+                            aliased_foreign,
+                            column_key)
 
                     for key, values in filters.pop(foreign_name).items():
                         column = getattr(foreign_table, key)
@@ -345,26 +358,26 @@ class BaseCoreSession(BaseSQLSession):
 
             cores_ids = set()
             looked_cores = False
-            for child_core_name, values in filters.items():
+            for child_core_name, child_values in filters.items():
                 if child_core_name in relate_with_child:
                     child, alias_child = relate_with_child[child_core_name]
 
                     child_query = self.session.query(alias_child.parent_id)
-                    for key, values in filters[child_core_name].items():
+                    for key, values in child_values.items():
                         column = getattr(child, key)
                         if isinstance(column, CoreColumnParent):
                             column = getattr(alias_child, key)
                         if not is_nonstr_iter(values):
-                            child_query  = child_query.filter(column == values)
+                            child_query = child_query.filter(column == values)
                         else:
                             values = set(values)
-                            child_query  = child_query.filter(maybe_with_none(column, values))
+                            child_query = child_query.filter(maybe_with_none(column, values))
 
                     if active is not None:
                         child_query = (
                             child_query
-                                .filter(alias_child.id == child.id_core)
-                                .filter(get_active_filter(alias_child, active)))
+                            .filter(alias_child.id == child.id_core)
+                            .filter(get_active_filter(alias_child, active)))
 
                     cores_ids.update(q.parent_id for q in child_query.all())
                     looked_cores = True
@@ -547,8 +560,8 @@ class BaseCoreSession(BaseSQLSession):
             references[value.id] = value
             for key in attributes.keys():
                 if parent and (
-                    key == parent.core_name
-                    or (parent_possible_names and key in parent_possible_names)):
+                        key == parent.core_name
+                        or (parent_possible_names and key in parent_possible_names)):
                     setattr(value, key, None)
                 else:
                     setattr(value, key, [])
@@ -618,7 +631,8 @@ class BaseCoreSession(BaseSQLSession):
             raise
 
         if branch_table:
-            branch_relation, branch_relation_table = getattr(branch_table, 'core_relation', (None, None))
+            (branch_relation,
+             branch_relation_table) = getattr(branch_table, 'core_relation', (None, None))
             if branch_relation != 'branch' or not isinstance(table, branch_relation_table):
                 raise Error('core', 'Invalid branch relation')
 
@@ -876,8 +890,8 @@ class BaseCoreSession(BaseSQLSession):
         if active is not None:
             query = (
                 query
-                    .filter(get_active_filter(Core, active))
-                    .filter(table.id_core == Core.id))
+                .filter(get_active_filter(Core, active))
+                .filter(table.id_core == Core.id))
 
         if other_filter:
             query = other_filter(query)

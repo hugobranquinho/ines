@@ -32,15 +32,15 @@ def make_dir(path):
 class SaveMe(object):
     def __init__(
             self,
-            save_path,
+            path,
             expire=None,
             retry_errnos=None,
             **lock_settings):
 
         self.expire = maybe_integer(expire)
-        self.save_path = save_path
-        if not isdir(self.save_path):
-            mkdir(self.save_path, 0777)
+        self.path = path
+        if not isdir(self.path):
+            mkdir(self.path, 0777)
 
         # Lock settings
         settings = {}
@@ -49,7 +49,7 @@ class SaveMe(object):
                 settings[key.split('lock_', 1)[1]] = value
 
         self.lockme = LockMe(
-            lock_path=join_paths(self.save_path, 'locks'),
+            lock_path=join_paths(self.path, 'locks'),
             **settings)
 
         self.retry_errnos = maybe_set(retry_errnos)
@@ -64,7 +64,7 @@ class SaveMe(object):
 
     def get_modified_time(self, name):
         name_256 = make_sha256(name)
-        file_path = join_paths(self.save_path, name_256[0], name_256)
+        file_path = join_paths(self.path, name_256[0], name_256)
         modified_time = file_modified_time(file_path)
         if not modified_time:
             raise KeyError('Missing cache key "%s"' % name)
@@ -73,7 +73,7 @@ class SaveMe(object):
 
     def __contains__(self, name):
         name_256 = make_sha256(name)
-        file_path = join_paths(self.save_path, name_256[0], name_256)
+        file_path = join_paths(self.path, name_256[0], name_256)
 
         if self.expire:
             modified_time = file_modified_time(file_path)
@@ -89,7 +89,7 @@ class SaveMe(object):
 
     def get_binary(self, name):
         name_256 = make_sha256(name)
-        file_path = join_paths(self.save_path, name_256[0], name_256)
+        file_path = join_paths(self.path, name_256[0], name_256)
 
         if self.expire:
             modified_time = file_modified_time(file_path)
@@ -110,7 +110,7 @@ class SaveMe(object):
 
     def put_binary(self, name, binary, mode='wb', ignore_error=True):
         name_256 = make_sha256(name)
-        file_path = join_paths(self.save_path, name_256[0], name_256)
+        file_path = join_paths(self.path, name_256[0], name_256)
 
         try:
             with open(file_path, 'wb') as f:
@@ -122,7 +122,7 @@ class SaveMe(object):
 
             elif error.errno is errno.ENOENT:
                 # Missing folder, create and try again
-                folder_path = join_paths(self.save_path, name_256[0])
+                folder_path = join_paths(self.path, name_256[0])
                 make_dir(folder_path)
 
             elif error.errno not in self.retry_errnos:
@@ -133,7 +133,7 @@ class SaveMe(object):
 
     def __delitem__(self, name):
         name_256 = make_sha256(name)
-        file_path = join_paths(self.save_path, name_256[0], name_256)
+        file_path = join_paths(self.path, name_256[0], name_256)
 
         try:
             remove_file(file_path)
@@ -208,7 +208,7 @@ class SaveMeWithReference(SaveMe):
     def __init__(self, *args, **kwargs):
         super(SaveMeWithReference, self).__init__(*args, **kwargs)
 
-        self.reference_path = join_paths(self.save_path, 'references')
+        self.reference_path = join_paths(self.path, 'references')
         if not isdir(self.reference_path):
             mkdir(self.reference_path, 0777)
 

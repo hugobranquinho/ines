@@ -89,5 +89,5 @@ class CSV(object):
         return _render
 
 
-csv_renderer_factory = CSV() # bw compat
+csv_renderer_factory = CSV()  # bw compat
 DEFAULT_RENDERERS['csv'] = csv_renderer_factory

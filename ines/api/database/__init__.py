@@ -13,7 +13,7 @@ class BaseSQLSession(BaseSession):
 
     @reify
     def session(self):
-        return self.api_session_class.db_session()
+        return self.api_session_manager.db_session()
 
     def rollback(self):
         transaction.abort()

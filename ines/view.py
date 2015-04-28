@@ -63,6 +63,7 @@ class api_config(view_config):
                     output_view = output_option
 
                 previous_mapper = settings.get('mapper', DefaultViewMapper)
+
                 class OutputViewMapper(previous_mapper):
                     def __call__(self, view):
                         view = super(OutputViewMapper, self).__call__(view)

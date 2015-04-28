@@ -13,18 +13,17 @@ KILLED_PROCESS = set()
 ALIVE_THREADS = MissingDict()
 
 
-class while_system_running_factory(object):
-    def __init__(self):
-        self.process_id = getpid()
+def while_system_running_factory():
+    process_id = getpid()
 
-    def __call__(self, sleep_seconds):
+    def replacer(sleep_seconds):
         if sleep_seconds < 2:
             while_time = 0.1
         else:
             while_time = 1
 
         slept = 0
-        while self.process_id not in KILLED_PROCESS:
+        while process_id not in KILLED_PROCESS:
             sleep(while_time)
 
             slept += while_time
@@ -32,6 +31,7 @@ class while_system_running_factory(object):
                 return True
 
         return False
+    return replacer
 
 
 def start_system_thread(
@@ -58,6 +58,7 @@ def start_system_thread(
     thread.setDaemon(True)
     thread.start()
     register_thread(name, thread)
+    return thread
 
 
 def clean_dead_threads():
@@ -108,7 +109,7 @@ atexit.register(exit_system)
 
 # Register uwsgi if exists
 try:
-    import uwsgi
+    __import__('uwsgi')
 except ImportError:
     pass
 else:

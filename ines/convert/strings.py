@@ -107,6 +107,7 @@ def uncamelcase(value):
 VOWEL = frozenset(('a', 'e', 'i', 'o', 'u'))
 IGNORE_WORDS = frozenset(('by', ))
 
+
 # See http://www.csse.monash.edu.au/~damian/papers/HTML/Plurals.html # Pluralizing algorithms
 # @@ TODO: improve this
 # https://github.com/blakeembrey/pluralize/blob/master/pluralize.js

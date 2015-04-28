@@ -181,6 +181,8 @@ class SchemaView(object):
                     validators = schema.validator.validators
                 elif not is_nonstr_iter(schema.validator):
                     validators = [schema.validator]
+                else:
+                    validators = schema.validator
 
                 for validator in validators:
                     if isinstance(validator, OneOfWithDescription):

@@ -287,6 +287,7 @@ class TablesSet(set):
 
 class TemporaryColumnsLabel(dict):
     def __init__(self, options):
+        super(TemporaryColumnsLabel, self).__init__()
         self.options = options
 
     def get(self, name, default=None):

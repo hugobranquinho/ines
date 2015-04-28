@@ -3,13 +3,7 @@
 import datetime
 from math import ceil
 
-from sqlalchemy import Date
-from sqlalchemy import DateTime
 from sqlalchemy import func
-from sqlalchemy.orm.attributes import InstrumentedAttribute
-
-from ines.api.core.database import CoreColumnParent
-from ines.convert import camelcase
 
 
 NOW_DATE = datetime.datetime.now

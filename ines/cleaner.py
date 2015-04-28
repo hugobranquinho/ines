@@ -20,8 +20,8 @@ MAPPING = {
     u'ç': u'c', u'è': u'e', u'é': u'e', u'ê': u'e', u'ë': u'e', u'ì': u'i',
     u'í': u'i', u'î': u'i', u'ï': u'i', u'ð': u'o', u'ñ': u'n', u'ò': u'o',
     u'ó': u'o', u'ô': u'o', u'õ': u'o', u'ö': u'o', u'ø': u'o', u'ù': u'u',
-    u'ú': u'u', u'û': u'u', u'ý': u'y', u'ý': u'y', u'þ': u'b', u'ÿ': u'y',
-    u'ƒ': u'f', u' ': u' '}
+    u'ú': u'u', u'ý': u'y', u'þ': u'b', u'ÿ': u'y', u'ƒ': u'f', u' ': u' '}
+
 MAPPING.update(dict((unicode(L), unicode(L)) for L in base_letters))
 MAPPING.update(dict((unicode(D), unicode(D)) for D in base_digits))
 

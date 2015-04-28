@@ -39,6 +39,7 @@ class Payload(Middleware):
 
         return self.application(environ, start_response)
 
+
 def dump_query_value(value):
     if isinstance(value, basestring):
         return force_string(value)

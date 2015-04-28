@@ -22,6 +22,7 @@ def translate_factory(request, locale_name=None):
         return base_get_localizer(request).translate
 
     translator = get_localizer(request.registry, locale_name).translate
+
     def method(tstring, **kwargs):
         default = kwargs.pop('default', None)
         if tstring is not None:

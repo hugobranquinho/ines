@@ -1,7 +1,8 @@
 ines
-=======
+====
 
-An extensible package made with pyramid (see http://www.pylonsproject.org/) to relate multiple applications.
+An extensible package made with pyramid (see http://www.pylonsproject.org/)
+to relate multiple applications.
 
 
 Example
@@ -59,3 +60,4 @@ Example
     urlmap['/two'] = config_two.make_wsgi_app()
     server = make_server('0.0.0.0', 6543, urlmap)
     server.serve_forever()
+

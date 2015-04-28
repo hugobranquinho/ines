@@ -2,7 +2,7 @@
 
 from json import loads
 
-from colander import _ as colander_i18n
+from colander import _ as COLANDER_I18N
 from colander import _SchemaMeta
 from colander import _SchemaNode
 from colander import _marker
@@ -118,8 +118,8 @@ def my_range_call(self, node, value):
             min_value = min_value()
 
         if value < min_value:
-            min_err = colander_i18n(
-                self.min_err, mapping={'val':value, 'min':min_value})
+            min_err = COLANDER_I18N(
+                self.min_err, mapping={'val': value, 'min': min_value})
             raise Invalid(node, min_err)
 
     if self.max is not None:
@@ -128,8 +128,8 @@ def my_range_call(self, node, value):
             max_value = max_value()
 
         if value > max_value:
-            max_err = colander_i18n(
-                self.max_err, mapping={'val':value, 'max':max_value})
+            max_err = COLANDER_I18N(
+                self.max_err, mapping={'val': value, 'max': max_value})
             raise Invalid(node, max_err)
 my_range_call.__name__ = '__call__'
 Range.__call__ = my_range_call
@@ -150,7 +150,7 @@ def my_schemameta(cls, name, bases, clsattrs):
                 value.title = name.replace('_', ' ').title()
             nodes.append((value._order, value))
     nodes.sort()
-    cls.__class_schema_nodes__ = [ n[1] for n in nodes ]
+    cls.__class_schema_nodes__ = [n[1] for n in nodes]
     cls.__all_schema_nodes__ = []
     for c in reversed(cls.__mro__):
         csn = getattr(c, '__class_schema_nodes__', [])
@@ -274,6 +274,7 @@ def add_sequence_node(schema, sequence_node, single_key, plural_key=None, with_f
         if hasattr(schema, 'finisher'):
             if not is_nonstr_iter(schema.finisher):
                 previous_finisher = schema.finisher
+
                 def decorator(cls, appstruct):
                     appstruct = sequence_finisher(cls, appstruct)
                     return previous_finisher(cls, appstruct)
