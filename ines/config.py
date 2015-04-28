@@ -6,7 +6,9 @@ except ImportError:
     OrderedDict = dict
 
 from inspect import getargspec
+from os.path import join as join_path
 from pkg_resources import get_distribution
+from tempfile import gettempdir
 
 from colander import Invalid
 from pyramid.config import Configurator
@@ -21,11 +23,13 @@ from ines import API_CONFIGURATION_EXTENSIONS
 from ines import APPLICATIONS
 from ines import DEFAULT_METHODS
 from ines import DEFAULT_RENDERERS
+from ines import DEFAULT_CACHE_DIRNAME
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
+from ines.cache import SaveMe
 from ines.convert import maybe_list
 from ines.exceptions import Error
 from ines.interfaces import IBaseSessionManager
@@ -106,7 +110,14 @@ class APIConfigurator(Configurator):
         self.application_name = application_name or self.package_name
         self.registry.application_name = self.application_name
 
-
+        # Define global cache
+        cache_settings = {}
+        for key, value in self.settings.items():
+            if key.startswith('cache.'):
+                cache_settings[key[6:]] = value
+        if 'path' not in cache_settings:
+            cache_settings['path'] = join_path(gettempdir(), DEFAULT_CACHE_DIRNAME)
+        self.cache = SaveMe(**cache_settings)
 
         # Find extensions on settings
         bases = APIWarningDict('Duplicated name "{key}" for API Class')
@@ -118,7 +129,6 @@ class APIConfigurator(Configurator):
                     name, option = options[0], 'session_path'
                 else:
                     name, option = options
-
                 if option == 'session_path':
                     if isinstance(value, basestring):
                         sessions[name] = get_object_on_path(value)
@@ -136,31 +146,31 @@ class APIConfigurator(Configurator):
             if not app_name or app_name == application_name:
                 sessions[session.__api_name__] = session
 
-        # Find class on module
-        for session_class in find_class_on_module(
+        # Find session manager on module
+        for session_manager in find_class_on_module(
                 self.package,
                 BaseSessionManager):
-            app_name = getattr(session_class, '__app_name__', None)
+            app_name = getattr(session_manager, '__app_name__', None)
             if not app_name or app_name == application_name:
-                bases[session_class.__api_name__] = session_class
+                bases[session_manager.__api_name__] = session_manager
 
-        # Find default session class
-        for session_class in find_class_on_module(
+        # Find default session manager
+        for session_manager in find_class_on_module(
                 'ines.api',
                 BaseSessionManager):
-            if session_class.__api_name__ not in bases:
-                app_name = getattr(session_class, '__app_name__', None)
+            if session_manager.__api_name__ not in bases:
+                app_name = getattr(session_manager, '__app_name__', None)
                 if not app_name or app_name == application_name:
-                    bases[session_class.__api_name__] = session_class
+                    bases[session_manager.__api_name__] = session_manager
 
         # Define extensions
         for api_name, session in sessions.items():
-            session_class = (
+            session_manager = (
                 bases.get(api_name, BaseSessionManager)
                 (self, session, api_name))
 
             self.registry.registerUtility(
-                session_class,
+                session_manager,
                 provided=IBaseSessionManager,
                 name=api_name)
 
