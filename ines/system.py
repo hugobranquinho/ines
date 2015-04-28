@@ -109,7 +109,7 @@ atexit.register(exit_system)
 
 # Register uwsgi if exists
 try:
-    __import__('uwsgi')
+    import uwsgi
 except ImportError:
     pass
 else:
