@@ -317,3 +317,35 @@ class SaveMeWithReference(SaveMe):
             pass
 
         return False
+
+
+class api_cache_decorator(object):
+    def __init__(self, expire_seconds=900):
+        self.expire_seconds = int(expire_seconds)
+        self.expire_now = False
+
+    def __call__(self, wrapped):
+        def replacer(cls, *args, **kwargs):
+            cached = None
+            no_cache = kwargs.pop('no_cache', False)
+            key = ' '.join([cls.application_name, cls.__api_name__, wrapped.__name__])
+
+            call_method = bool(no_cache or self.expire_now)
+            if not call_method:
+                try:
+                    cached = cls.config.cache.get(key)
+                except KeyError:
+                    call_method = True
+
+            if call_method:
+                cached = wrapped(cls, *args, **kwargs)
+                cls.config.cache.put(key, cached)
+                self.expire_now = False
+
+            return cached
+
+        replacer.expire = self.expire
+        return replacer
+
+    def expire(self):
+        self.expire_now = True

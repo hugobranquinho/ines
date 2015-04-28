@@ -33,7 +33,7 @@ class BaseSession(object):
 
         extension = self.registry.queryUtility(IBaseSessionManager, name=name)
         if not extension:
-            raise AttributeError(u'Missing api.%s method %s' % (self.__api_name__, name))
+            raise AttributeError(u'Missing method %s on extension %s' % (name, self.__api_name__))
         else:
             attribute = extension(self.request)
             setattr(self, name, attribute)
