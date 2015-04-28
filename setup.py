@@ -27,7 +27,6 @@
 __version__ = '0.1a'
 
 import os
-import sys
 from setuptools import find_packages
 from setuptools import setup
 
@@ -55,10 +54,6 @@ requires = [
     'SQLAlchemy',
     'zope.sqlalchemy',
     'repoze.tm2']
-
-python_version = sys.version_info[:2]
-if python_version <= (2, 6):
-    requires.extend(['importlib'])
 
 setupkw = dict(
     name='ines',
