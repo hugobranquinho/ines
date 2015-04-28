@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from os import getpid
-from socket import getfqdn
+from os import uname
 
 from translationstring import TranslationStringFactory
 
@@ -20,4 +20,5 @@ FALSES = frozenset(('f', 'false', 'f', 'no', 'off', '0'))
 IGNORE_FULL_NAME_WORDS = [u'de', u'da', u'e', u'do']
 
 PROCESS_ID = getpid()
-DOMAIN_NAME = str(getfqdn())
+SYSTEM_NAME, DOMAIN_NAME, SYSTEM_RELEASE, SYSTEM_VERSION, MACHINE = uname()
+DEFAULT_CACHE_DIRNAME = 'ines-cache'

@@ -6,6 +6,7 @@ from io import BufferedReader
 from pyramid.decorator import reify
 from pyramid.interfaces import IAuthenticationPolicy
 from pyramid.interfaces import IAuthorizationPolicy
+from pyramid.interfaces import IRequestFactory
 from pyramid.renderers import render_to_response
 from pyramid.request import Request
 from pyramid.settings import asbool
@@ -130,22 +131,27 @@ class inesRequest(Request):
 
 class ApplicationsConnector(object):
     def __init__(self, request):
-        self._request = request
+        self.request = request
 
-    def __getattribute__(self, key):
-        try:
-            attribute = object.__getattribute__(self, key)
-        except AttributeError:
-            config = APPLICATIONS.get(key)
-            if config is None:
-                message = u'Missing application %s' % key
-                raise NotImplementedError(message)
+    def __getattr__(self, key):
+        config = APPLICATIONS.get(key)
+        if config is None:
+            raise AttributeError(u'Missing application %s' % key)
 
-            if self._request.application_name == key:
-                attribute = self._request.api
-            else:
-                attribute = config.registry.queryUtility(IBaseSessionManager, name='api')(self._request)
+        if self.request.application_name == key:
+            attribute = self.request.api
+        else:
+            session_manager = config.registry.queryUtility(
+                IBaseSessionManager,
+                name='api')
+            attribute = session_manager(self.request)
 
-            setattr(self, key, attribute)
-
+        setattr(self, key, attribute)
         return attribute
+
+
+def make_request(config, environ=None):
+    request_factory = config.registry.queryUtility(IRequestFactory)
+    request = request_factory(environ or {})
+    request.registry = config.registry
+    return request
