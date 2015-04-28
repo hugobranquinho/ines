@@ -34,10 +34,9 @@ class LockMe(object):
 
         self.timeout = int(timeout)
         self.delete_lock_on_timeout = delete_lock_on_timeout
-        self.clean_junk_locks(self.lock_path)  # wait for this
 
-    def lock(self, name, timeout=None, delete_lock_on_timeout=False):
-        my_lock = _Lock(self.lock_path, name, timeout or self.timeout)
+    def lock(self, name, timeout=None, expire=None, delete_lock_on_timeout=False):
+        my_lock = _Lock(self.lock_path, name, timeout or self.timeout, expire=expire)
         try:
             my_lock.lock()
         except LockTimeout as error:
@@ -134,7 +133,7 @@ class LockMe(object):
 
 
 class _Lock(object):
-    def __init__(self, lock_path, name, timeout=None):
+    def __init__(self, lock_path, name, timeout=None, expire=None):
         self.name = name
         self.name_256 = make_sha256(name)
         self.first_name_letter = self.name_256[0]
@@ -150,8 +149,9 @@ class _Lock(object):
 
         self.expire_time = None
         self.timeout = int(timeout or 0)
-        if timeout:
-            self.expire_time = time() + self.timeout
+
+        if expire:
+            self.expire_time = time() + int(expire)
 
     @reify
     def code(self):
