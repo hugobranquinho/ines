@@ -19,3 +19,7 @@ class HTTPTokenExpired(HTTPUnauthorized):
 
 class HTTPInvalidJSONPayload(HTTPBadRequest):
     explanation = u'Invalid json request'
+
+
+class NoMoreDates(Error):
+    pass

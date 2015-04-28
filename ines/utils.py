@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from calendar import monthrange
 import datetime
 from json import dumps
 from os import getpid
@@ -13,6 +14,7 @@ import warnings
 from colander import Invalid
 from pyramid.httpexceptions import HTTPError
 
+from ines import DOMAIN_NAME
 from ines.cleaner import normalize_full_name
 from ines.convert import camelcase
 from ines.convert import force_string
@@ -21,7 +23,9 @@ from ines.convert import make_sha256
 from ines.i18n import translate_factory
 
 
-NOW_DATE = datetime.datetime.now
+NOW = datetime.datetime.now
+DATE = datetime.date
+TIMEDELTA = datetime.timedelta
 PROCESS_ID = getpid()
 
 # See: http://www.regular-expressions.info/email.html
@@ -32,6 +36,7 @@ EMAIL_REGEX = regex_compile(
 
 class WarningDict(dict):
     def __init__(self, message='Duplicate item "{key}" with value "{value}"'):
+        super(WarningDict, self).__init__()
         self.message = message
 
     def __setitem__(self, key, value):
@@ -104,7 +109,7 @@ def make_uuid_hash():
 def make_unique_hash():
     key = '.'.join((
         uuid4().hex,
-        str(NOW_DATE()),
+        str(NOW()),
         str(PROCESS_ID),
         str(DOMAIN_NAME)))
     return make_sha256(key)
@@ -226,15 +231,15 @@ def compare_full_name_factory(name):
     normalized_words = normalized_name.split()
     normalized_length = len(normalized_words)
 
-    def replacer(name):
-        name = normalize_full_name(name)
-        if name == normalized_name:
+    def replacer(full_name):
+        full_name = normalize_full_name(full_name)
+        if full_name == normalized_name:
             return 100
 
         found_sequence_words = 0
         close_sequence_words = 0
         not_so_close_sequence_words = 0
-        name_words = name.split()
+        name_words = full_name.split()
         length = len(name_words)
 
         if normalized_length < length:
@@ -263,7 +268,7 @@ def compare_full_name_factory(name):
         percentage += (close_sequence_words * 60)
         percentage += (not_so_close_sequence_words * 20)
         if percentage:
-            percentage = percentage / percentage_length
+            percentage /= percentage_length
 
         if percentage > 100:
             return 100
@@ -272,3 +277,24 @@ def compare_full_name_factory(name):
         else:
             return percentage
     return replacer
+
+
+def add_months(value, months):
+    month = value.month - 1 + months
+    year = value.year + (month / 12)
+    month = month % 12 + 1
+    day = min(value.day, monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def last_day_of_month_for_weekday(year, month, weekday):
+    month_days = monthrange(year, month)[1]
+    last_day = DATE(year, month, month_days)
+
+    last_weekday = last_day.weekday()
+    if last_weekday > weekday:
+        last_day -= TIMEDELTA(days=last_weekday - weekday)
+    elif last_weekday < weekday:
+        last_day -= TIMEDELTA(days=7 - weekday + last_weekday)
+
+    return last_day
