@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from pyramid.decorator import reify
 from pyramid.interfaces import IAuthenticationPolicy
 from zope.interface import implementer
 
@@ -22,6 +23,10 @@ class AuthenticatedSession(object):
             Authenticated,
             self.session_type,
             '%s.%s' % (self.session_type, self.session_id)]
+
+    @reify
+    def is_authenticated(self):
+        return bool(self.session_id)
 
 
 @implementer(IAuthenticationPolicy)

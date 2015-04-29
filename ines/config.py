@@ -378,7 +378,9 @@ class APIConfigurator(Configurator):
                 if key.startswith('middleware.'):
                     maybe_name = key.split('middleware.', 1)[1]
                     if '.' in maybe_name:
-                        name, setting_key = maybe_name.split('.', 1)
+                        parts = maybe_name.split('.')
+                        setting_key = parts[-1]
+                        name = '.'.join(parts[:-1])
                         middlewares_settings[name][setting_key] = value
                     else:
                         # Install settings middlewares
