@@ -40,8 +40,8 @@ class TokenAuthorizationPolicy(object):
 
             for permission_value in permission:
                 in_principals = (
-                    permission_value in principals
-                    or permission_value == ALL_PERMISSIONS)
+                    permission_value == ALL_PERMISSIONS
+                    or permission_value in principals)
 
                 if getattr(permission_value, '__deny__', False):
                     if in_principals:

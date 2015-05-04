@@ -4,8 +4,6 @@ import datetime
 import sys
 from traceback import format_exception
 
-from pyramid.httpexceptions import HTTPUnauthorized
-
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.convert import force_string
@@ -39,12 +37,7 @@ class BaseLogSession(BaseSession):
         if extra:
             arguments.extend(extra.items())
 
-        try:
-            authenticated = self.request.authenticated
-        except HTTPUnauthorized:
-            authenticated = None
-
-        if authenticated:
+        if self.request.authenticated:
             arguments.extend([
                 ('Session type', self.request.authenticated.session_type),
                 ('Session id', self.request.authenticated.session_id)])

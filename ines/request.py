@@ -27,6 +27,10 @@ class inesRequest(Request):
     def cache(self):
         return InfiniteDict()
 
+    @property
+    def fcache(self):
+        return self.config.cache
+
     @reify
     def api(self):
         return self.registry.queryUtility(IBaseSessionManager, name='api')(self)
