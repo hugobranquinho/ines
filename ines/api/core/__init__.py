@@ -161,6 +161,7 @@ class BaseCoreSession(BaseSQLSession):
         # Lookup for child columns
         relate_with_child = {}
         relate_with_foreign = {}
+        object_relations = {}
         if attributes:
             for child in CORE_TYPES[core_name]['childs']:
                 for key in attributes.keys():
@@ -193,56 +194,33 @@ class BaseCoreSession(BaseSQLSession):
                             column = getattr(alias_child, key)
                         columns.add(column)
 
-            core_foreign = getattr(table, 'core_foreign_key', None)
-            if core_foreign is not None:
-                column_key, foreign_column = core_foreign
-                foreign_name = foreign_column.table.name
-                if foreign_name.startswith('core_'):
-                    foreign_name = foreign_name.split('core_', 1)[1]
-                foreign_table = CORE_TYPES[foreign_name]['table']
-                foreign_possible_pattern = getattr(foreign_table, 'core_possible_pattern', None)
+            core_foreigns = getattr(table, 'core_foreigns', None)
+            if core_foreigns is not None:
+                for column_key, foreign_table in core_foreigns.items():
+                    foreign_possible_pattern = getattr(foreign_table, 'core_possible_pattern', None)
+                    foreign_reference_name = getattr(foreign_table, 'core_reference_name', None)
 
-                for key in attributes.keys():
-                    if is_nonstr_iter(key):
-                        child_core_name, child_key, label_name = key
-                        if child_core_name == foreign_table.core_name:
+                    for key in attributes.keys():
+                        if is_nonstr_iter(key):
+                            child_core_name, child_key, label_name = key
+                            if child_core_name == foreign_table.core_name:
+                                attributes.pop(key)  # Dont need this attribute anymore
+                                if foreign_table.core_name not in relate_with_foreign:
+                                    alias_child = aliased(Core)
+                                    relate_with_foreign[foreign_table.core_name] = (
+                                        foreign_table,
+                                        alias_child,
+                                        column_key)
+                                else:
+                                    alias_child = relate_with_foreign[foreign_table.core_name][1]
+
+                                column = getattr(foreign_table, child_key)
+                                if isinstance(column, CoreColumnParent):
+                                    column = getattr(alias_child, child_key)
+                                columns.add(column.label(label_name))
+
+                        elif hasattr(foreign_table, key):
                             attributes.pop(key)  # Dont need this attribute anymore
-                            if foreign_table.core_name not in relate_with_foreign:
-                                alias_child = aliased(Core)
-                                relate_with_foreign[foreign_table.core_name] = (
-                                    foreign_table,
-                                    alias_child,
-                                    column_key)
-                            else:
-                                alias_child = relate_with_foreign[foreign_table.core_name][1]
-
-                            column = getattr(foreign_table, child_key)
-                            if isinstance(column, CoreColumnParent):
-                                column = getattr(alias_child, child_key)
-                            columns.add(column.label(label_name))
-
-                    elif hasattr(foreign_table, key):
-                        attributes.pop(key)  # Dont need this attribute anymore
-
-                        if foreign_table.core_name not in relate_with_foreign:
-                            alias_child = aliased(Core)
-                            relate_with_foreign[foreign_table.core_name] = (
-                                foreign_table,
-                                alias_child,
-                                column_key)
-                        else:
-                            alias_child = relate_with_foreign[foreign_table.core_name][1]
-
-                        column = getattr(foreign_table, key)
-                        if isinstance(column, CoreColumnParent):
-                            column = getattr(alias_child, key)
-                        columns.add(column)
-
-                    elif foreign_possible_pattern and key.startswith(foreign_possible_pattern):
-                        new_key = key.split(foreign_possible_pattern, 1)[1]
-
-                        if hasattr(foreign_table, new_key):
-                            attributes.pop(key, None)  # Dont need this attribute anymore
 
                             if foreign_table.core_name not in relate_with_foreign:
                                 alias_child = aliased(Core)
@@ -253,10 +231,34 @@ class BaseCoreSession(BaseSQLSession):
                             else:
                                 alias_child = relate_with_foreign[foreign_table.core_name][1]
 
-                            column = getattr(foreign_table, new_key)
+                            column = getattr(foreign_table, key)
                             if isinstance(column, CoreColumnParent):
-                                column = getattr(alias_child, new_key)
-                            columns.add(column.label(key))
+                                column = getattr(alias_child, key)
+                            columns.add(column)
+
+                        elif foreign_possible_pattern and key.startswith(foreign_possible_pattern):
+                            new_key = key.split(foreign_possible_pattern, 1)[1]
+
+                            if hasattr(foreign_table, new_key):
+                                attributes.pop(key, None)  # Dont need this attribute anymore
+
+                                if foreign_table.core_name not in relate_with_foreign:
+                                    alias_child = aliased(Core)
+                                    relate_with_foreign[foreign_table.core_name] = (
+                                        foreign_table,
+                                        alias_child,
+                                        column_key)
+                                else:
+                                    alias_child = relate_with_foreign[foreign_table.core_name][1]
+
+                                column = getattr(foreign_table, new_key)
+                                if isinstance(column, CoreColumnParent):
+                                    column = getattr(alias_child, new_key)
+                                columns.add(column.label(key))
+
+                        elif key == foreign_reference_name:
+                            object_relations[key] = (foreign_table, column_key, attributes.pop(key))
+                            columns.add(getattr(table, column_key))
 
         relate_with_father = False
         parent = CORE_TYPES[core_name]['parent']
@@ -328,33 +330,33 @@ class BaseCoreSession(BaseSQLSession):
                     if query_filter is not None:
                         queries.append(query_filter)
 
-            core_foreign = getattr(table, 'core_foreign_key', None)
-            if core_foreign is not None:
-                column_key, foreign_column = core_foreign
-                foreign_name = foreign_column.table.name
-                if foreign_name.startswith('core_'):
-                    foreign_name = foreign_name.split('core_', 1)[1]
+            core_foreigns = getattr(table, 'core_foreigns', None)
+            if core_foreigns is not None:
+                for column_key, foreign_table in core_foreigns.items():
+                    foreign_name = foreign_table.core_name
+                    if foreign_name.startswith('core_'):
+                        foreign_name = foreign_name.split('core_', 1)[1]
 
-                if foreign_name in filters:
-                    if foreign_name in relate_with_foreign:
-                        (foreign_table, aliased_foreign,
-                         column_key) = relate_with_foreign[foreign_name]
-                    else:
-                        foreign_table = CORE_TYPES[foreign_name]['table']
-                        aliased_foreign = aliased(Core)
-                        relate_with_foreign[foreign_name] = (
-                            foreign_table,
-                            aliased_foreign,
-                            column_key)
+                    if foreign_name in filters:
+                        if foreign_name in relate_with_foreign:
+                            (foreign_table, aliased_foreign,
+                             column_key) = relate_with_foreign[foreign_name]
+                        else:
+                            foreign_table = CORE_TYPES[foreign_name]['table']
+                            aliased_foreign = aliased(Core)
+                            relate_with_foreign[foreign_name] = (
+                                foreign_table,
+                                aliased_foreign,
+                                column_key)
 
-                    for key, values in filters.pop(foreign_name).items():
-                        column = getattr(foreign_table, key)
-                        if isinstance(column, CoreColumnParent):
-                            column = getattr(aliased_foreign, key)
+                        for key, values in filters.pop(foreign_name).items():
+                            column = getattr(foreign_table, key)
+                            if isinstance(column, CoreColumnParent):
+                                column = getattr(aliased_foreign, key)
 
-                        query_filter = create_filter_by(column, values)
-                        if query_filter is not None:
-                            queries.append(query_filter)
+                            query_filter = create_filter_by(column, values)
+                            if query_filter is not None:
+                                queries.append(query_filter)
 
             cores_ids = set()
             looked_cores = False
@@ -549,6 +551,20 @@ class BaseCoreSession(BaseSQLSession):
         labels = set(getattr(result[0], SQLALCHEMY_LABELS_KEY))
         labels.update(attributes.keys())
         labels = tuple(labels)
+
+        if object_relations:
+            for key, (key_table, column_key, key_attributes) in object_relations.items():
+                references = MissingList()
+                for value in result:
+                    references[getattr(value, column_key)].append(value)
+                key_attributes['id_core'] = None
+                for value in self.get_cores(
+                        key_table.core_name,
+                        key_attributes,
+                        active=active,
+                        filters={key_table.core_name: {'id_core': references.keys()}}):
+                    for child_value in references[value.id_core]:
+                        setattr(child_value, key, value)
 
         references = {}
         parent_ids_reference = MissingList()
@@ -1066,17 +1082,13 @@ class BaseCoreSession(BaseSQLSession):
                 tables_with_relations.add(relation_table)
                 queries.append(alias.parent_id == relation_table.id_core)
 
-            core_foreign = getattr(table, 'core_foreign_key', None)
-            if core_foreign is not None:
-                column_key, foreign_column = core_foreign
-                name = foreign_column.table.name
-                if name.startswith('core_'):
-                    name = name.split('core_', 1)[1]
-                foreign_table = CORE_TYPES[name]['table']
-                if foreign_table in tables:
-                    tables_with_relations.add(foreign_table)
-                    tables_with_relations.add(table)
-                    queries.append(foreign_column == getattr(table, column_key))
+            core_foreigns = getattr(table, 'core_foreigns', None)
+            if core_foreigns is not None:
+                for column_key, foreign_table in core_foreigns.items():
+                    if foreign_table in tables:
+                        tables_with_relations.add(foreign_table)
+                        tables_with_relations.add(table)
+                        queries.append(foreign_table.id_core == getattr(table, column_key))
 
         # Start query
         query = self.session.query(*query_columns)
