@@ -19,9 +19,6 @@ class LoggingMiddleware(Middleware):
             for chunk in self.application(environ, start_response):
                 yield chunk
         except (BaseException, Exception) as error:
-            type_, value, tb = sys.exc_info()
-            message = ''.join(format_exception(type_, value, tb))
-
             # Save / log error
             request = make_request(self.config, environ)
 
@@ -35,7 +32,7 @@ class LoggingMiddleware(Middleware):
                     'internal_server_error',
                     str(small_message))
             except (BaseException, Exception):
-                print message
+                print ''.join(format_exception(*sys.exc_info()))
 
             internal_server_error = HTTPInternalServerError()
             headers = [('Content-type', 'application/json')]

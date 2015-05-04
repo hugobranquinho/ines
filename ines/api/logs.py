@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import sys
+from traceback import format_exception
 
 from pyramid.httpexceptions import HTTPUnauthorized
 
@@ -52,6 +54,9 @@ class BaseLogSession(BaseSession):
         bigger = max(len(k) for k, v in arguments)
         for key, value in arguments:
             print key, ' ' * (bigger - len(key)), ':', force_string(value)
+
+        print
+        print ''.join(format_exception(*sys.exc_info()))
 
         print
         try:
