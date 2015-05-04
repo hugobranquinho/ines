@@ -87,16 +87,17 @@ class SaveMe(object):
 
         return isfile(file_path)
 
-    def get_binary(self, name):
+    def get_binary(self, name, expire=None):
         name_256 = make_sha256(name)
         file_path = join_paths(self.path, name_256[0], name_256)
 
-        if self.expire:
+        expire = expire or self.expire
+        if expire:
             modified_time = file_modified_time(file_path)
             if not modified_time:
                 raise KeyError('Missing cache key "%s"' % name)
 
-            expire_time = modified_time + self.expire
+            expire_time = modified_time + expire
             if expire_time < time():
                 self.remove(name)
                 raise KeyError('Missing cache key "%s"' % name)
@@ -189,13 +190,13 @@ class SaveMe(object):
         info = pickle_dumps(info)
         self.put_binary(name, info)
 
-    def get(self, name, default=None):
+    def get(self, name, default=None, expire=None):
         try:
-            value = self[name]
+            binary = self.get_binary(name, expire=expire)
         except KeyError:
             return default
         else:
-            return value
+            return pickle_loads(binary)
 
     def put(self, name, info):
         self[name] = info

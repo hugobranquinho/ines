@@ -82,6 +82,13 @@ class MissingList(MissingDict):
         self[key].append(value)
 
 
+class MissingDictList(MissingDict):
+    _base_type = MissingList
+
+    def add_item(self, key, value):
+        self[key][value] = []
+
+
 class MissingInteger(MissingDict):
     _base_type = int
 

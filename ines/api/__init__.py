@@ -34,16 +34,19 @@ class BaseSession(object):
         extension = self.registry.queryUtility(IBaseSessionManager, name=name)
         if not extension:
             raise AttributeError(u'Missing method %s on extension %s' % (name, self.__api_name__))
-        else:
-            attribute = extension(self.request)
-            setattr(self, name, attribute)
 
+        attribute = extension(self.request)
+        setattr(self, name, attribute)
         return attribute
 
     def __contains__(self, key):
         return (
             self.registry
             .queryUtility(IBaseSessionManager, name=key) is not None)
+
+    @reify
+    def cache(self):
+        return self.config.cache
 
     @reify
     def applications(self):
