@@ -129,8 +129,7 @@ class SaveMe(object):
             elif error.errno not in self.retry_errnos:
                 raise
 
-            else:
-                return self.put_binary(name, binary, mode, ignore_error=False)
+            return self.put_binary(name, binary, mode, ignore_error=False)
 
     def __delitem__(self, name):
         name_256 = make_sha256(name)
