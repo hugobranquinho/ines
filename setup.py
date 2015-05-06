@@ -24,7 +24,7 @@
 #
 ###############################################################################
 
-__version__ = '0.1a'
+__version__ = '0.1a1'
 
 import os
 from setuptools import find_packages
