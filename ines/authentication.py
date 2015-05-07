@@ -39,9 +39,9 @@ class ApplicationHeaderAuthenticationPolicy(object):
         self.header_key = header_key
 
     def get_authenticated_session(self, request):
-        have_cache = hasattr(request, 'cache')
-        if have_cache and 'authenticated' in request.cache:
-            return request.cache['authenticated']
+        have_cache = hasattr(request, 'session_cache')
+        if have_cache and 'authenticated' in request.session_cache:
+            return request.session_cache['authenticated']
 
         authorization_type = None
         authorization = self.unauthenticated_userid(request)
@@ -69,7 +69,7 @@ class ApplicationHeaderAuthenticationPolicy(object):
                     authenticated)
 
         if have_cache:
-            request.cache['authenticated'] = authenticated
+            request.session_cache['authenticated'] = authenticated
 
         return authenticated
 

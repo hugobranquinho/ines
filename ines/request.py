@@ -24,12 +24,12 @@ from ines.utils import InfiniteDict
 
 class inesRequest(Request):
     @reify
-    def cache(self):
+    def session_cache(self):
         return InfiniteDict()
 
-    @property
-    def fcache(self):
-        return self.config.cache
+    @reify
+    def cache(self):
+        return self.registry.config.cache
 
     @reify
     def api(self):
