@@ -53,7 +53,8 @@ requires = [
     'transaction',
     'SQLAlchemy',
     'zope.sqlalchemy',
-    'repoze.tm2']
+    'repoze.tm2',
+    'repoze.lru']
 
 setupkw = dict(
     name='ines',

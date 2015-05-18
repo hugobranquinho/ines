@@ -3,13 +3,22 @@
 from hashlib import sha256
 from math import ceil
 
+from repoze.lru import LRUCache
+
 from ines.convert.strings import force_string
 from ines.convert.strings import force_unicode
 
 
-def make_sha256(value):
-    value = force_string(value)
-    return force_unicode(sha256(value).hexdigest())
+SHA256_CACHE = LRUCache(5000)
+
+
+def make_sha256(key):
+    key = force_string(key)
+    key_256 = SHA256_CACHE.get(key)
+    if not key_256:
+        key_256 = force_unicode(sha256(key).hexdigest())
+        SHA256_CACHE.put(key, key_256)
+    return key_256
 
 
 def inject_junk(value):

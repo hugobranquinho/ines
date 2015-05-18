@@ -1,4 +1,40 @@
-0.1a (2015-03-09)
+0.1 (unreleased)
 ================
+
+Features
+--------
+
+- Add unit tests
+- Add documentation
+
+
+0.1a2 (unreleased)
+==================
+
+Features
+--------
+
+- Changed session cache located at ``request.cache`` to ``request.session_cache``.
+- Changed filesystem cache located at ``request.fcache`` to ``request.cache``.
+- Improve ``convert.make_sha256`` speed using ``repoze.lru.LRUCache``
+
+Bug Fixes
+---------
+
+- Deal with ``IOError`` and ``OSError`, don't ignore them
+
+Backwards Incompatibilities
+---------------------------
+
+- ``api_cache_decorator`` now receives argument ``expire_cache`` argument to delete saved info, instead of ``expire``.
+
+Dependencies
+------------
+
+- ines now depends on ``repoze.lru``
+
+
+0.1a1 (2015-05-06)
+==================
 
 - Initial release.
