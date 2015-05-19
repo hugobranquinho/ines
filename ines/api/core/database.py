@@ -42,6 +42,7 @@ class CoreAliased(dict):
 
 class Core(DeclarativeBase):
     __tablename__ = 'core'
+    __key_length__ = 7
 
     id = Column(Integer, primary_key=True, nullable=False)
     key = Column(Unicode(70), unique=True, index=True, nullable=False)
@@ -58,7 +59,7 @@ class Core(DeclarativeBase):
     created_date = Column(DateTime, default=func.now(), nullable=False)
 
     def make_key(self):
-        return make_uuid_hash()
+        return make_uuid_hash()[:self.__key_length__]
 
 
 CORE_TYPES['core']['table'] = Core
@@ -111,6 +112,7 @@ def replace_core_attribute(wrapped):
 
 class CoreType(object):
     core_name = None
+    __key_length__ = 7
 
     @declared_attr
     def __tablename__(self):
