@@ -6,9 +6,7 @@ except ImportError:
     OrderedDict = dict
 
 from inspect import getargspec
-from os.path import join as join_path
 from pkg_resources import get_distribution
-from tempfile import gettempdir
 
 from colander import Invalid
 from pyramid.config import Configurator
@@ -23,13 +21,14 @@ from ines import API_CONFIGURATION_EXTENSIONS
 from ines import APPLICATIONS
 from ines import DEFAULT_METHODS
 from ines import DEFAULT_RENDERERS
-from ines import DEFAULT_CACHE_DIRNAME
+from ines import DEFAULT_CACHE_DIRPATH
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
 from ines.cache import SaveMe
+from ines.cache import SaveMeMemcached
 from ines.convert import maybe_list
 from ines.exceptions import Error
 from ines.interfaces import IBaseSessionManager
@@ -115,9 +114,13 @@ class APIConfigurator(Configurator):
         for key, value in self.settings.items():
             if key.startswith('cache.'):
                 cache_settings[key[6:]] = value
-        if 'path' not in cache_settings:
-            cache_settings['path'] = join_path(gettempdir(), DEFAULT_CACHE_DIRNAME)
-        self.cache = SaveMe(**cache_settings)
+        cache_type = cache_settings.pop('type', None)
+        if cache_type == 'memcached':
+            self.cache = SaveMeMemcached(**cache_settings)
+        else:
+            if 'path' not in cache_settings:
+                cache_settings['path'] = DEFAULT_CACHE_DIRPATH
+            self.cache = SaveMe(**cache_settings)
 
         # Find extensions on settings
         bases = APIWarningDict('Duplicated name "{key}" for API Class')
@@ -158,10 +161,9 @@ class APIConfigurator(Configurator):
         for session_manager in find_class_on_module(
                 'ines.api',
                 BaseSessionManager):
-            if session_manager.__api_name__ not in bases:
-                app_name = getattr(session_manager, '__app_name__', None)
-                if not app_name or app_name == application_name:
-                    bases[session_manager.__api_name__] = session_manager
+            api_name = getattr(session_manager, '__api_name__', None)
+            if api_name and api_name not in bases:
+                bases[api_name] = session_manager
 
         # Define extensions
         for api_name, session in sessions.items():

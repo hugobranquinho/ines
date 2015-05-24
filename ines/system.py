@@ -57,6 +57,7 @@ def start_system_thread(
 
     thread.setDaemon(True)
     thread.start()
+
     register_thread(name, thread)
     return thread
 
@@ -67,6 +68,13 @@ def clean_dead_threads():
         if not thread.isAlive():
             thread.join()
             ALIVE_THREADS[process_id].pop(name)
+
+
+def thread_is_running(name):
+    # Clean up function
+    clean_dead_threads()
+    process_id = getpid()
+    return name in ALIVE_THREADS[process_id]
 
 
 def exit_system():

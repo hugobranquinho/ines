@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import errno
 from os import getpgid
 from os.path import isfile
 from os.path import join as join_path
@@ -15,8 +16,8 @@ from ines import SYSTEM_VERSION
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.cron import Cron
+from ines.exceptions import LockTimeout
 from ines.exceptions import NoMoreDates
-from ines.locks import LockTimeout
 from ines.request import make_request
 from ines.system import start_system_thread
 
@@ -55,7 +56,7 @@ class BaseJobsManager(BaseSessionManager):
             domain_start_file_path = join_path(temporary_dir, domain_start_filename)
 
             lock_key = 'jobs monitor start check'
-            self.config.cache.lock(lock_key, timeout=5, expire=10)
+            self.config.cache.lock(lock_key, timeout=10)
 
             try:
                 start_thread = not isfile(domain_start_file_path)
@@ -68,8 +69,11 @@ class BaseJobsManager(BaseSessionManager):
                     else:
                         try:
                             getpgid(process_id)
-                        except OSError:
-                            start_thread = True
+                        except OSError as error:
+                            if error.errno is errno.ESRCH:
+                                start_thread = True
+                            else:
+                                raise
 
                 if start_thread:
                     with open(domain_start_file_path, 'w') as f:

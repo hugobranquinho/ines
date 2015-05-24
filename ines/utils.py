@@ -2,10 +2,16 @@
 
 from calendar import monthrange
 import datetime
+import errno
 from json import dumps
 from os import getpid
+from os import listdir
+from os import mkdir
+from os import remove as remove_file
+from os import rename as rename_file
 from os import SEEK_END
 from os import stat as os_stat
+from os.path import dirname
 from os.path import getmtime
 from re import compile as regex_compile
 from uuid import uuid4
@@ -15,11 +21,13 @@ from colander import Invalid
 from pyramid.httpexceptions import HTTPError
 
 from ines import DOMAIN_NAME
+from ines import DEFAULT_RETRY_ERRNO
 from ines.cleaner import normalize_full_name
 from ines.convert import camelcase
 from ines.convert import force_string
 from ines.convert import force_unicode
 from ines.convert import make_sha256
+from ines.convert import maybe_integer
 from ines.i18n import translate_factory
 
 
@@ -122,13 +130,25 @@ def make_unique_hash():
     return make_sha256(key)
 
 
-def last_read_file_time(path):
-    try:
-        last_read_time = int(os_stat(path).st_atime)
-    except OSError:
-        pass
-    else:
-        return last_read_time
+def last_read_file_time(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    retries = (maybe_integer(retries) or 3) + 1
+    while retries:
+        try:
+            last_read_time = int(os_stat(path).st_atime)
+        except OSError as error:
+            if error.errno is errno.ENOENT:
+                return None
+            elif error.errno in retry_errno:
+                # Try again, or not!
+                retries -= 1
+            else:
+                # Something goes wrong
+                raise
+        else:
+            return last_read_time
+
+    # After X retries, raise previous IOError
+    raise
 
 
 def format_error_to_json_values(error, kwargs=None, request=None):
@@ -179,13 +199,25 @@ def format_error_to_json(error, kwargs=None, request=None):
     return dumps(format_error_to_json_values(error, kwargs, request=request))
 
 
-def file_modified_time(path):
-    try:
-        modified_time = getmtime(path)
-    except OSError:
-        pass
-    else:
-        return modified_time
+def file_modified_time(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    retries = (maybe_integer(retries) or 3) + 1
+    while retries:
+        try:
+            modified_time = getmtime(path)
+        except OSError as error:
+            if error.errno is errno.ENOENT:
+                return None
+            elif error.errno in retry_errno:
+                # Try again, or not!
+                retries -= 1
+            else:
+                # Something goes wrong
+                raise
+        else:
+            return modified_time
+
+    # After X retries, raise previous IOError
+    raise
 
 
 def validate_email(value):
@@ -305,3 +337,120 @@ def last_day_of_month_for_weekday(year, month, weekday):
         last_day -= TIMEDELTA(days=7 - weekday + last_weekday)
 
     return last_day
+
+
+def remove_file_quietly(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    retries = (maybe_integer(retries) or 3) + 1
+    while retries:
+        try:
+            remove_file(path)
+        except OSError as error:
+            if error.errno is errno.ENOENT:
+                # Already deleted!
+                return False
+            elif error.errno in retry_errno:
+                # Try again, or not!
+                retries -= 1
+            else:
+                # Something goes wrong
+                raise
+        else:
+            return True
+
+    # After X retries, raise previous OSError
+    raise
+
+
+def make_dir(path, mode=0777):
+    path = force_string(path)
+    try:
+        mkdir(path, mode)
+    except OSError as error:
+        if error.errno is not errno.EEXIST:
+            raise
+    return path
+
+
+def move_file(path, new_path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    retries = (maybe_integer(retries) or 3) + 1
+    while retries:
+        try:
+            rename_file(path, new_path)
+        except OSError as error:
+            if error.errno in retry_errno:
+                # Try again, or not!
+                retries -= 1
+            else:
+                # Something goes wrong
+                raise
+        else:
+            return True
+
+    # After X retries, raise previous OSError
+    raise
+
+
+def get_file_binary(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    retries = (maybe_integer(retries) or 3) + 1
+    while retries:
+        try:
+            with open(path, 'rb') as f:
+                binary = f.read()
+        except IOError as error:
+            if error.errno is errno.ENOENT:
+                return None
+            elif error.errno in retry_errno:
+                # Try again, or not!
+                retries -= 1
+            else:
+                # Something goes wrong
+                raise
+        else:
+            return binary
+
+    # After X retries, raise previous IOError
+    raise
+
+
+def put_binary_on_file(path, binary, mode='wb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    retries = (maybe_integer(retries) or 3) + 1
+    while retries:
+        try:
+            with open(path, mode) as f:
+                f.write(binary)
+        except IOError as error:
+            if error.errno is errno.ENOENT:
+                # Missing folder, create and try again
+                make_dir(dirname(path))
+            elif error.errno in retry_errno:
+                # Try again, or not!
+                retries -= 1
+            else:
+                # Something goes wrong
+                raise
+        else:
+            return True
+
+    # After X retries, raise previous IOError
+    raise
+
+
+def get_dir_filenames(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    retries = (maybe_integer(retries) or 3) + 1
+    while retries:
+        try:
+            filenames = listdir(path)
+        except OSError as error:
+            if error.errno is errno.ENOENT:
+                return []
+            if error.errno in retry_errno:
+                # Try again, or not!
+                retries -= 1
+            else:
+                # Your path ends here!
+                break
+        else:
+            return filenames
+
+    # After X retries, raise previous OSError
+    raise

@@ -14,7 +14,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ClauseElement
 
-from ines.api import BaseSessionManager
 from ines.api.core.database import Core
 from ines.api.core.database import CORE_KEYS
 from ines.api.core.database import CORE_TYPES
@@ -25,18 +24,16 @@ from ines.api.core.views import CorePagination
 from ines.api.core.views import define_pagination
 from ines.api.core.views import QueryPagination
 from ines.api.database import BaseSQLSession
+from ines.api.database import BaseSQLSessionManager
+from ines.api.database import SQL_DBS
 from ines.api.database.sql import create_filter_by
-from ines.api.database.sql import initialize_sql
 from ines.api.database.sql import get_active_column
 from ines.api.database.sql import get_active_filter
 from ines.api.database.sql import get_object_tables
-from ines.api.database.sql import get_sql_settings_from_config
 from ines.api.database.sql import maybe_with_none
-from ines.api.database.sql import SQL_DBS
 from ines.api.database.sql import SQLALCHEMY_VERSION
 from ines.convert import maybe_integer
 from ines.exceptions import Error
-from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.views.fields import OrderBy
 from ines.utils import different_values
 from ines.utils import MissingList
@@ -52,16 +49,9 @@ else:
     SQLALCHEMY_LABELS_KEY = '_labels'
 
 
-class BaseCoreSessionManager(BaseSessionManager):
+class BaseCoreSessionManager(BaseSQLSessionManager):
     __api_name__ = 'core'
-    __middlewares__ = [RepozeTMMiddleware]
-
-    def __init__(self, *args, **kwargs):
-        super(BaseCoreSessionManager, self).__init__(*args, **kwargs)
-
-        self.db_session = initialize_sql(
-            'core',
-            **get_sql_settings_from_config(self.config))
+    __database_name__ = 'core'
 
 
 def table_type(table):

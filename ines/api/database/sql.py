@@ -5,128 +5,37 @@ from pkg_resources import get_distribution
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
-from pyramid.settings import asbool
 from sqlalchemy import and_
 from sqlalchemy import Column
-from sqlalchemy import create_engine
 from sqlalchemy import func
 from sqlalchemy import MetaData
 from sqlalchemy import not_
 from sqlalchemy import or_
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import scoped_session
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.pool import NullPool
 from sqlalchemy.sql.expression import false
 from sqlalchemy.sql.expression import true
-from zope.sqlalchemy import ZopeTransactionExtension
 
-from ines.api import BaseSessionManager
 from ines.api.database import BaseSQLSession
+from ines.api.database import BaseSQLSessionManager
+from ines.api.database import SQL_DBS
 from ines.convert import maybe_integer
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
 from ines.exceptions import Error
-from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.views.fields import FilterBy
 from ines.utils import MissingDict
-from ines.utils import MissingSet
 
 
-SQL_DBS = MissingDict()
 SQLALCHEMY_VERSION = get_distribution('sqlalchemy').version
 
 
-class BaseDatabaseSessionManager(BaseSessionManager):
+class BaseDatabaseSessionManager(BaseSQLSessionManager):
     __api_name__ = 'database'
-    __middlewares__ = [RepozeTMMiddleware]
-
-    def __init__(self, *args, **kwargs):
-        super(BaseDatabaseSessionManager, self).__init__(*args, **kwargs)
-
-        self.db_session = initialize_sql(
-            self.config.application_name,
-            **get_sql_settings_from_config(self.config))
 
 
 class BaseDatabaseSession(BaseSQLSession):
     __api_name__ = 'database'
-
-
-def initialize_sql(
-        application_name,
-        sql_path,
-        encoding='utf8',
-        mysql_engine='InnoDB',
-        debug=False):
-
-    sql_path = '%s?charset=%s' % (sql_path, encoding)
-    SQL_DBS[application_name]['sql_path'] = sql_path
-    is_mysql = sql_path.lower().startswith('mysql://')
-
-    if is_mysql:
-        base = SQL_DBS[application_name].get('base')
-        if base is not None:
-            append_arguments(base, 'mysql_charset', encoding)
-
-    metadata = SQL_DBS[application_name].get('metadata')
-
-    # Set defaults for MySQL tables
-    if is_mysql and metadata:
-        for table in metadata.sorted_tables:
-            append_arguments(table, 'mysql_engine', mysql_engine)
-            append_arguments(table, 'mysql_charset', encoding)
-
-    SQL_DBS[application_name]['engine'] = engine = create_engine(
-        sql_path,
-        echo=debug,
-        poolclass=NullPool,
-        encoding=encoding)
-
-    session_maker = sessionmaker(extension=ZopeTransactionExtension())
-    session = scoped_session(session_maker)
-    session.configure(bind=engine)
-    SQL_DBS[application_name]['session'] = session
-
-    indexed_columns = SQL_DBS[application_name]['indexed_columns'] = MissingSet()
-    if metadata is not None:
-        metadata.bind = engine
-        metadata.create_all(engine)
-
-        # Force indexes creation
-        for table in metadata.sorted_tables:
-            if table.indexes:
-                for index in table.indexes:
-                    for column in getattr(index.columns, '_all_columns'):
-                        indexed_columns[table.name].add(column.name)
-
-                    try:
-                        index.create()
-                    except OperationalError:
-                        pass
-
-    return session
-
-
-def get_sql_settings_from_config(config):
-    sql_path = config.settings['sql.path']
-    kwargs = {
-        'sql_path': sql_path,
-        'encoding': config.settings.get('sql.encoding', 'utf8')}
-
-    if sql_path.startswith('mysql://'):
-        kwargs['mysql_engine'] = config.settings.get(
-            'sql.mysql_engine',
-            'InnoDB')
-
-    if 'sql.debug' in config.settings:
-        kwargs['debug'] = asbool(config.settings['sql.debug'])
-    else:
-        kwargs['debug'] = config.debug
-
-    return kwargs
 
 
 def sql_declarative_base(application_name):
@@ -137,32 +46,6 @@ def sql_declarative_base(application_name):
     base = declarative_base(metadata=metadata)
     SQL_DBS[application_name]['base'] = base
     return base
-
-
-def append_arguments(obj, key, value):
-    arguments = getattr(obj, '__table_args__', None)
-    if arguments is None:
-        obj.__table_args__ = {key: value}
-
-    elif isinstance(arguments, dict):
-        if key not in arguments:
-            arguments[key] = value
-
-    elif isinstance(arguments, tuple):
-        last_arguments_dict = None
-        new_arguments = list(arguments)
-        for argument in new_arguments:
-            if isinstance(argument, dict):
-                last_arguments_dict = argument
-                if key in argument:
-                    break
-        else:
-            if last_arguments_dict is None:
-                new_arguments.append({key: value})
-            else:
-                last_arguments_dict[key] = value
-
-            obj.__table_args__ = tuple(new_arguments)
 
 
 def filter_query_with_queries(queries, query=None):

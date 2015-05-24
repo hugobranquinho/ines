@@ -1,189 +1,41 @@
 # -*- coding: utf-8 -*-
 
-import errno
-from os import mkdir
-from os import remove as remove_file
-from os import rename as rename_file
 from os.path import join as join_paths
 from os.path import isfile
-from os.path import dirname
 from pickle import dumps as pickle_dumps
 from pickle import loads as pickle_loads
 from time import time
 
+from repoze.lru import LRUCache
+
+from ines import DEFAULT_RETRY_ERRNO
 from ines import MARKER
 from ines.convert import force_string
 from ines.convert import make_sha256
 from ines.convert import maybe_integer
 from ines.convert import maybe_set
 from ines.locks import LockMe
-from ines.utils import make_uuid_hash
+from ines.locks import LockMeMemcached
 from ines.utils import file_modified_time
+from ines.utils import get_file_binary
+from ines.utils import make_dir
+from ines.utils import make_uuid_hash
+from ines.utils import move_file
+from ines.utils import put_binary_on_file
+from ines.utils import remove_file_quietly
 
 
-def make_dir(path, mode=0777):
-    path = force_string(path)
-    try:
-        mkdir(path, mode)
-    except OSError as error:
-        if error.errno is not errno.EEXIST:
-            raise
-    return path
-
-
-class SaveMe(object):
-    def __init__(
-            self,
-            path,
-            expire=None,
-            retry_errnos=None,
-            retries=2,
-            **lock_settings):
-
-        self.expire = maybe_integer(expire)
-        self.path = make_dir(path)
-
-        # Lock settings
-        settings = {}
-        for key, value in lock_settings.items():
-            if key.startswith('lock_'):
-                settings[key.split('lock_', 1)[1]] = value
-
-        self.lockme = LockMe(
-            lock_path=join_paths(self.path, 'locks'),
-            **settings)
-
-        self.retries = maybe_integer(retries) or 1
-        self.retry_errnos = maybe_set(retry_errnos)
-        self.retry_errnos.add(116)  # Stale NFS file handle
-        self.retry_errnos.add(errno.ESTALE)
-
-    def lock(self, *args, **kwargs):
-        return self.lockme.lock(*args, **kwargs)
-
-    def unlock(self, *args, **kwargs):
-        return self.lockme.unlock(*args, **kwargs)
-
-    def get_file_path(self, name):
-        name_256 = make_sha256(name)
-        return join_paths(self.path, name_256[0], name_256)
-
-    def make_folder(self, name):
-        name_256 = make_sha256(name)
-        folder_path = join_paths(self.path, name_256[0])
-        make_dir(folder_path)
-
-    def _contains(self, path, expire=MARKER):
-        if expire is MARKER:
-            expire = self.expire
-        if expire:
-            modified_time = file_modified_time(path)
-            if not modified_time:
-                return False
-
-            if (modified_time + self.expire) < time():
-                self._delete_path(path)
-                return False
-
-        return isfile(path)
-
-    def __contains__(self, name):
-        file_path = self.get_file_path(name)
-        return self._contains(file_path)
-
-    def _get_binary(self, path, expire=MARKER):
-        if expire is MARKER:
-            expire = self.expire
-        if expire:
-            modified_time = file_modified_time(path)
-            if not modified_time:
-                return False
-            elif (modified_time + expire) < time():
-                self._delete_path(path)
-                return False
-
-        retries = (maybe_integer(self.retries) or 1) + 1
-        while retries:
-            try:
-                with open(path, 'rb') as f:
-                    binary = f.read()
-            except IOError as error:
-                if error.errno is errno.ENOENT:
-                    return False
-                elif error.errno in self.retry_errnos:
-                    # Try again, or not!
-                    retries -= 1
-                else:
-                    # Your path ends here!
-                    break
-            else:
-                return binary
-
-        # After X retries, raise previous IOError
-        raise
-
+class _SaveMe(object):
     def get_binary(self, name, expire=MARKER):
-        file_path = self.get_file_path(name)
-        binary = self._get_binary(file_path, expire)
-        if binary is False:
-            raise KeyError('Missing cache key "%s"' % name)
-        else:
-            return binary
-
-    def _put_binary(self, path, binary, mode='wb'):
-        retries = (maybe_integer(self.retries) or 1) + 1
-        while retries:
-            try:
-                with open(path, mode) as f:
-                    f.write(binary)
-            except IOError as error:
-                if error.errno is errno.ENOENT:
-                    # Missing folder, create and try again
-                    make_dir(dirname(path))
-                elif error.errno in self.retry_errnos:
-                    # Try again, or not!
-                    retries -= 1
-                else:
-                    # Your path ends here!
-                    break
-            else:
-                return binary
-
-        # After X retries, raise previous IOError
-        raise
-
-    def put_binary(self, name, binary, mode='wb'):
-        file_path = self.get_file_path(name)
-        self._put_binary(file_path, binary, mode)
-        self.put_reference(name)
-
-    def _delete_path(self, path):
-        retries = (maybe_integer(self.retries) or 1) + 1
-        while retries:
-            try:
-                remove_file(path)
-            except OSError as error:
-                if error.errno is errno.ENOENT:
-                    # Missing folder, file deleted!
-                    break
-                elif error.errno in self.retry_errnos:
-                    # Try again, or not!
-                    retries -= 1
-                else:
-                    # Your path ends here!
-                    break
-            else:
-                break
-
-    def __delitem__(self, name):
-        file_path = self.get_file_path(name)
-        self._delete_path(file_path)
-        self.remove_reference(name)
-
-    def put_reference(self, name):
         pass
 
-    def remove_reference(self, name):
+    def put_binary(self, name, info, expire=MARKER):
+        pass
+
+    def __delitem__(self, name):
+        pass
+
+    def __contains__(self, name):
         pass
 
     def get_values(self, name, expire=MARKER):
@@ -197,24 +49,24 @@ class SaveMe(object):
                 result.pop(-1)
             return result
 
-    def extend_values(self, name, values):
+    def extend_values(self, name, values, expire=MARKER):
         if not values:
             raise ValueError('Define some values')
 
         binary = '\n'.join(force_string(v) for v in values)
         binary += '\n'
-        self.put_binary(name, binary, mode='ab')
+        self.put_binary(name, binary, mode='append', expire=expire)
 
-    def append_value(self, name, value):
-        self.extend_values(name, [value])
+    def append_value(self, name, value, expire=MARKER):
+        self.extend_values(name, [value], expire=expire)
 
-    def replace_values(self, name, values):
+    def replace_values(self, name, values, expire=MARKER):
         if not values:
             self.remove(name)
         else:
             binary = '\n'.join(force_string(v) for v in values)
             binary += '\n'
-            self.put_binary(name, binary)
+            self.put_binary(name, binary, expire=expire)
 
     def __getitem__(self, name):
         value = self.get(name, default=MARKER)
@@ -224,8 +76,7 @@ class SaveMe(object):
             return value
 
     def __setitem__(self, name, info):
-        info = pickle_dumps(info)
-        self.put_binary(name, info)
+        self.put(name, info)
 
     def get(self, name, default=None, expire=MARKER):
         try:
@@ -242,17 +93,116 @@ class SaveMe(object):
             else:
                 return value
 
-    def put(self, name, info):
-        self[name] = info
+    def put(self, name, info, expire=MARKER):
+        info = pickle_dumps(info)
+        self.put_binary(name, info, expire=expire)
 
     def remove(self, name):
         del self[name]
+
+
+class SaveMe(_SaveMe):
+    def __init__(
+            self,
+            path,
+            expire=None,
+            retry_errno=None,
+            retries=3,
+            lru_size=1000,
+            **lock_settings):
+
+        self.expire = maybe_integer(expire)
+        self.path = make_dir(path)
+        self.path_cache = LRUCache(lru_size)
+        self.retries = maybe_integer(retries) or 3
+        self.retry_errno = maybe_set(retry_errno)
+        self.retry_errno.update(DEFAULT_RETRY_ERRNO)
+
+        # Lock settings
+        settings = {}
+        for key, value in lock_settings.items():
+            if key.startswith('lock_'):
+                settings[key.split('lock_', 1)[1]] = value
+
+        lock_path = settings.pop('path', None) or join_paths(self.path, 'locks')
+        self.lockme = LockMe(lock_path, **settings)
+
+    def lock(self, *args, **kwargs):
+        return self.lockme.lock(*args, **kwargs)
+
+    def unlock(self, *args, **kwargs):
+        return self.lockme.unlock(*args, **kwargs)
+
+    def get_file_path(self, name):
+        name = force_string(name)
+        path = self.path_cache.get(name)
+        if not path:
+            name_256 = make_sha256(name)
+            path = join_paths(self.path, name_256[0], name_256)
+            self.path_cache.put(name, path)
+        return path
+
+    def _contains(self, path, expire=MARKER):
+        if expire is MARKER:
+            expire = self.expire
+        if expire:
+            modified_time = file_modified_time(path)
+            if not modified_time:
+                return False
+
+            if (modified_time + self.expire) < time():
+                self._delete_path(path)
+                return False
+
+        return isfile(path)
+
+    def __contains__(self, name):
+        return self._contains(self.get_file_path(name))
+
+    def _get_binary(self, path, expire=MARKER):
+        if expire is MARKER:
+            expire = self.expire
+        if expire:
+            modified_time = file_modified_time(path)
+            if not modified_time:
+                return None
+            elif (modified_time + expire) < time():
+                self._delete_path(path)
+                return None
+
+        return get_file_binary(path, retries=self.retries, retry_errno=self.retry_errno)
+
+    def get_binary(self, name, expire=MARKER):
+        binary = self._get_binary(self.get_file_path(name), expire)
+        if binary is None:
+            raise KeyError('Missing cache key "%s"' % name)
+        else:
+            return binary
+
+    def put_binary(self, name, binary, mode='put', expire=MARKER):
+        mode = 'ab' if mode == 'append' else 'wb'
+        put_binary_on_file(self.get_file_path(name), binary, mode, retries=self.retries, retry_errno=self.retry_errno)
+
+    def _delete_path(self, path):
+        remove_file_quietly(path, retries=self.retries, retry_errno=self.retry_errno)
+
+    def __delitem__(self, name):
+        file_path = self.get_file_path(name)
+        self._delete_path(file_path)
 
 
 class SaveMeWithReference(SaveMe):
     def __init__(self, *args, **kwargs):
         super(SaveMeWithReference, self).__init__(*args, **kwargs)
         self.reference_path = make_dir(join_paths(self.path, 'references'))
+
+    def put_binary(self, name, *args, **kwargs):
+        super(SaveMeWithReference, self).put_binary(name, *args, **kwargs)
+        self.put_reference(name)
+
+    def __delitem__(self, name):
+        super(SaveMeWithReference, self).__delitem__(name)
+        self.remove_reference(name)
 
     def get_reference_path(self, name):
         first_name = name.split(' ', 1)[0]
@@ -262,7 +212,7 @@ class SaveMeWithReference(SaveMe):
     def _get_references(self, path, name):
         references = set()
         binary = self._get_binary(path, expire=None)
-        if binary is not False:
+        if binary is not None:
             for saved_name in binary.splitlines():
                 if saved_name and saved_name.startswith(name):
                     references.add(saved_name)
@@ -274,26 +224,17 @@ class SaveMeWithReference(SaveMe):
 
     def put_reference(self, name):
         if name not in self.get_references(name):
-            file_path = self.get_reference_path(name)
-            reference_line = name + '\n'
-            self._put_binary(file_path, reference_line, mode='ab')
+            put_binary_on_file(
+                self.get_reference_path(name),
+                name + '\n',
+                mode='ab',
+                retries=self.retries,
+                retry_errno=self.retry_errno)
 
     def remove_reference(self, name, expire=MARKER):
         file_path = self.get_reference_path(name)
         temporary_file_path = file_path + '.' + make_uuid_hash()
-        retries = (maybe_integer(self.retries) or 1) + 1
-        while retries:
-            try:
-                rename_file(file_path, temporary_file_path)
-            except OSError as error:
-                if error.errno in self.retry_errnos:
-                    # Try again, or not!
-                    retries -= 1
-                else:
-                    # Something goes wrong
-                    raise
-            else:
-                break
+        move_file(file_path, temporary_file_path, retries=self.retries, retry_errno=self.retry_errno)
 
         references = self._get_references(temporary_file_path, name='')
         if name in references:
@@ -310,8 +251,12 @@ class SaveMeWithReference(SaveMe):
                     references.remove(name)
 
             if references:
-                reference_lines = '\n'.join(references) + '\n'
-                self._put_binary(file_path, reference_lines, mode='ab')
+                put_binary_on_file(
+                    file_path,
+                    '\n'.join(references) + '\n',
+                    mode='ab',
+                    retries=self.retries,
+                    retry_errno=self.retry_errno)
 
         self._delete_path(temporary_file_path)
 
@@ -337,10 +282,64 @@ class SaveMeWithReference(SaveMe):
     def __contains__(self, name):
         file_path = self.get_reference_path(name)
         binary = self._get_binary(file_path, expire=None)
-        if binary is not False:
+        if binary is not None:
             return name in binary.splitlines()
         else:
             return False
+
+
+class SaveMeMemcached(_SaveMe):
+    def __init__(
+            self,
+            url,
+            expire=None,
+            **settings):
+
+        # Lock settings
+        lock_settings = {}
+        for key, value in settings.items():
+            if key.startswith('lock_'):
+                lock_settings[key.split('lock_', 1)[1]] = settings.pop(key)
+        lock_settings.update(settings)
+
+        from memcache import Client
+        self.memcache_module = __import__('memcache')
+        self.memcache = Client(url.split(';'), **settings)
+        self.expire = maybe_integer(expire)
+        self.lockme = LockMeMemcached(url, **lock_settings)
+
+    def lock(self, *args, **kwargs):
+        return self.lockme.lock(*args, **kwargs)
+
+    def unlock(self, *args, **kwargs):
+        return self.lockme.unlock(*args, **kwargs)
+
+    def format_name(self, name):
+        return force_string(make_sha256(name))
+
+    def __contains__(self, name):
+        return self.memcache.get(self.format_name(name)) is not None
+
+    def get_binary(self, name, expire=MARKER):
+        binary = self.memcache.get(self.format_name(name))
+        if binary is None:
+            raise KeyError('Missing cache key "%s"' % name)
+        else:
+            return binary
+
+    def put_binary(self, name, binary, mode='wb', expire=MARKER):
+        name_256 = self.format_name(name)
+        if expire is MARKER:
+            expire = self.expire
+
+        # Append to existing file
+        if mode == 'append' and name in self:
+            self.memcache.append(name_256, binary, time=expire or 0)
+        else:
+            self.memcache.set(name_256, binary, time=expire or 0)
+
+    def __delitem__(self, name):
+        self.memcache.delete(self.format_name(name))
 
 
 class api_cache_decorator(object):

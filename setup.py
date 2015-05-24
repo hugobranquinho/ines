@@ -43,17 +43,15 @@ except IOError:
 requires = [
     'setuptools',
     'pyramid',
+    'WebOb',
     'Babel',
     'translationstring',
     'zope.interface',
     'Paste',
-    'WebOb',
     'PasteDeploy',
     'colander >= 1.0',
-    'transaction',
     'SQLAlchemy',
     'zope.sqlalchemy',
-    'repoze.tm2',
     'repoze.lru']
 
 setupkw = dict(
@@ -62,7 +60,7 @@ setupkw = dict(
     description='Web applications manager for pyramid packages',
     long_description=README + '\n\n' + CHANGES,
     classifiers=[
-        'Development Status :: 1 - Planning',
+        'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'Natural Language :: English',
         'Framework :: Pyramid',
@@ -97,9 +95,7 @@ setupkw = dict(
 try:
     import babel
     babel = babel  # PyFlakes
-    setupkw['message_extractors'] = {
-        'ines': [('**.py', 'lingua_python', None),
-                 ('**.pt', 'lingua_xml', None)]}
+    setupkw['message_extractors'] = {'ines': [('**.py', 'lingua_python', None)]}
 except ImportError:
     pass
 

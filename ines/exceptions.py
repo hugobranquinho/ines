@@ -23,3 +23,9 @@ class HTTPInvalidJSONPayload(HTTPBadRequest):
 
 class NoMoreDates(Error):
     pass
+
+
+class LockTimeout(Exception):
+    def __init__(self, message, locked_path):
+        super(LockTimeout, self).__init__(message)
+        self.locked_path = locked_path

@@ -6,6 +6,7 @@ Features
 
 - Add unit tests
 - Add documentation
+- Add ines translations
 
 
 0.1a2 (unreleased)
@@ -14,9 +15,19 @@ Features
 Features
 --------
 
-- Changed session cache located at ``request.cache`` to ``request.session_cache``.
-- Changed filesystem cache located at ``request.fcache`` to ``request.cache``.
+- Changed session cache located at ``request.cache`` to ``request.session_cache``
+- Changed filesystem cache located at ``request.fcache`` to ``request.cache``
+- New function ``utils.move_file`` to move a file ignoring some system errors
+- New function ``utils.get_file_binary`` to get a file binary ignoring some system errors
+- New function ``utils.put_binary_on_file`` to write/append a file ignoring some system errors
+- New function ``utils.put_binary_on_file`` to write/append a file ignoring some system errors
+- New function ``system.thread_is_running`` to check running threads, registered with ``system.register_thread``
+    or started with ``system.start_system_thread``
+- New cache type ``cache.SaveMeMemcached`` uses Memcached system
+- New locks type ``cache.LockMeMemcached`` uses Memcached system
 - Improve ``convert.make_sha256`` speed using ``repoze.lru.LRUCache``
+- Improve ``cache.CacheMe.get_file_path`` speed using ``repoze.lru.LRUCache``
+- Improve ``locks.LockMe.get_file_path`` speed using ``repoze.lru.LRUCache``
 
 Bug Fixes
 ---------
@@ -26,12 +37,25 @@ Bug Fixes
 Backwards Incompatibilities
 ---------------------------
 
-- ``api_cache_decorator`` now receives argument ``expire_cache`` argument to delete saved info, instead of ``expire``.
+- ``api_cache_decorator`` now receives argument ``expire_cache`` to delete saved info, instead of ``expire``
+- ``locks.LockTimeout`` moved to ``exceptions.LockTimeout``
+- ``locks.remove_file_quietly`` moved to ``utils.remove_file_quietly``
+- ``cache.make_dir`` moved to ``utils.make_dir``
+- ``locks.LockMe`` now receives argument ``path`` instead of ``lock_path``
+- ``locks.LockMe.clean_junk_locks`` don't receives any argument. Use ``locks.LockMe.clean_junk_locks_as_daemon`` instead.
+- ``api.database.sql.initialize_sql`` moved to ``api.database.initialize_sql``
+- ``api.database.sql.get_sql_settings_from_config`` moved to ``api.database.get_sql_settings_from_config``
+- ``api.database.sql.append_arguments`` moved to ``api.database.append_arguments``
 
 Dependencies
 ------------
 
 - ines now depends on ``repoze.lru``
+- ines no longer depends on ``repoze.tm2``. If you use ``ines.middleware.repozerm.RepozeTMMiddleware``
+    or ``ines.api.database.sql.BaseDatabaseSessionManager`` or ``ines.api.core.BaseCoreSessionManager``
+    need to install ``repoze.tm2`` yourself.
+- ines no longer depends on ``transaction``. If you use ``ines.api.database.sql.BaseDatabaseSessionManager``
+    or ``ines.api.core.BaseCoreSessionManager`` need to install ``transaction`` yourself.
 
 
 0.1a1 (2015-05-06)
