@@ -130,11 +130,15 @@ class PostmanCollection(object):
                             for environment_key, response_key in variables.items():
                                 environment_key = camelcase(environment_key)
                                 response_key = camelcase(response_key)
-                                test_value = (
-                                    ('if (answer.%s){ postman.setEnvironmentVariable("%s", '
-                                     'answer.%s); }')
-                                    % (response_key, environment_key, response_key))
-                                tests.append(test_value)
+                                tests.append((
+                                    'if(answer.%s){postman.setEnvironmentVariable("%s", answer.%s);}'
+                                    % (response_key, environment_key, response_key)))
+
+                        first_key_for = getattr(schema.schema, 'postman_environment_set_first_key', None)
+                        if first_key_for:
+                            tests.append((
+                                'if(answer){for(var k in answer){postman.setEnvironmentVariable("%s", k);break;}}'
+                                % camelcase(first_key_for)))
 
                     if tests:
                         tests.insert(0, 'var answer = JSON.parse(responseBody);')

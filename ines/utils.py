@@ -7,8 +7,8 @@ from json import dumps
 from os import getpid
 from os import listdir
 from os import mkdir
-from os import remove as remove_file
-from os import rename as rename_file
+from os import remove as _remove_file
+from os import rename as _rename_file
 from os import SEEK_END
 from os import stat as os_stat
 from os.path import dirname
@@ -26,8 +26,8 @@ from ines.cleaner import normalize_full_name
 from ines.convert import camelcase
 from ines.convert import force_string
 from ines.convert import force_unicode
-from ines.convert import make_sha256
 from ines.convert import maybe_integer
+from ines.convert.codes import make_sha256_no_cache
 from ines.i18n import translate_factory
 
 
@@ -111,6 +111,13 @@ class MissingSet(MissingDict):
         self[key].add(value)
 
 
+class MissingDictSet(MissingDict):
+    _base_type = MissingSet
+
+    def add_item(self, key, value):
+        self[key][value] = set()
+
+
 class InfiniteDict(MissingDict):
     @property
     def _base_type(self):
@@ -121,13 +128,15 @@ def make_uuid_hash():
     return force_unicode(uuid4().hex)
 
 
-def make_unique_hash():
-    key = '.'.join((
-        uuid4().hex,
-        str(NOW()),
-        str(PROCESS_ID),
-        str(DOMAIN_NAME)))
-    return make_sha256(key)
+def make_unique_hash(length=64):
+    code = u''
+    while len(code) < length:
+        code += make_sha256_no_cache('.'.join((
+            uuid4().hex,
+            str(NOW()),
+            str(PROCESS_ID),
+            str(DOMAIN_NAME))))
+    return code[:length]
 
 
 def last_read_file_time(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
@@ -339,11 +348,11 @@ def last_day_of_month_for_weekday(year, month, weekday):
     return last_day
 
 
-def remove_file_quietly(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+def remove_file(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     retries = (maybe_integer(retries) or 3) + 1
     while retries:
         try:
-            remove_file(path)
+            _remove_file(path)
         except OSError as error:
             if error.errno is errno.ENOENT:
                 # Already deleted!
@@ -361,6 +370,13 @@ def remove_file_quietly(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     raise
 
 
+def remove_file_quietly(path):
+    try:
+        remove_file(path)
+    except (IOError, OSError):
+        pass
+
+
 def make_dir(path, mode=0777):
     path = force_string(path)
     try:
@@ -375,7 +391,7 @@ def move_file(path, new_path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     retries = (maybe_integer(retries) or 3) + 1
     while retries:
         try:
-            rename_file(path, new_path)
+            _rename_file(path, new_path)
         except OSError as error:
             if error.errno in retry_errno:
                 # Try again, or not!

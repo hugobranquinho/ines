@@ -22,6 +22,7 @@ class BaseLogSession(BaseSession):
     __api_name__ = 'logging'
 
     def log(self, code, message, level='INFO', extra=None):
+        level = level.upper()
         header = ('-' * 30) + ' ' + level + ' ' + ('-' * 30)
         print header
 
@@ -48,8 +49,9 @@ class BaseLogSession(BaseSession):
         for key, value in arguments:
             print key, ' ' * (bigger - len(key)), ':', force_string(value)
 
-        print
-        print ''.join(format_exception(*sys.exc_info()))
+        if level == 'CRITICAL':
+            print
+            print ''.join(format_exception(*sys.exc_info()))
 
         print
         try:

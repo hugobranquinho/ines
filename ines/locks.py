@@ -29,6 +29,7 @@ from ines.utils import get_file_binary
 from ines.utils import make_dir
 from ines.utils import make_uuid_hash
 from ines.utils import put_binary_on_file
+from ines.utils import remove_file
 from ines.utils import remove_file_quietly
 
 
@@ -149,7 +150,7 @@ class LockMe(object):
 
             for position, filename in files:
                 file_path = join_paths(folder_path, filename)
-                if remove_file_quietly(
+                if remove_file(
                         file_path,
                         retries=self.retries,
                         retry_errno=self.retry_errno):

@@ -12,11 +12,15 @@ from ines.convert.strings import force_unicode
 SHA256_CACHE = LRUCache(5000)
 
 
-def make_sha256(key):
+def make_sha256_no_cache(key):
     key = force_string(key)
+    return force_unicode(sha256(key).hexdigest())
+
+
+def make_sha256(key):
     key_256 = SHA256_CACHE.get(key)
     if not key_256:
-        key_256 = force_unicode(sha256(key).hexdigest())
+        key_256 = make_sha256_no_cache(key)
         SHA256_CACHE.put(key, key_256)
     return key_256
 

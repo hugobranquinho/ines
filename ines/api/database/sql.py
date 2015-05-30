@@ -5,46 +5,225 @@ from pkg_resources import get_distribution
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
+from pyramid.settings import asbool
 from sqlalchemy import and_
 from sqlalchemy import Column
+from sqlalchemy import create_engine
 from sqlalchemy import func
 from sqlalchemy import MetaData
 from sqlalchemy import not_
 from sqlalchemy import or_
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import scoped_session
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.pool import NullPool
 from sqlalchemy.sql.expression import false
 from sqlalchemy.sql.expression import true
 
-from ines.api.database import BaseSQLSession
-from ines.api.database import BaseSQLSessionManager
-from ines.api.database import SQL_DBS
+from ines.api.database import BaseDatabaseSession
+from ines.api.database import BaseDatabaseSessionManager
 from ines.convert import maybe_integer
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
 from ines.exceptions import Error
+from ines.middlewares.repozetm import RepozeTMMiddleware
+from ines.path import get_object_on_path
 from ines.views.fields import FilterBy
 from ines.utils import MissingDict
+from ines.utils import MissingSet
 
 
+SQL_DBS = MissingDict()
 SQLALCHEMY_VERSION = get_distribution('sqlalchemy').version
 
 
-class BaseDatabaseSessionManager(BaseSQLSessionManager):
-    __api_name__ = 'database'
+class BaseSQLSessionManager(BaseDatabaseSessionManager):
+    __middlewares__ = [RepozeTMMiddleware]
+
+    @reify
+    def __database_name__(self):
+        return self.config.application_name
+
+    def __init__(self, *args, **kwargs):
+        super(BaseSQLSessionManager, self).__init__(*args, **kwargs)
+
+        import transaction
+        self.transaction = transaction
+
+        self.db_session = initialize_sql(
+            self.__database_name__,
+            **get_sql_settings_from_config(self.config))
 
 
-class BaseDatabaseSession(BaseSQLSession):
-    __api_name__ = 'database'
+class BaseSQLSession(BaseDatabaseSession):
+    def flush(self):
+        self.session.flush()
+        self.api_session_manager.transaction.commit()
+
+    @reify
+    def session(self):
+        return self.api_session_manager.db_session()
+
+    def rollback(self):
+        self.api_session_manager.transaction.abort()
+
+    def direct_insert(self, obj):
+        values = {}
+        for column in obj.__table__.c:
+            name = column.name
+            value = getattr(obj, name, None)
+            if value is None and column.default:
+                values[name] = column.default.execute()
+            else:
+                values[name] = value
+
+        return (
+            obj.__table__
+            .insert(values)
+            .execute(autocommit=True))
+
+    def direct_delete(self, obj, query):
+        return bool(
+            obj.__table__
+            .delete(query)
+            .execute(autocommit=True)
+            .rowcount)
+
+    def direct_update(self, obj, query, values):
+        for column in obj.__table__.c:
+            name = column.name
+            if name not in values and column.onupdate:
+                values[name] = column.onupdate.execute()
+
+        return (
+            obj.__table__
+            .update(query)
+            .values(values)
+            .execute(autocommit=True))
 
 
-def sql_declarative_base(application_name):
-    metadata = MetaData()
-    metadata.application_name = application_name
-    SQL_DBS[application_name]['metadata'] = metadata
+def get_sql_settings_from_config(config):
+    sql_path = config.settings['sql.path']
+    kwargs = {
+        'sql_path': sql_path,
+        'encoding': config.settings.get('sql.encoding', 'utf8')}
 
-    base = declarative_base(metadata=metadata)
-    SQL_DBS[application_name]['base'] = base
+    if sql_path.startswith('mysql://'):
+        kwargs['mysql_engine'] = config.settings.get(
+            'sql.mysql_engine',
+            'InnoDB')
+
+    if 'sql.debug' in config.settings:
+        kwargs['debug'] = asbool(config.settings['sql.debug'])
+    else:
+        kwargs['debug'] = config.debug
+
+    if 'sql.session_extension' in config.settings:
+        kwargs['session_extension'] = get_object_on_path(config.settings['sql.session_extension'])
+
+    return kwargs
+
+
+def initialize_sql(
+        application_name,
+        sql_path,
+        encoding='utf8',
+        mysql_engine='InnoDB',
+        session_extension=None,
+        debug=False):
+
+    sql_path = '%s?charset=%s' % (sql_path, encoding)
+    SQL_DBS[application_name]['sql_path'] = sql_path
+    is_mysql = sql_path.lower().startswith('mysql://')
+
+    if is_mysql:
+        if 'bases' in SQL_DBS[application_name]:
+            for base in SQL_DBS[application_name]['bases']:
+                append_arguments(base, 'mysql_charset', encoding)
+
+    metadata = SQL_DBS[application_name].get('metadata')
+
+    # Set defaults for MySQL tables
+    if is_mysql and metadata:
+        for table in metadata.sorted_tables:
+            append_arguments(table, 'mysql_engine', mysql_engine)
+            append_arguments(table, 'mysql_charset', encoding)
+
+    SQL_DBS[application_name]['engine'] = engine = create_engine(
+        sql_path,
+        echo=debug,
+        poolclass=NullPool,
+        encoding=encoding)
+
+    if session_extension:
+        if callable(session_extension):
+            session_extension = session_extension()
+        session_maker = sessionmaker(extension=session_extension)
+    else:
+        session_maker = sessionmaker()
+
+    session = scoped_session(session_maker)
+    session.configure(bind=engine)
+    SQL_DBS[application_name]['session'] = session
+
+    indexed_columns = SQL_DBS[application_name]['indexed_columns'] = MissingSet()
+    if metadata is not None:
+        metadata.bind = engine
+        metadata.create_all(engine)
+
+        # Force indexes creation
+        for table in metadata.sorted_tables:
+            if table.indexes:
+                for index in table.indexes:
+                    for column in getattr(index.columns, '_all_columns'):
+                        indexed_columns[table.name].add(column.name)
+
+                    try:
+                        index.create()
+                    except OperationalError:
+                        pass
+
+    return session
+
+
+def append_arguments(obj, key, value):
+    arguments = getattr(obj, '__table_args__', None)
+    if arguments is None:
+        obj.__table_args__ = {key: value}
+
+    elif isinstance(arguments, dict):
+        if key not in arguments:
+            arguments[key] = value
+
+    elif isinstance(arguments, tuple):
+        last_arguments_dict = None
+        new_arguments = list(arguments)
+        for argument in new_arguments:
+            if isinstance(argument, dict):
+                last_arguments_dict = argument
+                if key in argument:
+                    break
+        else:
+            if last_arguments_dict is None:
+                new_arguments.append({key: value})
+            else:
+                last_arguments_dict[key] = value
+
+            obj.__table_args__ = tuple(new_arguments)
+
+
+def sql_declarative_base(application_name, **kwargs):
+    if application_name not in SQL_DBS:
+        metadata = MetaData()
+        metadata.application_name = application_name
+        SQL_DBS[application_name]['metadata'] = metadata
+    else:
+        metadata = SQL_DBS[application_name]['metadata']
+
+    base = declarative_base(metadata=metadata, **kwargs)
+    SQL_DBS[application_name].setdefault('bases', []).append(base)
     return base
 
 

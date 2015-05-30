@@ -8,34 +8,40 @@ from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.settings import asbool
 from sqlalchemy import and_
+from sqlalchemy import Column
+from sqlalchemy import false
 from sqlalchemy import func
 from sqlalchemy import not_
 from sqlalchemy import or_
+from sqlalchemy import true
 from sqlalchemy.orm import aliased
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.sql.elements import BinaryExpression
+from sqlalchemy.sql.elements import BindParameter
 from sqlalchemy.sql.elements import ClauseElement
+from sqlalchemy.sql.schema import Table
 
+from ines.api.core.database import Base
 from ines.api.core.database import Core
-from ines.api.core.database import CORE_KEYS
-from ines.api.core.database import CORE_TYPES
-from ines.api.core.database import CoreAliased
-from ines.api.core.database import CoreColumnParent
-from ines.api.core.database import find_parent_tables
 from ines.api.core.views import CorePagination
 from ines.api.core.views import define_pagination
 from ines.api.core.views import QueryPagination
-from ines.api.database import BaseSQLSession
-from ines.api.database import BaseSQLSessionManager
-from ines.api.database import SQL_DBS
+from ines.api.database.sql import active_filter
+from ines.api.database.sql import BaseSQLSession
+from ines.api.database.sql import BaseSQLSessionManager
 from ines.api.database.sql import create_filter_by
-from ines.api.database.sql import get_active_column
 from ines.api.database.sql import get_active_filter
 from ines.api.database.sql import get_object_tables
 from ines.api.database.sql import maybe_with_none
+from ines.api.database.sql import SQL_DBS
 from ines.api.database.sql import SQLALCHEMY_VERSION
+from ines.convert import force_string
 from ines.convert import maybe_integer
+from ines.convert import maybe_list
 from ines.exceptions import Error
 from ines.views.fields import OrderBy
 from ines.utils import different_values
+from ines.utils import MissingDict
 from ines.utils import MissingList
 from ines.utils import MissingSet
 
@@ -51,19 +57,498 @@ else:
 
 class BaseCoreSessionManager(BaseSQLSessionManager):
     __api_name__ = 'core'
-    __database_name__ = 'core'
+    __database_name__ = 'ines.core'
 
 
-def table_type(table):
-    if hasattr(table, 'core_relation'):
-        relation_type, relation_table = table.core_relation
-        if relation_type == 'branch':
-            return table_type(relation_table)
-    return table.core_name
+class ORMQuery(object):
+    def __init__(self, api_session, *attributes, **kw_attributes):
+        self.api_session = api_session
+
+        # First line attribute, add to this query, second+ lines make more queries
+        self.tables = set()
+        self.outerjoin_tables = MissingDict()
+        self.queries = []
+        self.attributes = []
+        self.children_raw = MissingList()
+        self.parent_raw = MissingList()
+        self.parent_raw_attributes = {}
+
+        self.raw_attributes = maybe_list(attributes)
+        if kw_attributes:
+            self.raw_attributes.append(kw_attributes)
+        for attribute in self.raw_attributes:
+            self.add_attribute(attribute)
+
+    def __repr__(self):
+        return repr(self.construct_query(active=True))
+
+    @reify
+    def sql_options(self):
+        return SQL_DBS[self.api_session.api_session_manager.__database_name__]
+
+    @reify
+    def metadata(self):
+        return self.sql_options['metadata']
+
+    @reify
+    def orm_tables(self):
+        references = {}
+        for base in self.sql_options['bases']:
+            for name, table in base._decl_class_registry.items():
+                if name == '_sa_module_registry':
+                    continue
+
+                references[table.__tablename__] = table
+                table_alias = getattr(table, '__table_alias__', None)
+                if table_alias:
+                    references.update((k, table) for k in table_alias)
+
+        return references
+
+    def get_table(self, maybe_name):
+        if isinstance(maybe_name, Table):
+            return maybe_name
+
+        elif hasattr(maybe_name, '__tablename__'):
+            return maybe_name.__table__
+
+        elif maybe_name in self.metadata.tables:
+            return self.metadata.tables[maybe_name]
+
+        elif maybe_name in self.orm_tables:
+            return self.orm_tables[maybe_name].__table__
+
+        else:
+            raise AttributeError('Invalid table: %s' % force_string(maybe_name))
+
+    def add_attribute(self, attribute, table_or_name=None):
+        if hasattr(attribute, '__tablename__'):
+            self.tables.add(attribute.__table__)
+            self.attributes.append(attribute)
+
+        elif isinstance(attribute, Table):
+            self.tables.add(attribute)
+            self.attributes.extend(attribute.c)
+
+        elif isinstance(attribute, InstrumentedAttribute):
+            self.tables.add(attribute.table)
+            self.attributes.append(attribute)
+
+        elif table_or_name is not None:
+            table = self.get_table(table_or_name)
+            if not isinstance(table_or_name, basestring):
+                table_or_name = table.name
+
+            if not attribute:
+                self.tables.add(table)
+                self.attributes.extend(table.c)
+
+            elif isinstance(attribute, basestring):
+                if '.' in attribute:
+                    children_table_or_name, attribute = attribute.split('.', 1)
+                    if table_or_name == children_table_or_name:
+                        self.add_attribute(attribute, children_table_or_name)
+                    else:
+                        self.add_attribute({children_table_or_name: attribute}, table)
+                else:
+                     self.add_attribute({attribute: None}, table)
+
+            elif isinstance(attribute, dict):
+                for maybe_attribute, attributes in attribute.items():
+                    add_for_pos_queries = False
+                    if maybe_attribute in table.c:
+                        self.tables.add(table)
+                        self.attributes.append(table.c[maybe_attribute])
+                    elif maybe_attribute == 'active':
+                        self.tables.add(table)
+                    else:
+                        add_for_pos_queries = True
+                        if not attributes:
+                            orm_table = self.orm_tables[table.name]
+                            if hasattr(orm_table, '__branches__'):
+                                for orm_branch in orm_table.__branches__:
+                                    branch_table = self.get_table(orm_branch)
+                                    if maybe_attribute in branch_table.c:
+                                        self.tables.add(table)
+                                        self.outerjoin_tables[orm_table][orm_branch] = (orm_table.id == orm_branch.id)
+                                        self.attributes.append(branch_table.c[maybe_attribute])
+                                        add_for_pos_queries = False
+                                        break
+
+                    if add_for_pos_queries:
+                        if not maybe_attribute:
+                            raise AttributeError('Need to define a table for children / parent queries')
+
+                        pos_table = self.get_table(maybe_attribute)
+                        relation_name = maybe_attribute
+                        if not isinstance(relation_name, basestring):
+                            relation_name = pos_table.name
+
+                        for foreign in table.foreign_keys:
+                            if foreign.column.table is pos_table:
+                                self.parent_raw[relation_name].append(attributes)
+                                self.parent_raw_attributes[relation_name] = foreign.parent
+                                break
+                        else:
+                            self.children_raw[relation_name].append(attributes)
+
+            elif is_nonstr_iter(attribute):
+                for maybe_attribute in attribute:
+                    self.add_attribute(maybe_attribute, table)
+
+            else:
+                self.lookup_and_add_tables(attribute)
+                self.tables.add(table)
+                self.attributes.append(attribute)
+
+        elif isinstance(attribute, basestring):
+            if '.' in attribute:
+                table_or_name, attribute = attribute.split('.', 1)
+                self.add_attribute(attribute, table_or_name)
+            else:
+                self.add_attribute(None, attribute)
+
+        elif isinstance(attribute, dict):
+            for table_or_name, attributes in attribute.items():
+                self.add_attribute(attributes, table_or_name)
+
+        elif is_nonstr_iter(attribute):
+            for table_or_name in attribute:
+                self.add_attribute(None, table_or_name)
+
+        else:
+            self.lookup_and_add_tables(attribute)
+            self.attributes.append(attribute)
+
+        return self
+
+    def filter(self, value):
+        if isinstance(value, dict):
+            for key, values in value.items():
+                if isinstance(key, basestring):
+                    if '.' in key:
+                        table_name, attribute_name = key.split('.', 1)
+                        table = self.get_table(table_name)
+                        attribute = getattr(table.c, attribute_name)
+                        self.tables.add(table)
+                        self.queries.append(create_filter_by(attribute, values))
+
+                    elif isinstance(values, dict):
+                        table = self.get_table(key)
+                        for table_key, attribute_value in values.items():
+                            self.filter({getattr(table.c, table_key): attribute_value})
+
+                    else:
+                        raise AttributeError('Invalid filter column: %s' % force_string(key))
+
+                elif isinstance(key, InstrumentedAttribute):
+                    self.tables.add(key.table)
+                    self.queries.append(create_filter_by(key, values))
+
+                elif hasattr(key, '__tablename__'):
+                    if isinstance(values, dict):
+                        for attribute, attribute_value in values.items():
+                            self.filter({getattr(table, attribute): attribute_value})
+                    else:
+                        raise AttributeError('Invalid filter values: %s' % force_string(values))
+
+                elif isinstance(key, Table):
+                    if isinstance(values, dict):
+                        for attribute, attribute_value in values.items():
+                            self.filter({getattr(table.c, attribute): attribute_value})
+                    else:
+                        raise AttributeError('Invalid filter values: %s' % force_string(values))
+
+                else:
+                    raise AttributeError('Invalid filter column: %s' % force_string(key))
+
+        elif is_nonstr_iter(value):
+            for deep_value in value:
+                self.filter(deep_value)
+
+        else:
+            self.lookup_and_add_tables(value)
+            self.queries.append(value)
+
+        return self
+
+    def lookup_and_add_tables(self, value):
+        if isinstance(value, BinaryExpression):
+            if isinstance(value.left, Column):
+                self.tables.add(value.left.table)
+            else:
+                self.lookup_and_add_tables(value.left)
+
+            if isinstance(value.right, Column):
+                self.tables.add(value.right.table)
+            else:
+                self.lookup_and_add_tables(value.right)
+
+        elif not isinstance(value, BindParameter):
+            # @@TODO: Lookup for tables?
+            pass
+
+    def construct_query(
+            self,
+            active=True,
+            ignore_active_attribute=False):
+
+        queries = list(self.queries)
+        outerjoins = MissingDict()
+        tables = set(self.tables)
+        attributes = list(self.attributes)
+
+        # Extend outerjoins
+        if self.outerjoin_tables:
+            for key, values in self.outerjoin_tables.items():
+                for deep_key, value in values.items():
+                    outerjoins[key][deep_key] = value
+
+        if self.children_raw:
+            for child_name in self.children_raw.keys():
+                child_orm_table = self.orm_tables[child_name]
+                if hasattr(child_orm_table, '__parent__'):
+                    child_parent_table = self.get_table(child_orm_table.__parent__)
+                    if child_parent_table not in tables:
+                        tables.add(child_parent_table)
+                    child_label = child_parent_table.c.id.label('%s_child_id' % child_name)
+                    if child_label not in attributes:
+                        attributes.append(child_label)
+
+        if self.parent_raw:
+            for parent_name in self.parent_raw.keys():
+                relation_column = self.parent_raw_attributes[parent_name]
+                if relation_column.table not in tables:
+                    tables.add(relation_column.table)
+                parent_label = relation_column.label('%s_parent_id' % parent_name)
+                if parent_label not in attributes:
+                    attributes.append(parent_label)
+
+        # Find active queries
+        active_tables = set()
+        active_table_children = set()
+
+        def _actives(orm_table, as_outerjoin=False):
+            if orm_table.__core_type__ == 'branch':
+                as_outerjoin = True
+
+            self_children = False
+            for foreign in orm_table.__table__.foreign_keys:
+                foreign_orm_table = self.orm_tables[foreign.column.table.name]
+                if foreign_orm_table.__core_type__ == 'active':
+                    if foreign_orm_table is orm_table:
+                        active_table_children.add(foreign_orm_table)
+                        self_children = True
+                    else:
+                        if as_outerjoin or foreign.parent.nullable:
+                            outerjoins[orm_table][foreign_orm_table] = (foreign.column == foreign.parent)
+                            foreign_as_outerjoin = True
+                        else:
+                            queries.append(foreign.column == foreign.parent)
+                            foreign_as_outerjoin = False
+                        _actives(foreign_orm_table, as_outerjoin=foreign_as_outerjoin)
+
+            if not self_children and orm_table.__core_type__ == 'active':
+                active_tables.add(orm_table)
+
+        for table in self.tables:
+            _actives(self.orm_tables[table.name])
+
+        # Create active query
+        active_queries = []
+        if active_tables:
+            active_queries.append(active_filter(active_tables))
+        if active_table_children:
+            # @@TODO lookup for active items, ignore items without father
+            pass
+
+        if len(active_queries) == 1:
+            active_query = active_queries[0]
+        elif active_queries:
+            active_query = and_(*active_queries)
+        else:
+            active_query = None
+
+        # Add active column
+        if not ignore_active_attribute:
+            if active is None:
+                if active_query is not None:
+                    attributes.append(active_query.label('active'))
+                else:
+                    attributes.append(true().label('active'))
+            elif active:
+                attributes.append(true().label('active'))
+            else:
+                attributes.append(false().label('active'))
+
+        # Create session query
+        query = self.api_session.session.query(*attributes)
+
+        # Relate with nullable foreign
+        if outerjoins:
+            for from_table, foreign_tables in outerjoins.items():
+                query = query.select_from(from_table)
+                for outerjoin_table, outerjoin_query in foreign_tables.items():
+                    query = query.outerjoin(outerjoin_table, outerjoin_query)
+
+        # Define active/inactive filter is requested
+        if active is not None and active_query is not None:
+            if active:
+                query = query.filter(active_query)
+            else:
+                query = query.filter(not_(active_query))
+
+        if queries:
+            if len(queries) == 1:
+                query = query.filter(queries[0])
+            else:
+                query = query.filter(and_(*queries))
+
+        return query
+
+    def parse_results(self, results, active=True):
+        if results:
+            update_orm = [
+                i for i, t in enumerate(self.attributes)
+                if hasattr(t, '__tablename__') and t.__core_type__ == 'active']
+            if update_orm:
+                for result in results:
+                    for i in update_orm:
+                        result[i]._active = result.active
+
+            self.update_with_secondary_queries(results, active=active)
+
+        return results
+
+    def update_with_secondary_queries(self, results, active=True):
+        if self.children_raw:
+            for children_name, attributes in self.children_raw.items():
+                if attributes:
+                    if isinstance(attributes, dict):
+                        if 'parent_id' not in attributes:
+                            attributes['parent_id'] = None
+                    else:
+                        attributes = maybe_list(attributes)
+                        if 'parent_id' not in attributes:
+                            attributes.append('parent_id')
+
+                query = ORMQuery(self.api_session, {children_name: attributes})
+                orm_table = self.orm_tables[children_name]
+                if hasattr(orm_table, '__parent__'):
+                    name = '%s_child_id' % children_name
+                    children_ids = set(getattr(r, name) for r in results)
+                    if children_ids:
+                        references = MissingList()
+                        for reference in query.filter(orm_table.parent_id.in_(children_ids)).all(active=active):
+                            references[reference.parent_id].append(reference)
+                        for result in results:
+                            setattr(result, children_name, references[getattr(result, name)])
+                    else:
+                        for result in results:
+                            setattr(result, children_name, [])
+                else:
+                    parent_results = query.all(active=active)
+                    for result in results:
+                        setattr(result, children_name, parent_results)
+
+        if self.parent_raw:
+            for parent_name, attributes in self.parent_raw.items():
+                if attributes:
+                    if isinstance(attributes, dict):
+                        if 'id' not in attributes:
+                            attributes['id'] = None
+                    else:
+                        attributes = maybe_list(attributes)
+                        if 'id' not in attributes:
+                            attributes.append('id')
+
+                query = ORMQuery(self.api_session, {parent_name: attributes})
+                name = '%s_parent_id' % parent_name
+                parent_ids = set(getattr(r, name) for r in results)
+                if parent_ids:
+                    orm_table = self.orm_tables[parent_name]
+                    references = dict((r.id, r) for r in query.filter(orm_table.id.in_(parent_ids)).all(active=active))
+                    for result in results:
+                        setattr(result, parent_name, references.get(getattr(result, name)))
+                else:
+                    for result in results:
+                        setattr(result, parent_name, None)
+
+        return results
+
+    def one(self, active=True):
+        result = self.construct_query(active=active).one()
+        return self.parse_results([result], active=active)[0]
+
+    def first(self, active=True):
+        result = self.construct_query(active=active).first()
+        if result is not None:
+            return self.parse_results([result], active=active)[0]
+
+    def all(self, active=True):
+        return self.parse_results(self.construct_query(active=active).all(), active=active)
+
+    def count(self, active=True):
+        query = self.construct_query(active=active, ignore_active_attribute=True)
+        entities = set(d['entity'] for d in query.column_descriptions if d['entity'])
+        return (
+            query
+            .with_entities(func.count(1), *entities)
+            .order_by(None)  # Ignore defined orders
+            .first())[0]
+
+    def delete(self, active=None, synchronize_session=False):
+        if len(self.attributes) != 1:
+            raise AttributeError('Define only the column you want to delete')
+
+        delete_ids = [r[0] for r in self.construct_query(active=active, ignore_active_attribute=True).all()]
+        if not delete_ids:
+            return False
+        else:
+            result = (
+                self.api_session.session
+                .query(self.attributes[0])
+                .filter(self.attributes[0].in_(delete_ids))
+                .delete(synchronize_session=synchronize_session))
+
+            self.api_session.session.flush()
+            # @@TODO add actions
+            return result
+
+    def update(self, values, active=None, synchronize_session=False):
+        result = self.construct_query(active=active).update(values, synchronize_session=synchronize_session)
+        self.api_session.session.flush()
+        # @@TODO add actions
+        return result
+
+    def disable(self, active=True):
+        return self.update({'end_date': func.now()}, active=active)
 
 
 class BaseCoreSession(BaseSQLSession):
     __api_name__ = 'core'
+
+    def query(self, *attributes, **kw_attributes):
+        return ORMQuery(self, *attributes, **kw_attributes)
+
+    def add(self, orm_object):
+        self.add_all([orm_object])
+
+    def add_all(self, orm_objects):
+        for orm_object in orm_objects:
+            if isinstance(orm_object, Base) and not orm_object.key:
+                orm_object.key = orm_object.make_key()
+
+        self.session.add_all(orm_objects)
+        self.session.flush()
+        # @@TODO add actions
+
+
+
+
+
+
+
 
     def get_cores(
             self,
@@ -918,15 +1403,6 @@ class BaseCoreSession(BaseSQLSession):
                 not_(or_(Core.end_date < start_date, Core.start_date > end_date))))
             .all())
 
-
-
-
-
-
-
-
-
-
     @reify
     def use_before_queries(self):
         return asbool(self.settings.get('api.core.use_before_queries', True))
@@ -1189,7 +1665,7 @@ class BaseCoreSession(BaseSQLSession):
     def old_get_cores(
             self,
             columns,
-            page=None, 
+            page=None,
             limit_per_page=None,
             **kwargs):
 
@@ -1218,6 +1694,14 @@ class BaseCoreSession(BaseSQLSession):
                 number_of_results=0)
         else:
             return []
+
+
+def table_type(table):
+    if hasattr(table, 'core_relation'):
+        relation_type, relation_table = table.core_relation
+        if relation_type == 'branch':
+            return table_type(relation_table)
+    return table.core_name
 
 
 def query_order_by(query, table, maybe_column):

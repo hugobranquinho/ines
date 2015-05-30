@@ -3,7 +3,8 @@
 from pyramid.compat import is_nonstr_iter
 
 from ines.convert.codes import (inject_junk,
-                                make_sha256)
+                                make_sha256,
+                                make_sha256_no_cache)
 
 from ines.convert.dates import (date_to_timestamp,
                                 maybe_date,

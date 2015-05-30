@@ -26,19 +26,33 @@
 
 __version__ = '0.1a1'
 
+from distutils.version import StrictVersion
 import os
 from setuptools import find_packages
 from setuptools import setup
 
 
 here = os.path.abspath(os.path.dirname(__file__))
-try:
-    with open(os.path.join(here, 'README')) as f:
-        README = f.read()
-    with open(os.path.join(here, 'CHANGES')) as f:
-        CHANGES = f.read()
-except IOError:
-    README = CHANGES = ''
+with open(os.path.join(here, 'README.rst')) as f:
+    DESCRIPTION = f.read()
+
+with open(os.path.join(here, 'HISTORY.txt')) as f:
+    history_lines = f.read().splitlines()
+    for i, line in enumerate(history_lines):
+        if line.startswith(__version__):
+            history_lines = history_lines[i:]
+            break
+
+    main_version = StrictVersion(__version__).version[:1]
+    for i, line in enumerate(history_lines):
+        if (line.startswith('==')
+                and not StrictVersion(history_lines[i-1].split(' ', 1)[0]).version[:1] == main_version):
+            history_lines = history_lines[:i-1]
+            break
+
+    if history_lines:
+        DESCRIPTION += '\n\n'
+        DESCRIPTION += '\n'.join(history_lines)
 
 requires = [
     'setuptools',
@@ -50,15 +64,14 @@ requires = [
     'Paste',
     'PasteDeploy',
     'colander >= 1.0',
-    'SQLAlchemy',
-    'zope.sqlalchemy',
+    'SQLAlchemy >= 1.0.0',
     'repoze.lru']
 
 setupkw = dict(
     name='ines',
     version=__version__,
     description='Web applications manager for pyramid packages',
-    long_description=README + '\n\n' + CHANGES,
+    long_description=DESCRIPTION,
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',

@@ -15,9 +15,12 @@ Features
 Features
 --------
 
-- Changed session cache located at ``request.cache`` to ``request.session_cache``
+- ``utils.make_unique_hash`` now receives a ``length`` attribute
+- Changed request cache located at ``request.cache`` to ``request.session_cache``
 - Changed filesystem cache located at ``request.fcache`` to ``request.cache``
+- New function ``utils.remove_file`` to remove system files, ignoring some errors (with retry loop)
 - New function ``utils.move_file`` to move a file ignoring some system errors
+- New function ``convert.make_sha256_no_cache`` to ignore ``convert.make_sha256``cache system
 - New function ``utils.get_file_binary`` to get a file binary ignoring some system errors
 - New function ``utils.put_binary_on_file`` to write/append a file ignoring some system errors
 - New function ``utils.put_binary_on_file`` to write/append a file ignoring some system errors
@@ -28,11 +31,16 @@ Features
 - Improve ``convert.make_sha256`` speed using ``repoze.lru.LRUCache``
 - Improve ``cache.CacheMe.get_file_path`` speed using ``repoze.lru.LRUCache``
 - Improve ``locks.LockMe.get_file_path`` speed using ``repoze.lru.LRUCache``
+- Improve ``convert.camelcase`` speed using ``repoze.lru.LRUCache``
+- Improve ``convert.uncamelcase`` speed using ``repoze.lru.LRUCache``
+- New properties added to ``authentication.AuthenticatedSession``, ``is_user`` and ``is_apikey``
+- Added ORM query to ines.api.core
+- New module ``api.policy.BaseTokenPolicySession``. Helper for authentication using token
 
 Bug Fixes
 ---------
 
-- Deal with ``IOError`` and ``OSError`, don't ignore them
+- Deal with ``IOError.errno`` and ``OSError.errno`, don't ignore them
 
 Backwards Incompatibilities
 ---------------------------
@@ -43,19 +51,25 @@ Backwards Incompatibilities
 - ``cache.make_dir`` moved to ``utils.make_dir``
 - ``locks.LockMe`` now receives argument ``path`` instead of ``lock_path``
 - ``locks.LockMe.clean_junk_locks`` don't receives any argument. Use ``locks.LockMe.clean_junk_locks_as_daemon`` instead.
-- ``api.database.sql.initialize_sql`` moved to ``api.database.initialize_sql``
-- ``api.database.sql.get_sql_settings_from_config`` moved to ``api.database.get_sql_settings_from_config``
-- ``api.database.sql.append_arguments`` moved to ``api.database.append_arguments``
+- ``api.database.BaseSQLSessionManager`` moved to ``api.database.sql.BaseSQLSessionManager``
+- ``api.database.BaseSQLSession`` moved to ``api.database.sql.BaseSQLSession``
+- ``api.database.sql.BaseDatabaseSessionManager`` moved to ``api.database.BaseDatabaseSessionManager``
+- ``api.database.sql.BaseDatabaseSession`` moved to ``api.database.BaseDatabaseSession``
+- ines no longer depends on ``repoze.tm2``. If you use ``ines.middleware.repozerm.RepozeTMMiddleware``
+    or ``ines.api.database.sql.BaseSQLSessionManager`` or ``ines.api.core.BaseCoreSessionManager``
+    or ``ines.api.database.sql.BaseSQLSession`` or ``ines.api.core.BaseCoreSession`` you need to define ``repoze.tm2``
+    in setup requirements.
+- ines no longer depends on ``transaction``. If you use ``ines.api.database.sql.BaseDatabaseSessionManager``
+    or ``ines.api.core.BaseCoreSessionManager`` or ``ines.api.database.sql.BaseSQLSession``
+    or ``ines.api.core.BaseCoreSession`` you need to define ``transaction`` in setup requirements.
+- ines no longer depends on ``zope.sqlalchemy``. If want to keep using this as sqlalchemy session extension, you need
+    to define it on config settings like `sql.session_extension = zope.sqlalchemy:ZopeTransactionExtension`
+    and define ``zope.sqlalchemy`` in setup requirements.
 
 Dependencies
 ------------
 
 - ines now depends on ``repoze.lru``
-- ines no longer depends on ``repoze.tm2``. If you use ``ines.middleware.repozerm.RepozeTMMiddleware``
-    or ``ines.api.database.sql.BaseDatabaseSessionManager`` or ``ines.api.core.BaseCoreSessionManager``
-    need to install ``repoze.tm2`` yourself.
-- ines no longer depends on ``transaction``. If you use ``ines.api.database.sql.BaseDatabaseSessionManager``
-    or ``ines.api.core.BaseCoreSessionManager`` need to install ``transaction`` yourself.
 
 
 0.1a1 (2015-05-06)

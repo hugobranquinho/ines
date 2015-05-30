@@ -2,11 +2,16 @@
 
 import re
 
+from repoze.lru import LRUCache
+
 from ines import CAMELCASE_UPPER_WORDS
+from ines import MARKER
 
 
 REPLACE_CAMELCASE_REGEX = re.compile(u'[^A-Z0-9_.]').sub
 NULLS = frozenset([u'null', u'', u'none'])
+CAMELCASE_CACHE = LRUCache(5000)
+UNCAMELCASE_CACHE = LRUCache(5000)
 
 
 def force_unicode(value, encoding='utf-8', errors='strict'):
@@ -50,58 +55,77 @@ def maybe_unicode(value, encoding='utf-8', errors='strict'):
         return force_unicode(value, encoding, errors)
 
 
+def _camelcase(value):
+    value = force_unicode(value).strip()
+    if not value:
+        return value
+
+    cache = CAMELCASE_CACHE.get(value, MARKER)
+    if cache is MARKER:
+        words = [w for w in REPLACE_CAMELCASE_REGEX(u'_', value.upper()).split(u'_') if w]
+        if not words:
+            cache = u''
+        else:
+            camelcase_words = [words.pop(0).lower()]
+            for word in words:
+                if word in CAMELCASE_UPPER_WORDS:
+                    camelcase_words.append(word)
+                else:
+                    camelcase_words.append(word.capitalize())
+            cache = u''.join(camelcase_words)
+        CAMELCASE_CACHE.put(value, cache)
+    return cache
+
+
 def camelcase(value):
     value = force_unicode(value).strip()
     if not value:
         return value
     elif u'+' in value:
-        return u'+'.join(camelcase(key) for key in value.split(u'+'))
-
-    words = [w for w in REPLACE_CAMELCASE_REGEX(u'_', value.upper()).split(u'_') if w]
-    if not words:
-        return u''
+        return u'+'.join(_camelcase(key) for key in value.split(u'+'))
     else:
-        camelcase_words = [words.pop(0).lower()]
-        for word in words:
-            if word in CAMELCASE_UPPER_WORDS:
-                camelcase_words.append(word)
-            else:
-                camelcase_words.append(word.capitalize())
-        return u''.join(camelcase_words)
+        return _camelcase(value)
 
 
 def uncamelcase(value):
-    count = 0
-    words = {}
-    previous_is_upper = False
-    for letter in force_unicode(value):
-        if letter.isupper() or letter.isnumeric():
-            if not previous_is_upper:
-                count += 1
+    value = force_unicode(value)
+    cache = UNCAMELCASE_CACHE.get(value, MARKER)
+    if cache is MARKER:
+        count = 0
+        words = {}
+        previous_is_upper = False
+        for letter in force_unicode(value):
+            if letter.isupper() or letter.isnumeric():
+                if not previous_is_upper:
+                    count += 1
+                else:
+                    maybe_upper_name = (u''.join(words[count]) + letter).upper()
+                    if maybe_upper_name not in CAMELCASE_UPPER_WORDS:
+                        count += 1
+                previous_is_upper = True
+
             else:
-                maybe_upper_name = (u''.join(words[count]) + letter).upper()
-                if maybe_upper_name not in CAMELCASE_UPPER_WORDS:
-                    count += 1
-            previous_is_upper = True
+                if previous_is_upper:
+                    maybe_upper_name = (u''.join(words[count]) + letter).upper()
+                    if maybe_upper_name not in CAMELCASE_UPPER_WORDS:
+                        words[count + 1] = [words[count].pop()]
+                        count += 1
+                previous_is_upper = False
 
-        else:
-            if previous_is_upper:
-                maybe_upper_name = (u''.join(words[count]) + letter).upper()
-                if maybe_upper_name not in CAMELCASE_UPPER_WORDS:
-                    words[count + 1] = [words[count].pop()]
-                    count += 1
-            previous_is_upper = False
+            words.setdefault(count, []).append(letter)
 
-        words.setdefault(count, []).append(letter)
+        words = words.items()
+        words.sort()
 
-    words = words.items()
-    words.sort()
+        final_words = []
+        for count, letters in words:
+            if letters:
+                final_words.append(u''.join(letters))
 
-    final_words = []
-    for count, letters in words:
-        if letters:
-            final_words.append(u''.join(letters))
-    return u'_'.join(final_words).lower()
+        cache = u'_'.join(final_words).lower()
+        UNCAMELCASE_CACHE.put(value, cache)
+
+    return cache
 
 
 VOWEL = frozenset(('a', 'e', 'i', 'o', 'u'))
