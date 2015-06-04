@@ -370,9 +370,9 @@ def remove_file(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     raise
 
 
-def remove_file_quietly(path):
+def remove_file_quietly(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     try:
-        remove_file(path)
+        remove_file(path, retries=retries, retry_errno=retry_errno)
     except (IOError, OSError):
         pass
 

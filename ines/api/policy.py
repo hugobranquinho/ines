@@ -197,7 +197,7 @@ class BaseTokenPolicySession(BaseSession):
                         token_path = self.get_token_file_path(token_256)
                         last_read_time = last_read_file_time(token_path)
                         if last_read_time:
-                            if now <= (last_read_time + self.core.token_expire_seconds):
+                            if now <= (last_read_time + self.token_expire_seconds):
                                 return True
                             else:
                                 # Remove token garbage
