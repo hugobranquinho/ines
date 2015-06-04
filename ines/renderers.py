@@ -3,6 +3,9 @@
 import datetime
 from json import dumps
 
+from colander import Mapping
+from colander import Sequence
+
 from ines import DEFAULT_RENDERERS
 from ines.convert import camelcase
 from ines.convert import force_unicode
@@ -12,7 +15,64 @@ DATE = datetime.date
 DATETIME = datetime.datetime
 
 
+class CSVResponse(list):
+    def append_header(self, title):
+        if not self:
+            self[0] = []
+        self[0].append(title)
+
+    def append_item(self, position, value):
+        if not self:
+            self[0] = []
+        self[position].append(value)
+
+    def join(self, response):
+        if response:
+            add_items = len(response) - len(self)
+            if add_items > 0:
+                for i in xrange(add_items):
+                    self.append([])
+
+            for i, values in enumerate(response):
+                self[i].extend(values)
+
+
 class CSV(object):
+    def lookup_header(self, node):
+        if isinstance(node.typ, Sequence):
+            return self.lookup_row(node.children[0])
+
+        elif isinstance(node.typ, Mapping):
+            header = []
+            for child in node.children:
+                header.extend(self.lookup_header(child))
+            return header
+
+        else:
+            return [node.title]
+
+    def lookup_row(self, node, value):
+        if isinstance(node.typ, Sequence):
+            return self.lookup_row(node.children[0], value)
+
+        elif isinstance(node.typ, Mapping):
+            row = []
+            for child in node.children:
+                if isinstance(value, dict):
+                    row.extend(self.lookup_row(child, value.get(camelcase(node.name))))
+                else:
+                    row.extend(self.lookup_row(child, getattr(value, child.name, None)))
+            return row
+
+        else:
+            return [value]
+
+    def lookup_rows(self, node, values):
+        rows = [self.lookup_header(node)]
+        for value in values:
+            rows.append(self.lookup_row(node, value))
+        return rows
+
     def __call__(self, info):
         def _render(value, system):
             request = system.get('request')
@@ -26,27 +86,7 @@ class CSV(object):
                     request.matched_route.name,
                     request_method=request.method)
                 if output:
-                    output = output[0]
-                    node = output.schema.children[0]
-                    value_lines = []
-
-                    header = []
-                    value_lines.append(header)
-                    for child in node.children:
-                        header.append(child.title)
-
-                    for item_value in value:
-                        row = []
-                        value_lines.append(row)
-
-                        if isinstance(item_value, dict):
-                            for child in node.children:
-                                row.append(item_value.get(camelcase(child.name)))
-                        else:
-                            for child in node.children:
-                                row.append(getattr(item_value, child.name, None))
-
-                    value = value_lines
+                    value = self.lookup_rows(output[0].schema.children[0], value)
 
             separator = u';'
             separator_replace = u','
@@ -74,7 +114,6 @@ class CSV(object):
 
                     else:
                         item = dumps(item)
-                        print item
 
                     if u'"' in item:
                         item = u'"%s"' % item.replace(u'"', u'\\"')
