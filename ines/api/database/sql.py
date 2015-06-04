@@ -36,7 +36,6 @@ from ines.utils import MissingSet
 
 
 SQL_DBS = MissingDict()
-SQLALCHEMY_VERSION = get_distribution('sqlalchemy').version
 
 
 class BaseSQLSessionManager(BaseDatabaseSessionManager):
@@ -309,11 +308,7 @@ class Pagination(list):
             self.page = 1
         else:
             # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
-            if SQLALCHEMY_VERSION >= '1.0':
-                entities = set(d['entity'] for d in query.column_descriptions if d['entity'])
-            else:
-                entities = set(e.entity_zero for e in query._entities if e.entity_zero)
-
+            entities = set(d['entity'] for d in query.column_descriptions if d['entity'])
             self.number_of_results = (
                 query
                 .with_entities(func.count(1), *entities)
@@ -474,6 +469,12 @@ def active_filter(tables):
 
 def inactive_filter(tables):
     return not_(active_filter(tables))
+
+
+def date_in_period_filter(table, start_date, end_date):
+    return or_(
+        and_(table.start_date.is_(None), table.end_date.is_(None)),
+        not_(or_(table.end_date < start_date, table.start_date > end_date)))
 
 
 def get_active_column(tables, active=True):
