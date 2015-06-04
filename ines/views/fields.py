@@ -217,21 +217,6 @@ class OrderBy(object):
         return '%s %s' % (self.column_name, order)
 
 
-def OrderFinisher(node, appstruct):
-    if appstruct and appstruct.get('order_by'):
-        order_by = appstruct['order_by']
-        if not is_nonstr_iter(order_by):
-            order_by = [order_by]
-
-        appstruct['order_by'] = []
-        for ob in order_by:
-            ob = ob.split(' ', 1)
-            descendant = bool(len(ob) == 2 and ob[1].lower() in ('desc', 'd'))
-            appstruct['order_by'].append(OrderBy(ob[0], descendant))
-
-    return appstruct
-
-
 class SequenceFinisher(object):
     def __init__(self, single_key, plural_key):
         self.single_key = single_key
@@ -312,6 +297,49 @@ class SearchFields(MappingSchema):
     pass
 
 
+def PaginationOrderFinisher(node, appstruct):
+    if appstruct and appstruct.get('order_by'):
+        order_by = appstruct['order_by']
+        if not is_nonstr_iter(order_by):
+            order_by = [order_by]
+
+        appstruct['order_by'] = []
+        output_node = getattr(node, '__output_node__')
+        for ob in order_by:
+            ob = ob.split(' ', 1)
+            if output_node:
+                breadcrumbs = ob[0].split('.')
+                if len(breadcrumbs) != 2:
+                    continue
+
+                table_name, column_name = breadcrumbs
+                table_name = uncamelcase(table_name)
+                column_name = uncamelcase(column_name)
+                for schema in output_node.__class_schema_nodes__:
+                    if schema.name == table_name:
+                        if isinstance(schema, SequenceSchema):
+                            schema = schema.__class_schema_nodes__[0]
+
+                        nodes = schema.__class_schema_nodes__
+                        nodes.extend(schema.__all_schema_nodes__)
+                        for schema_node in nodes:
+                            if isinstance(schema_node, SchemaNode) and schema_node.name == column_name:
+                                break
+                        else:
+                            # Nothing found! dont add order by
+                            continue
+                        # Break this FOR to add order by
+                        break
+                else:
+                    # Nothing found! dont add order by
+                    continue
+
+            descendant = bool(len(ob) == 2 and ob[1].lower() in ('desc', 'd'))
+            appstruct['order_by'].append(OrderBy(ob[0], descendant))
+
+    return appstruct
+
+
 PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
 LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
 ORDER_BY = SchemaNode(String(), title=_(u'Order by'), name='order_by')
@@ -328,7 +356,7 @@ class PaginationInput(MappingSchema):
     page = PAGE.clone(missing=1)
     limit_per_page = LIMIT_PER_PAGE.clone(missing=20)
     order_by = SequenceSchema(Sequence(), ORDER_BY, missing=drop, preparer=split_values)
-    finisher = [OrderFinisher]
+    finisher = [PaginationOrderFinisher]
 
 
 class PaginationOutput(MappingSchema):
