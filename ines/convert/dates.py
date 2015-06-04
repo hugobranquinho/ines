@@ -43,3 +43,11 @@ def date_to_timestamp(value):
     value = maybe_datetime(value)
     if value:
         return mktime(value.timetuple())
+
+
+def convert_timezone(value, time_zone=None):
+    if isinstance(value, DATETIME) and value.utcoffset():
+        value = value.replace(tzinfo=None) + value.utcoffset()
+        if time_zone:
+            return value + time_zone
+    return value

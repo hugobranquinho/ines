@@ -6,7 +6,8 @@ from ines.convert.codes import (inject_junk,
                                 make_sha256,
                                 make_sha256_no_cache)
 
-from ines.convert.dates import (date_to_timestamp,
+from ines.convert.dates import (convert_timezone,
+                                date_to_timestamp,
                                 maybe_date,
                                 maybe_datetime)
 
