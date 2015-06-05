@@ -61,9 +61,6 @@ class ORMQuery(object):
         if kw_attributes:
             self.add_attribute(kw_attributes)
 
-    def __repr__(self):
-        return repr(self.construct_query(active=True))
-
     def add_attribute(self, attribute, table_or_name=None):
         self.options.add_attribute(attribute, table_or_name)
         return self
@@ -352,7 +349,10 @@ class ORMQuery(object):
 
         column = self.options.attributes[0]
         attributes = set(values.keys())
-        attributes.update(['start_date', 'end_date'])
+
+        if 'start_date' in values or 'end_date' in values:
+            attributes.update(['start_date', 'end_date'])
+
         response = (
             ORMQuery(self.api_session, {column.table: attributes})
             .join_options(self.options)
