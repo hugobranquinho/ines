@@ -308,14 +308,13 @@ class Pagination(list):
             self.page = 1
         else:
             # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
-            entities = set(d['entity'] for d in query.column_descriptions if d['entity'])
+            entities = set(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
             self.number_of_results = (
                 query
                 .with_entities(func.count(1), *entities)
                 .order_by(None)
                 .first()[0])
-            self.last_page = int(ceil(
-                self.number_of_results / float(self.limit_per_page))) or 1
+            self.last_page = int(ceil(self.number_of_results / float(self.limit_per_page))) or 1
 
             self.page = maybe_integer(page)
             if not self.page or self.page < 1:

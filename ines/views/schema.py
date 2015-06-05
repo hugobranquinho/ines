@@ -168,6 +168,10 @@ class SchemaView(object):
                 'fieldType': name,
                 'title': schema.title,
                 'description': schema.description or None}
+
+            if hasattr(schema, 'model_reference'):
+                details['modelReference'] = camelcase(schema.model_reference.name)
+
             types[name].append(details)
 
             if isinstance(schema.typ, FilterByType):

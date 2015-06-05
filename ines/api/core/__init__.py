@@ -298,13 +298,11 @@ class ORMQuery(object):
             response = Pagination(query, page=self.options.page, limit_per_page=self.options.limit_per_page)
         else:
             response = query.all()
-
         return self.parse_results(response, active=active)
 
     def count(self, active=True):
         query = self.construct_query(active=active, ignore_active_attribute=True)
-        entities = set(d['entity'] for d in query.column_descriptions if d['entity'])
-        print entities
+        entities = set(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
         return (
             query
             .with_entities(func.count(1), *entities)
