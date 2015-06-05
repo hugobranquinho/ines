@@ -23,6 +23,7 @@ from ines.convert import force_unicode
 from ines.convert import maybe_list
 from ines.interfaces import ISchemaView
 from ines.route import lookup_for_route_params
+from ines.route import lookup_for_route_permissions
 from ines.views.fields import FilterByType
 from ines.views.fields import OneOfWithDescription
 from ines.utils import MissingDict
@@ -59,6 +60,7 @@ class SchemaView(object):
             params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
             url = '%s%s' % (request.application_url, unquote(route.generate(params)))
 
+            permissions = lookup_for_route_permissions(request.registry, intr_route)
             schemas = request.registry.config.lookup_input_schema(route_name, route_methods)
             schemas.extend(request.registry.config.lookup_output_schema(route_name, route_methods))
             for schema in schemas:
@@ -89,8 +91,10 @@ class SchemaView(object):
 
                 name = camelcase('%s_%s' % (schema.request_method, schema.route_name))
                 nodes[name][schema.schema_type] = fields
-                nodes[name]['method'] = schema.request_method.upper()
+                request_method_upper = schema.request_method.upper()
+                nodes[name]['method'] = request_method_upper
                 nodes[name]['url'] = url
+                nodes[name]['permissions'] = maybe_list(permissions.get(request_method_upper))
 
         nodes['fieldTypes'] = lookup_for_common_fields(types, ignore_key='fieldType')
         nodes['models'] = lookup_for_common_fields(models, ignore_key='model')

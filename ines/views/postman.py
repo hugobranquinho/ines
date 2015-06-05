@@ -52,11 +52,11 @@ class PostmanCollection(object):
 
         for schema_view in request.registry.getAllUtilitiesRegisteredFor(ISchemaView):
             # Make route for url
-            schema_route = request.registry.introspector.get('routes', schema_view.route_name)
-            if schema_route is not None:
+            intr_route = request.registry.introspector.get('routes', schema_view.route_name)
+            if intr_route is not None:
                 # Schema permission
                 headers = set()
-                permissions = lookup_for_route_permissions(request.registry, schema_route)
+                permissions = lookup_for_route_permissions(request.registry, intr_route)
                 method_permissions = maybe_list(permissions.get('GET'))
                 for method_permission in method_permissions:
                     if method_permission not in (Everyone, NotAuthenticated):
