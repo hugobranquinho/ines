@@ -170,7 +170,9 @@ class SchemaView(object):
                 'description': schema.description or None}
 
             if hasattr(schema, 'model_reference'):
-                details['modelReference'] = camelcase(schema.model_reference.name)
+                model_reference, query_field = schema.model_reference
+                details['modelReference'] = camelcase(model_reference.name)
+                details['queryField'] = camelcase(model_reference[query_field].name)
 
             types[name].append(details)
 
