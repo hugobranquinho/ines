@@ -28,3 +28,4 @@ DEFAULT_CACHE_DIRPATH = join_path(gettempdir(), 'ines-cache')
 
 DEFAULT_RETRY_ERRNO = set([errno.ESTALE])
 DEFAULT_RETRY_ERRNO.add(116)  # Stale NFS file handle
+OPEN_BLOCK_SIZE = 2**16

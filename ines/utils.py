@@ -3,6 +3,7 @@
 from calendar import monthrange
 import datetime
 import errno
+from hashlib import sha256
 from json import dumps
 from os import getpid
 from os import listdir
@@ -22,6 +23,7 @@ from pyramid.httpexceptions import HTTPError
 
 from ines import DOMAIN_NAME
 from ines import DEFAULT_RETRY_ERRNO
+from ines import OPEN_BLOCK_SIZE
 from ines.cleaner import normalize_full_name
 from ines.convert import camelcase
 from ines.convert import force_string
@@ -377,7 +379,7 @@ def remove_file_quietly(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
         pass
 
 
-def make_dir(path, mode=0777):
+def make_dir(path, mode=0777, make_dir_recursively=False):
     path = force_string(path)
     try:
         mkdir(path, mode)
@@ -406,6 +408,27 @@ def move_file(path, new_path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     raise
 
 
+def get_open_file(path, mode='rb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    retries = (maybe_integer(retries) or 3) + 1
+    while retries:
+        try:
+            open_file = open(path, mode)
+        except IOError as error:
+            if error.errno is errno.ENOENT:
+                return None
+            elif error.errno in retry_errno:
+                # Try again, or not!
+                retries -= 1
+            else:
+                # Something goes wrong
+                raise
+        else:
+            return open_file
+
+    # After X retries, raise previous IOError
+    raise
+
+
 def get_file_binary(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     retries = (maybe_integer(retries) or 3) + 1
     while retries:
@@ -428,7 +451,7 @@ def get_file_binary(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     raise
 
 
-def put_binary_on_file(path, binary, mode='wb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+def put_binary_on_file(path, binary, mode='wb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO, make_dir_recursively=False):
     retries = (maybe_integer(retries) or 3) + 1
     while retries:
         try:
@@ -437,7 +460,7 @@ def put_binary_on_file(path, binary, mode='wb', retries=3, retry_errno=DEFAULT_R
         except IOError as error:
             if error.errno is errno.ENOENT:
                 # Missing folder, create and try again
-                make_dir(dirname(path))
+                make_dir(dirname(path), make_dir_recursively=make_dir_recursively)
             elif error.errno in retry_errno:
                 # Try again, or not!
                 retries -= 1
@@ -470,3 +493,27 @@ def get_dir_filenames(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
 
     # After X retries, raise previous OSError
     raise
+
+
+def path_unique_code(path, block_size=OPEN_BLOCK_SIZE):
+    with open(path, 'rb') as f:
+        unique_code = file_unique_code(f, block_size=block_size)
+    return unique_code
+
+
+def file_unique_code(open_file, block_size=OPEN_BLOCK_SIZE):
+    h = sha256()
+    open_file.seek(0)
+    block = open_file.read(block_size)
+
+    while block:
+        h.update(block)
+        block = open_file.read(block_size)
+
+    open_file.seek(0)
+    return force_unicode(h.hexdigest())
+
+
+def string_unique_code(value):
+    value = force_string(value)
+    return force_unicode(sha256(value).hexdigest())

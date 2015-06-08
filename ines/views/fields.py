@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
+from cgi import FieldStorage
 from json import loads
+from os.path import basename
 
 from colander import _ as COLANDER_I18N
 from colander import _SchemaMeta
@@ -185,6 +187,37 @@ class Boolean(BaseBoolean):
             return null
         else:
             return super(Boolean, self).deserialize(node, cstruct)
+
+
+class File(SchemaType):
+    def serialize(self, node, value):
+        if value is null:
+            return null
+        else:
+            return value
+
+    def deserialize(self, node, value):
+        if isinstance(value, file):
+            return {
+                'file': value,
+                'filename': basename(value.name),
+                'type': None}
+
+        elif isinstance(value, FieldStorage):
+            return {
+                'file': value.file,
+                'filename': value.filename,
+                'type': 'image/png'}
+
+        else:
+            raise Invalid(node, u'Ficheiro inválido.')
+
+
+class Image(File):
+    def deserialize(self, node, value):
+        value = super(Image, self).deserialize(node, value)
+        # TODO: validate image type
+        return value
 
 
 class SplitValues(object):

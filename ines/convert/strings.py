@@ -55,6 +55,11 @@ def maybe_unicode(value, encoding='utf-8', errors='strict'):
         return force_unicode(value, encoding, errors)
 
 
+def maybe_string(value, encoding='utf-8', errors='strict'):
+    if value or value is 0:
+        return force_string(value, encoding, errors)
+
+
 def _camelcase(value):
     value = force_unicode(value).strip()
     if not value:

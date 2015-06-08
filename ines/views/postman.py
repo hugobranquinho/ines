@@ -27,6 +27,7 @@ from ines.convert import maybe_list
 from ines.interfaces import ISchemaView
 from ines.route import lookup_for_route_params
 from ines.route import lookup_for_route_permissions
+from ines.views.fields import File
 from ines.utils import MissingList
 
 
@@ -288,9 +289,14 @@ class PostmanCollection(object):
             if default is None:
                 default = ''
 
+            if isinstance(schema.typ, File):
+                item_type = 'file'
+            else:
+                item_type = 'text'
+
             response.append({
                 'key': camelcase(keep_parent_name or schema.name),
                 'value': str(default),
-                'type': 'text',
+                'type': item_type,
                 'enabled': schema.required})
             return response
