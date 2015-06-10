@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+from os.path import basename
 from os.path import isfile
 from os.path import join as join_path
 
@@ -14,6 +15,7 @@ from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Unicode
 
+from ines import OPEN_BLOCK_SIZE
 from ines.api.database.sql import BaseSQLSession
 from ines.api.database.sql import BaseSQLSessionManager
 from ines.api.database.sql import sql_declarative_base
@@ -62,6 +64,8 @@ class BaseStorageSession(BaseSQLSession):
         # Generate a unique code using SHA256
         if isinstance(binary, file):
             unique_code = file_unique_code(binary)
+            if not filename:
+                filename = basename(binary.name)
         else:
             unique_code = string_unique_code(binary)
 
@@ -78,7 +82,7 @@ class BaseStorageSession(BaseSQLSession):
             if not file_path:
                 # Create a new filepath
                 filename = maybe_string(filename)
-                mimetype = find_mimetype(filename=filename, binary=binary)
+                mimetype = find_mimetype(filename=filename, header_or_file=binary)
                 file_path = FilePath(code=unique_code, mimetype=maybe_unicode(mimetype))
 
                 to_add = []
@@ -123,7 +127,7 @@ class BaseStorageSession(BaseSQLSession):
     @reify
     def block_size(self):
         min_size = 2**20
-        size_block = int(self.settings.get('%s.file_block_size' % self.__api_name__) or min_size)
+        size_block = int(self.settings.get('file_block_size') or min_size)
         if size_block < min_size:
             return min_size
         else:
@@ -131,11 +135,11 @@ class BaseStorageSession(BaseSQLSession):
 
     @reify
     def storage_path(self):
-        return self.settings['%s.path' % self.__api_name__]
+        return self.settings['path']
 
     @reify
     def max_blocks_per_folder(self):
-        return int(self.settings.get('%s.max_blocks_per_folder' % self.__api_name__) or 250)
+        return int(self.settings.get('max_blocks_per_folder') or 250)
 
     def create_file_path(self, file_date=None):
         file_date = maybe_date(file_date or TODAY_DATE())
@@ -242,9 +246,6 @@ class BaseStorageSession(BaseSQLSession):
         if not delete_file_ids:
             return True
 
-        # Delete files relations
-        self.direct_delete(File, File.id.in_(delete_file_ids))
-
         # Check if we can delete some file paths
         delete_file_path_ids = files_paths_ids.difference(
             f.file_id
@@ -252,49 +253,52 @@ class BaseStorageSession(BaseSQLSession):
                 self.session
                 .query(File.file_id)
                 .filter(File.file_id.in_(files_paths_ids))
+                .filter(File.id.notin_(delete_file_ids))
                 .all()))
-        if not delete_file_path_ids:
-            return True
-
-        # Get existing files blocks
-        blocks_ids = set(
-            f.file_id_block
-            for f in (
-                self.session
-                .query(FileBlock.file_id_block)
-                .filter(FileBlock.file_id_path.in_(delete_file_path_ids))
-                .all()))
-
-        # Delete blocks relations
-        self.direct_delete(FileBlock, FileBlock.file_id_path.in_(delete_file_path_ids))
-        # Delete files paths from DB
-        self.direct_delete(FilePath, FilePath.id.in_(delete_file_path_ids))
-
-        # Check if we can delete some file block relations
-        delete_block_ids = blocks_ids.difference(
-            f.file_id_block
-            for f in (
-                self.session
-                .query(FileBlock.file_id_block)
-                .filter(FileBlock.file_id_block.in_(blocks_ids))
-                .all()))
-
-        if delete_block_ids:
-            # Get paths to delete
-            delete_paths = set(
-                b.path
-                for b in (
+        if delete_file_path_ids:
+            # Get existing files blocks
+            blocks_ids = set(
+                f.file_id_block
+                for f in (
                     self.session
-                    .query(BlockPath.path)
-                    .filter(BlockPath.id.in_(delete_block_ids))
+                    .query(FileBlock.file_id_block)
+                    .filter(FileBlock.file_id_path.in_(delete_file_path_ids))
                     .all()))
 
-            # Delete blocks paths from DB
-            self.direct_delete(BlockPath, BlockPath.id.in_(delete_block_ids))
+            # Check if we can delete some file block relations
+            delete_block_ids = blocks_ids.difference(
+                f.file_id_block
+                for f in (
+                    self.session
+                    .query(FileBlock.file_id_block)
+                    .filter(FileBlock.file_id_block.in_(blocks_ids))
+                    .filter(FileBlock.file_id_path.notin_(delete_file_path_ids))
+                    .all()))
 
-            # Delete blocks paths from storage
-            for path in delete_paths:
-                remove_file_quietly(join_path(self.storage_path, path))
+            if delete_block_ids:
+                # Get paths to delete
+                delete_paths = set(
+                    b.path
+                    for b in (
+                        self.session
+                        .query(BlockPath.path)
+                        .filter(BlockPath.id.in_(delete_block_ids))
+                        .all()))
+
+        # Delete files relations
+        self.direct_delete(File, File.id.in_(delete_file_ids))
+        if delete_file_path_ids:
+            # Delete blocks relations
+            self.direct_delete(FileBlock, FileBlock.file_id_path.in_(delete_file_path_ids))
+            # Delete files paths from DB
+            self.direct_delete(FilePath, FilePath.id.in_(delete_file_path_ids))
+            if delete_block_ids:
+                # Delete blocks paths from DB
+                self.direct_delete(BlockPath, BlockPath.id.in_(delete_block_ids))
+
+                # Delete blocks paths from storage
+                for path in delete_paths:
+                    remove_file_quietly(join_path(self.storage_path, path))
 
         return True
 
@@ -304,7 +308,8 @@ class BaseStorageSession(BaseSQLSession):
             key=None,
             application_code=None,
             code_key=None,
-            attributes=None):
+            attributes=None,
+            only_one=False):
 
         attributes = set(attributes or ['id'])
         return_open_file = 'open_file' in attributes
@@ -334,29 +339,45 @@ class BaseStorageSession(BaseSQLSession):
         if code_key:
             query = query.filter(File.code_key == code_key)
 
-        response = query.all()
+        if only_one:
+            response = query.first()
+        else:
+            response = query.all()
+
         if not return_open_file or not response:
             return response
+
+        if only_one:
+            response = [response]
 
         files_blocks = MissingList()
         for block in (
                 self.session
-                .query(BlockPath.size, BlockPath.path, FileBlock.file_id_path)
+                .query(BlockPath.path, FileBlock.file_id_path)
                 .filter(BlockPath.id == FileBlock.file_id_block)
                 .filter(FileBlock.file_id_path.in_(set(f.file_id for f in response)))
                 .order_by(FileBlock.order)
                 .all()):
-            files_blocks[block.file_id_path].append((block.size, block.path))
+            files_blocks[block.file_id_path].append(block.path)
 
         for f in response:
             f.open_file = StorageFile(self.storage_path, files_blocks[f.file_id])
 
-        return response
+        if only_one:
+            return response[0]
+        else:
+            return response
+
+    def get_file(self, **kwargs):
+        return self.get_files(only_one=True, **kwargs)
 
 
 class BaseStorageWithImageSession(BaseStorageSession):
     def save_image(self, *args, **kwargs):
         return self.save_file(*args, **kwargs)
+
+    def delete_images(self, *ids):
+        return self.delete_files(*ids)
 
 
 class FilePath(FilesDeclarative):
@@ -404,30 +425,46 @@ class FileBlock(FilesDeclarative):
 
 
 class StorageFile(object):
-    def __init__(self, storage_path, blocks):
+    def __init__(self, storage_path, blocks, block_size=OPEN_BLOCK_SIZE):
         self.storage_path = storage_path
         self.blocks = blocks
-        self.open_block = None
         self.block_position = 0
+        self.block_size = block_size
 
     def read(self, size=-1):
         if size == 0:
             return b''
 
-        elif self.open_block is None:
-            try:
-                path = self.blocks[self.block_position]
-            except IndexError:
-                return b''
-            self.open_block = get_open_file(join_path(self.storage_path, path))
+        try:
+            open_block = self.blocks[self.block_position]
+        except IndexError:
+            return b''
 
-        binary = self.open_block.read(size)
+        if isinstance(open_block, basestring):
+            open_block = self.blocks[self.block_position] = get_open_file(join_path(self.storage_path, open_block))
+
+        binary = open_block.read(size)
         if size > 0:
             size -= len(binary)
             if size <= 0:
                 return binary
 
-        self.open_block = None
         self.block_position += 1
         binary += self.read(size)
         return binary
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        val = self.read(self.block_size)
+        if not val:
+            raise StopIteration
+        return val
+
+    __next__ = next # py3
+
+    def close(self):
+        for block in self.blocks:
+            if not isinstance(block, basestring):
+                block.close()

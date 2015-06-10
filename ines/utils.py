@@ -7,6 +7,7 @@ from hashlib import sha256
 from json import dumps
 from os import getpid
 from os import listdir
+from os import makedirs
 from os import mkdir
 from os import remove as _remove_file
 from os import rename as _rename_file
@@ -384,7 +385,9 @@ def make_dir(path, mode=0777, make_dir_recursively=False):
     try:
         mkdir(path, mode)
     except OSError as error:
-        if error.errno is not errno.EEXIST:
+        if make_dir_recursively and error.errno is errno.ENOENT:
+            makedirs(path, mode)
+        elif error.errno is not errno.EEXIST:
             raise
     return path
 
@@ -451,7 +454,14 @@ def get_file_binary(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     raise
 
 
-def put_binary_on_file(path, binary, mode='wb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO, make_dir_recursively=False):
+def put_binary_on_file(
+        path,
+        binary,
+        mode='wb',
+        retries=3,
+        retry_errno=DEFAULT_RETRY_ERRNO,
+        make_dir_recursively=False):
+
     retries = (maybe_integer(retries) or 3) + 1
     while retries:
         try:

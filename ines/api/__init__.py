@@ -8,10 +8,18 @@ from ines.interfaces import IBaseSessionManager
 
 @implementer(IBaseSessionManager)
 class BaseSessionManager(object):
-    def __init__(self, config, session, api_name):
+    def __init__(self, config, session, api_name=None):
+        if api_name and (not hasattr(self, '__api_name__') or self.__api_name__ != api_name):
+            self.__api_name__ = api_name
+
         self.config = config
         self.session = session
-        self.api_name = api_name
+
+        pattern = '%s.' % self.__api_name__
+        self.settings = dict(
+            (key.replace(pattern, '', 1), value)
+            for key, value in config.settings.items()
+            if key.startswith(pattern))
 
     def __call__(self, request):
         return self.session(self, request)
@@ -24,7 +32,7 @@ class BaseSession(object):
         self.application_name = self.api_session_manager.config.application_name
         self.config = self.api_session_manager.config
         self.registry = self.config.registry
-        self.settings = self.registry.settings
+        self.settings = self.api_session_manager.settings
         self.request = request
 
     def __getattr__(self, name):

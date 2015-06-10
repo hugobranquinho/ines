@@ -53,12 +53,10 @@ class SchemaView(object):
             if not route_methods:
                 continue
 
-            intr_route = request.registry.introspector.get('routes', route_name)
-            if intr_route is None:
+            info = self.get_route_info(request, route_name)
+            if not info:
                 continue
-            route = intr_route['object']
-            params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
-            url = '%s%s' % (request.application_url, unquote(route.generate(params)))
+            intr_route, url = info
 
             permissions = lookup_for_route_permissions(request.registry, intr_route)
             schemas = request.registry.config.lookup_input_schema(route_name, route_methods)
@@ -99,6 +97,14 @@ class SchemaView(object):
         nodes['fieldTypes'] = lookup_for_common_fields(types, ignore_key='fieldType')
         nodes['models'] = lookup_for_common_fields(models, ignore_key='model')
         return nodes
+
+    def get_route_info(self, request, route_name):
+        intr_route = request.registry.introspector.get('routes', route_name)
+        if intr_route is not None:
+            route = intr_route['object']
+            params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
+            url = '%s%s' % (request.application_url, unquote(route.generate(params)))
+            return intr_route, url
 
     def construct_structure(self, request, schema, schema_type, types, models, parent_name=None):
         if isinstance(schema.typ, Sequence):
@@ -171,8 +177,9 @@ class SchemaView(object):
 
             if hasattr(schema, 'model_reference'):
                 details['modelReference'] = camelcase(schema.model_reference.name)
-                if hasattr(schema, 'query_field'):
-                    details['queryField'] = camelcase(schema.query_field.name)
+                details['modelReferenceUrl'] = self.get_route_info(request, schema.model_reference_route)[1]
+                details['modelReferenceKey'] = camelcase(schema.model_reference_key.name)
+                details['queryField'] = camelcase(schema.query_field.name)
 
             types[name].append(details)
 

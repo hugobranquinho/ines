@@ -101,16 +101,16 @@ def lookup_webp(header):
 guess_mimetype_with_data.add(12, lookup_netpbm)
 
 
-def find_mimetype(filename=None, binary=None):
-    if isinstance(binary, file):
-        binary.seek(0)
-        binary = binary.read(guess_mimetype_with_data.min_header_size)
+def find_mimetype(filename=None, header_or_file=None):
+    if isinstance(header_or_file, file):
+        header_or_file.seek(0)
+        header = header_or_file.read(guess_mimetype_with_data.min_header_size)
     else:
-        binary = maybe_string(binary)
+        header = maybe_string(header_or_file)
 
     mimetype = None
-    if binary is not None:
-        mimetype = guess_mimetype_with_data(binary)
+    if header is not None:
+        mimetype = guess_mimetype_with_data(header)
 
     if not mimetype:
         filename = maybe_string(filename)

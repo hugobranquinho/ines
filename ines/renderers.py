@@ -2,6 +2,7 @@
 
 import datetime
 from json import dumps
+from os.path import basename
 
 from colander import Mapping
 from colander import Sequence
@@ -9,32 +10,11 @@ from colander import Sequence
 from ines import DEFAULT_RENDERERS
 from ines.convert import camelcase
 from ines.convert import force_unicode
+from ines.convert import maybe_string
 
 
 DATE = datetime.date
 DATETIME = datetime.datetime
-
-
-class CSVResponse(list):
-    def append_header(self, title):
-        if not self:
-            self[0] = []
-        self[0].append(title)
-
-    def append_item(self, position, value):
-        if not self:
-            self[0] = []
-        self[position].append(value)
-
-    def join(self, response):
-        if response:
-            add_items = len(response) - len(self)
-            if add_items > 0:
-                for i in xrange(add_items):
-                    self.append([])
-
-            for i, values in enumerate(response):
-                self[i].extend(values)
 
 
 class CSV(object):
@@ -130,3 +110,32 @@ class CSV(object):
 
 csv_renderer_factory = CSV()  # bw compat
 DEFAULT_RENDERERS['csv'] = csv_renderer_factory
+
+
+class File(object):
+    def __call__(self, info):
+        def _render(value, system):
+            f = value['file']
+            response = system['request'].response
+            response.app_iter = f
+            response.content_length = int(value['content_length'])
+            response.status = 200
+            response.content_type = maybe_string(value.get('content_type'))
+
+            filename = value.get('filename') or basename(f.name)
+            if value.get('is_attachment'):
+                response.content_disposition = 'attachment; filename="%s"' % filename
+            else:
+                response.content_disposition = 'inline; filename="%s"' % filename
+
+            # Add others headers
+            add_header = response._headerlist.append
+            add_header(('Status-Code', response.status))
+            add_header(('Accept-Ranges', 'bytes'))
+
+            return None
+        return _render
+
+
+file_renderer_factory = File()  # bw compat
+DEFAULT_RENDERERS['file'] = file_renderer_factory

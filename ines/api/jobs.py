@@ -38,12 +38,6 @@ class BaseJobsManager(BaseSessionManager):
     def __init__(self, *args, **kwargs):
         super(BaseJobsManager, self).__init__(*args, **kwargs)
 
-        # Jobs settings
-        self.settings = {}
-        for key, value in self.config.settings.items():
-            if key.startswith('jobs.'):
-                self.settings[key[5:]] = value
-
         self.save_reports = asbool(self.settings.get('save_reports', False))
         self.server_domain_name = self.settings.get('server_domain_name')
         self.active = bool(

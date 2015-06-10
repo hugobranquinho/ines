@@ -63,20 +63,20 @@ class BaseTokenPolicySession(BaseSession):
     def get_token_file_path(self, token_256):
         return normpath(
             join_paths(
-                self.settings['policy.token.path'],
+                self.settings['token.path'],
                 token_256[0],
                 token_256))
 
     def get_token_folder_path(self, token_256):
         return normpath(
             join_paths(
-                self.settings['policy.token.path'],
+                self.settings['token.path'],
                 token_256[0]))
 
     def get_reference_file_path(self, session_key_256):
         return normpath(
             join_paths(
-                self.settings['policy.token.session_reference_path'],
+                self.settings['token.session_reference_path'],
                 session_key_256))
 
     def get_token_info(self, token_256):
@@ -113,7 +113,7 @@ class BaseTokenPolicySession(BaseSession):
             maybe_seconds = maybe_integer(self.request.GET['tokenLifetime'])
             if maybe_seconds and maybe_seconds >= 1:
                 return maybe_seconds
-        return self.settings['policy.token.expire_seconds']
+        return int(self.settings['token.expire_seconds'])
 
     def get_apikey_authorization(self, apikey):
         pass

@@ -167,10 +167,7 @@ class APIConfigurator(Configurator):
 
         # Define extensions
         for api_name, session in sessions.items():
-            session_manager = (
-                bases.get(api_name, BaseSessionManager)
-                (self, session, api_name))
-
+            session_manager = bases.get(api_name, BaseSessionManager)(self, session, api_name)
             self.registry.registerUtility(
                 session_manager,
                 provided=IBaseSessionManager,
