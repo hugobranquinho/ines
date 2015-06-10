@@ -33,6 +33,11 @@ class BasePolicySessionManager(BaseSessionManager):
     def __init__(self, *args, **kwargs):
         super(BasePolicySessionManager, self).__init__(*args, **kwargs)
 
+        if 'token.session_reference_path' not in self.settings:
+            self.settings['token.session_reference_path'] = join_paths(
+                self.settings['token.path'],
+                'reference')
+
         # Jobs settings
         authorization = self.config.settings.get('policy.authorization')
         if authorization:
