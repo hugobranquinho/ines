@@ -44,6 +44,7 @@ from ines.utils import MissingSet
 
 DATETIME = datetime.datetime
 TIMEDELTA = datetime.timedelta
+ACTIVE_MARKER = object()
 
 
 class BaseCoreSessionManager(BaseSQLSessionManager):
@@ -69,45 +70,11 @@ class ORMQuery(object):
         self.options.add_filter(value)
         return self
 
-    def construct_query(
-            self,
-            active=True,
-            ignore_active_attribute=False):
-
-        queries = list(self.options.queries)
-        tables = set(self.options.tables)
-        attributes = list(self.options.attributes)
-
-        # Extend outerjoins
-        outerjoins = MissingDict()
-        if self.options.outerjoin_tables:
-            for key, values in self.options.outerjoin_tables.items():
-                for deep_key, value in values.items():
-                    outerjoins[key][deep_key] = value
-
-        if self.options.secondary_children:
-            for child_name in self.options.secondary_children.keys():
-                child_orm_table = self.options.orm_tables[child_name]
-                if hasattr(child_orm_table, '__parent__'):
-                    child_parent_table = self.options.get_table(child_orm_table.__parent__)
-                    if child_parent_table not in tables:
-                        tables.add(child_parent_table)
-                    child_label = child_parent_table.c.id.label('%s_child_id' % child_name)
-                    if child_label not in attributes:
-                        attributes.append(child_label)
-
-        if self.options.secondary_parents:
-            for parent_name in self.options.secondary_parents.keys():
-                relation_column = self.options.secondary_parent_attributes[parent_name]
-                if relation_column.table not in tables:
-                    tables.add(relation_column.table)
-                parent_label = relation_column.label('%s_parent_id' % parent_name)
-                if parent_label not in attributes:
-                    attributes.append(parent_label)
-
-        # Find active queries
+    def construct_active_query(self, tables):
         active_tables = set()
         active_table_children = set()
+        outerjoins = MissingDict()
+        queries = []
 
         def set_relations(orm_table, as_outerjoin=False):
             if orm_table.__core_type__ == 'branch':
@@ -170,17 +137,76 @@ class ORMQuery(object):
         else:
             active_query = None
 
-        # Add active column
-        if not ignore_active_attribute:
-            if active is None:
-                if active_query is not None:
-                    attributes.append(active_query.label('active'))
+        return outerjoins, queries, active_query
+
+    def construct_query(self, active=True):
+        queries = list(self.options.queries)
+        tables = set(self.options.tables)
+        attributes = list(self.options.attributes)
+        order_by = list(self.options.order_by)
+
+        # Extend outerjoins
+        outerjoins = MissingDict()
+        if self.options.outerjoin_tables:
+            for key, values in self.options.outerjoin_tables.items():
+                for deep_key, value in values.items():
+                    outerjoins[key][deep_key] = value
+
+        if self.options.secondary_children:
+            for child_name in self.options.secondary_children.keys():
+                child_orm_table = self.options.orm_tables[child_name]
+                if hasattr(child_orm_table, '__parent__'):
+                    child_parent_table = self.options.get_table(child_orm_table.__parent__)
+                    if child_parent_table not in tables:
+                        tables.add(child_parent_table)
+                    child_label = child_parent_table.c.id.label('%s_child_id' % child_name)
+                    if child_label not in attributes:
+                        attributes.append(child_label)
+
+        if self.options.secondary_parents:
+            for parent_name in self.options.secondary_parents.keys():
+                relation_column = self.options.secondary_parent_attributes[parent_name]
+                if relation_column.table not in tables:
+                    tables.add(relation_column.table)
+                parent_label = relation_column.label('%s_parent_id' % parent_name)
+                if parent_label not in attributes:
+                    attributes.append(parent_label)
+
+        active_in_attributes = False
+        for attribute in attributes:
+            if attribute is ACTIVE_MARKER:
+                active_in_attributes = True
+                break
+        active_in_order_by = False
+        if order_by:
+            for ob in order_by:
+                if ob is ACTIVE_MARKER:
+                    active_in_order_by = True
+                    break
+
+        # Check if we need to check active tables
+        if active is not None or active_in_attributes or active_in_order_by:
+            active_outerjoins, active_queries, active_query = self.construct_active_query(tables)
+            for t, fts in active_outerjoins.items():
+                outerjoins[t].update(fts)
+            queries.extend(active_queries)
+
+            # Add active column
+            if active_in_attributes:
+                if active is None:
+                    if active_query is not None:
+                        active_attribute = active_query
+                    else:
+                        active_attribute = true()
+                elif active:
+                    active_attribute = true()
                 else:
-                    attributes.append(true().label('active'))
-            elif active:
-                attributes.append(true().label('active'))
-            else:
-                attributes.append(false().label('active'))
+                    active_attribute = false()
+
+                # Replace active attributes
+                for i, attribute in enumerate(attributes):
+                    if attribute is ACTIVE_MARKER:
+                        attributes[i] = active_attribute.label('active')
 
         # Create session query
         query = self.api_session.session.query(*attributes)
@@ -208,8 +234,18 @@ class ORMQuery(object):
         if self.options.group_by:
             query = query.group_by(*self.options.group_by)
 
-        if self.options.order_by:
-            query = query.order_by(*self.options.order_by)
+        if order_by:
+            if active_in_order_by:
+                if active_query is not None:
+                    for i, ob in reversed(list(enumerate(order_by))):
+                        if ob is ACTIVE_MARKER:
+                            order_by.pop(i)
+                else:
+                    for i, ob in enumerate(order_by):
+                        if ob is ACTIVE_MARKER:
+                            order_by[i] = active_query
+
+            query = query.order_by(*order_by)
 
         return query
 
@@ -301,7 +337,7 @@ class ORMQuery(object):
         return self.parse_results(response, active=active)
 
     def count(self, active=True):
-        query = self.construct_query(active=active, ignore_active_attribute=True)
+        query = self.construct_query(active=active)
         entities = set(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
         return (
             query
@@ -320,7 +356,7 @@ class ORMQuery(object):
         if len(self.options.attributes) != 1:
             raise AttributeError('Define only the column you want to delete')
 
-        response = self.construct_query(active=active, ignore_active_attribute=True).all()
+        response = self.construct_query(active=active).all()
         if not response:
             return False
         else:
@@ -604,6 +640,7 @@ class QueryLookup(object):
                         options.attributes.append(table.c[maybe_attribute])
                     elif maybe_attribute == 'active':
                         options.tables.add(table)
+                        options.attributes.append(ACTIVE_MARKER)
                     else:
                         add_for_pos_queries = True
                         if not attributes:
@@ -756,7 +793,7 @@ class QueryLookup(object):
                         options.add_attribute(table.c[maybe_attribute])
                     elif maybe_attribute == 'active':
                         options.tables.add(table)
-                        options.order_by_active = True
+                        options.add_attribute(ACTIVE_MARKER)
                     else:
                         add_for_pos_queries = True
                         if not attributes:
@@ -842,14 +879,10 @@ class OrderByLookup(object):
         self.attributes = []
         self.outerjoin_tables = MissingDict()
         self.default_descendant = default_descendant
-        self.order_by_active = False
 
     def join(self, value):
         self.tables.update(value.tables)
         self.attributes.extend(value.attributes)
-        if value.order_by_active:
-            self.order_by_active = True
-
         for orm_table, orm_branches in value.outerjoin_tables.items():
             self.outerjoin_tables[orm_table].update(orm_branches)
 
