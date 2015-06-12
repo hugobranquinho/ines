@@ -24,6 +24,9 @@ from ines import DEFAULT_RENDERERS
 from ines import DEFAULT_CACHE_DIRPATH
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
+from ines.api.jobs import BaseJobsManager
+from ines.api.jobs import BaseJobsSession
+from ines.api.mailer import BaseMailerSession
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
@@ -321,7 +324,7 @@ class APIConfigurator(Configurator):
     def add_default_renderers(self):
         super(APIConfigurator, self).add_default_renderers()
 
-        from ines import renderers
+        from ines import renderers  # for DEFAULT_RENDERERS
         for key, renderer in DEFAULT_RENDERERS.items():
             self.add_renderer(key, renderer)
 
@@ -358,13 +361,29 @@ class APIConfigurator(Configurator):
 
         # Scan all package routes
         self.scan(self.package_name, categories=['pyramid'])
+
+        # Scan package jobs
+        scan_jobs = False
+        jobs_manager = None
+        for name, extension in self.registry.getUtilitiesFor(IBaseSessionManager):
+            if issubclass(extension.session, BaseMailerSession) and 'queue_path' in extension.settings:
+                scan_jobs = True
+            elif issubclass(extension.session, BaseJobsSession):
+                scan_jobs = True
+                jobs_manager = extension
+            elif isinstance(extension, BaseJobsManager):
+                jobs_manager = extension
+        if scan_jobs:
+            if jobs_manager is None:
+                raise ValueError('Please define module for jobs.')
+            self.scan(self.package_name, categories=['ines.jobs'], jobs_manager=jobs_manager)
+            self.scan('ines', categories=['ines.jobs'], jobs_manager=jobs_manager)
+
         app = super(APIConfigurator, self).make_wsgi_app()
 
         if install_middlewares:
             # Look for middlewares in API Sessions
-            for name, extension in (
-                    self.registry
-                    .getUtilitiesFor(IBaseSessionManager)):
+            for name, extension in self.registry.getUtilitiesFor(IBaseSessionManager):
                 if hasattr(extension, '__middlewares__'):
                     for extension_middleware in extension.__middlewares__:
                         self.install_middleware(

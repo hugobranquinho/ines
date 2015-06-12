@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from functools import wraps
+
 from colander import Mapping
 from colander import Sequence
 from colander import Tuple
@@ -32,7 +34,8 @@ class InputSchemaView(object):
         self.auto_camelcase = auto_camelcase
 
     def __call__(self, wrapped):
-        def decorator(context, request):
+        @wraps(wrapped)
+        def wrapper(context, request):
             context.input_schema = self.schema
 
             context.structure = {}
@@ -57,7 +60,7 @@ class InputSchemaView(object):
                         self.decode_key(f) for f in fields.get('exclude_fields', []))
 
             return wrapped(context, request)
-        return decorator
+        return wrapper
 
     def decode_key(self, key):
         return uncamelcase(key) if self.auto_camelcase else key

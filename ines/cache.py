@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from functools import wraps
 from os.path import join as join_paths
 from os.path import isfile
 from pickle import dumps as pickle_dumps
@@ -347,7 +348,8 @@ class api_cache_decorator(object):
         self.expire_seconds = int(expire_seconds)
 
     def __call__(self, wrapped):
-        def replacer(cls, *args, **kwargs):
+        @wraps(wrapped)
+        def wrapper(cls, *args, **kwargs):
             key = ' '.join([cls.application_name, cls.__api_name__, 'decorator', wrapped.__name__])
             if kwargs.pop('expire_cache', False):
                 cls.config.cache.remove(key)
@@ -362,4 +364,4 @@ class api_cache_decorator(object):
             cls.config.cache.put(key, cached)
             return cached
 
-        return replacer
+        return wrapper

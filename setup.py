@@ -65,7 +65,8 @@ requires = [
     'PasteDeploy',
     'colander >= 1.0',
     'SQLAlchemy >= 1.0.0',
-    'repoze.lru']
+    'repoze.lru',
+    'venusian']
 
 setupkw = dict(
     name='ines',

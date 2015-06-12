@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from copy import deepcopy
+from functools import wraps
 
 from colander import Boolean
 from colander import drop
@@ -33,7 +34,8 @@ class OutputSchemaView(object):
         self.required_fields = self.find_required_fields(self.schema)
 
     def __call__(self, wrapped):
-        def decorator(context, request):
+        @wraps(wrapped)
+        def wrapper(context, request):
             context.output_schema = self.schema
 
             # Define allowed fields
@@ -80,7 +82,7 @@ class OutputSchemaView(object):
                     result,
                     context.output_fields)
 
-        return decorator
+        return wrapper
 
     def add_required_fields(self, fields, required_fields):
         if required_fields and fields:

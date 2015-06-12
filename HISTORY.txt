@@ -26,6 +26,14 @@ Features
 - New function ``utils.put_binary_on_file`` to write/append a file ignoring some system errors
 - New function ``system.thread_is_running`` to check running threads, registered with ``system.register_thread``
     or started with ``system.start_system_thread``
+- New function ``convert.convert_timezone`` update datetime value to the selected timezone
+- New function ``convert.maybe_string`` to convert value to string if exists, else return ``None``
+- New function ``utils.path_unique_code`` create file path unique code using sha256
+- New function ``utils.file_unique_code`` create file unique code using sha256
+- New function ``utils.string_unique_code`` create string unique code using sha256
+- New function ``mimetype.find_mimetype`` to find mimemtype using filename and/or file binary
+- New sql filter function ``api.database.sql.date_in_period_filter`` to create a SQLAlchemy filter
+    to find items in a period of time
 - New cache type ``cache.SaveMeMemcached`` uses Memcached system
 - New locks type ``cache.LockMeMemcached`` uses Memcached system
 - Improve ``convert.make_sha256`` speed using ``repoze.lru.LRUCache``
@@ -36,6 +44,8 @@ Features
 - New properties added to ``authentication.AuthenticatedSession``, ``is_user`` and ``is_apikey``
 - Added ORM query to ines.api.core
 - New module ``api.policy.BaseTokenPolicySession``. Helper for authentication using token
+- New module ``api.mailer``. Helper for smtp mailer.
+
 
 Bug Fixes
 ---------
@@ -45,6 +55,7 @@ Bug Fixes
 Backwards Incompatibilities
 ---------------------------
 
+- ines now requires SQLAlchemy >= 1.0.0
 - ``api_cache_decorator`` now receives argument ``expire_cache`` to delete saved info, instead of ``expire``
 - ``locks.LockTimeout`` moved to ``exceptions.LockTimeout``
 - ``locks.remove_file_quietly`` moved to ``utils.remove_file_quietly``
@@ -65,11 +76,13 @@ Backwards Incompatibilities
 - ines no longer depends on ``zope.sqlalchemy``. If want to keep using this as sqlalchemy session extension, you need
     to define it on config settings like `sql.session_extension = zope.sqlalchemy:ZopeTransactionExtension`
     and define ``zope.sqlalchemy`` in setup requirements.
+- ines.api.*.settings now reads global settings keys starting with ines.api.*.__api_name__
 
 Dependencies
 ------------
 
 - ines now depends on ``repoze.lru``
+- ines now depends on ``venusian``
 
 
 0.1a1 (2015-05-06)

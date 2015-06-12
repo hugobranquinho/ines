@@ -9,6 +9,7 @@ from tempfile import gettempdir
 
 from pyramid.decorator import reify
 from pyramid.settings import asbool
+import venusian
 
 from ines import DOMAIN_NAME
 from ines import PROCESS_ID
@@ -80,12 +81,6 @@ class BaseJobsManager(BaseSessionManager):
                 start_system_thread('jobs_monitor', self.run_monitor)
                 print 'Running jobs monitor on PID %s' % PROCESS_ID
 
-        for key in dir(self.session):
-            session_method = getattr(self.session, key)
-            job_options = getattr(session_method, '__job__', None)
-            if job_options:
-                self.add_job(*job_options)
-
     def system_session(self, apijob):
         environ = {
             'HTTP_HOST': DOMAIN_NAME,
@@ -98,8 +93,8 @@ class BaseJobsManager(BaseSessionManager):
         request = make_request(self.config, environ)
         return self(request)
 
-    def add_job(self, wrapped, settings):
-        apijob = APIJob(self, wrapped.__name__, settings)
+    def add_job(self, api_name, wrapped, settings):
+        apijob = APIJob(self, api_name, wrapped.__name__, settings)
         JOBS.append(apijob)
 
         def run_job():
@@ -182,9 +177,16 @@ class BaseJobsSession(BaseSession):
             self.api.database.flush()
 
 
-def job(**kwargs):
+def job(**settings):
     def decorator(wrapped):
-        wrapped.__job__ = (wrapped, kwargs)
+        def callback(context, name, ob):
+            context.jobs_manager.add_job(ob.__api_name__, wrapped, settings)
+
+        venusian.attach(
+            wrapped,
+            callback,
+            category='ines.jobs')
+
         return wrapped
     return decorator
 
@@ -196,8 +198,9 @@ class ActiveJobReport(dict):
 
 
 class APIJob(object):
-    def __init__(self, api_session_manager, wrapped_name, settings):
+    def __init__(self, api_session_manager, api_name, wrapped_name, settings):
         self.api_session_manager = api_session_manager
+        self.api_name = api_name
         self.wrapped_name = wrapped_name
 
         self.active = False
@@ -215,8 +218,9 @@ class APIJob(object):
 
     @reify
     def name(self):
-        return '%s:%s' % (
+        return '%s:%s.%s' % (
             self.api_session_manager.config.application_name,
+            self.api_name,
             self.wrapped_name)
 
     def disable(self):
@@ -262,12 +266,13 @@ class APIJob(object):
                     self.updating = True
                     self.last_called_date = NOW()
 
-                    jobs_session = getattr(api_session, self.api_session_manager.__api_name__)
+                    session = getattr(api_session, self.api_name)
                     try:
-                        getattr(jobs_session, self.wrapped_name)()
+                        getattr(session, self.wrapped_name)()
                     except (BaseException, Exception) as error:
                         api_session.logging.log_critical('jobs_error', str(error))
                     else:
+                        jobs_session = getattr(api_session, self.api_session_manager.__api_name__)
                         jobs_session.after_job_running()
                 finally:
                     self.updating = False

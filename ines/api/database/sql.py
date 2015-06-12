@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 from math import ceil
-from pkg_resources import get_distribution
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
