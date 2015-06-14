@@ -6,9 +6,9 @@ except ImportError:
     OrderedDict = dict
 
 from inspect import getargspec
-from pkg_resources import get_distribution
 
 from colander import Invalid
+from pkg_resources import get_distribution
 from pyramid.config import Configurator
 from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPClientError

@@ -3,9 +3,10 @@
 from inspect import getmembers
 from inspect import isclass
 from inspect import ismodule
-from pkg_resources import EntryPoint
 from pkgutil import iter_modules
 import sys
+
+from pkg_resources import EntryPoint
 
 
 def find_class_on_module(module, class_to_find):

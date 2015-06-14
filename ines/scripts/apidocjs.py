@@ -4,10 +4,11 @@ from __future__ import print_function
 
 import optparse
 import os
-from pkg_resources import find_distributions
-from pkg_resources import resource_filename
 from subprocess import Popen
 import sys
+
+from pkg_resources import find_distributions
+from pkg_resources import resource_filename
 
 
 def main(argv=sys.argv):
@@ -94,8 +95,7 @@ class APIDocJSCommand(object):
                 cmds.append('-t')
                 cmds.append(options.template)
 
-            print('Creating apidoc for', package_name, 'from', input_path,
-                  'to', output_path)
+            print('Creating apidoc for', package_name, 'from', input_path, 'to', output_path)
             p = Popen(cmds)
             p.wait()
 

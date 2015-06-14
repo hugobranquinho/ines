@@ -15,13 +15,13 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.elements import BindParameter
 from sqlalchemy.sql.schema import Table
+from sqlalchemy.util._collections import lightweight_named_tuple
 
 from ines import MARKER
 from ines.api.core.database import ActiveBase
 from ines.api.core.database import Base
 from ines.api.core.database import Core
 from ines.api.core.views import CorePagination
-from ines.api.core.views import define_pagination
 from ines.api.core.views import QueryPagination
 from ines.api.database.sql import active_filter
 from ines.api.database.sql import BaseSQLSession
@@ -247,25 +247,33 @@ class ORMQuery(object):
 
             query = query.order_by(*order_by)
 
+        if self.options.slice:
+            query = query.slice(*self.options.slice)
+
         return query
 
     def parse_results(self, results, active=True):
-        if results:
-            update_orm = [
-                i for i, t in enumerate(self.options.attributes)
-                if hasattr(t, '__tablename__') and t.__core_type__ == 'active']
-            if update_orm:
-                for result in results:
-                    for i in update_orm:
-                        result[i]._active = result.active
+        if not results:
+            return results
 
-            self.update_secondary_queries(results, active=active)
+        update_orm = [
+            i for i, t in enumerate(self.options.attributes)
+            if hasattr(t, '__tablename__') and t.__core_type__ == 'active']
+        if update_orm:
+            for result in results:
+                for i in update_orm:
+                    result[i]._active = result.active
 
-        return results
+        return self.add_secondary_values(results, active=active)
 
-    def update_secondary_queries(self, results, active=True):
+    def add_secondary_values(self, results, active=True):
         if self.options.secondary_children:
             for children_name, attributes in self.options.secondary_children.items():
+                # Add items to SQLAlchemy tuple result
+                new_namedtuple = lightweight_named_tuple(
+                    'result',
+                    results[0]._real_fields + (children_name, ))
+
                 if attributes:
                     if isinstance(attributes, dict):
                         if 'parent_id' not in attributes:
@@ -284,40 +292,58 @@ class ORMQuery(object):
                         references = MissingList()
                         for reference in query.filter(orm_table.parent_id.in_(children_ids)).all(active=active):
                             references[reference.parent_id].append(reference)
-                        for result in results:
-                            setattr(result, children_name, references[getattr(result, name)])
+
+                        results = [
+                            new_namedtuple(r + (references[getattr(r, name)], ))
+                            for r in results]
                     else:
-                        for result in results:
-                            setattr(result, children_name, [])
+                        results = [
+                            new_namedtuple(r + ([], ))
+                            for r in results]
                 else:
                     parent_results = query.all(active=active)
-                    for result in results:
-                        setattr(result, children_name, parent_results)
+                    results = [
+                        new_namedtuple(r + (parent_results, ))
+                        for r in results]
 
         if self.options.secondary_parents:
             for parent_name, attributes in self.options.secondary_parents.items():
-                if attributes:
-                    if isinstance(attributes, dict):
-                        if 'id' not in attributes:
-                            attributes['id'] = None
-                    else:
-                        attributes = maybe_list(attributes)
-                        if 'id' not in attributes:
-                            attributes.append('id')
+                # Add items to SQLAlchemy tuple result
+                new_namedtuple = lightweight_named_tuple(
+                    'result',
+                    results[0]._real_fields + (parent_name, ))
 
-                query = ORMQuery(self.api_session, {parent_name: attributes})
                 name = '%s_parent_id' % parent_name
                 parent_ids = set(getattr(r, name) for r in results)
-                if parent_ids:
-                    orm_table = self.options.orm_tables[parent_name]
-                    references = dict((r.id, r) for r in query.filter(orm_table.id.in_(parent_ids)).all(active=active))
-                    for result in results:
-                        setattr(result, parent_name, references.get(getattr(result, name)))
+                if not parent_ids:
+                    results = [
+                        new_namedtuple(r + (None, ))
+                        for r in results]
                 else:
-                    for result in results:
-                        setattr(result, parent_name, None)
+                    if attributes:
+                        if isinstance(attributes, dict):
+                            if 'id' not in attributes:
+                                attributes['id'] = None
+                        else:
+                            attributes = maybe_list(attributes)
+                            if 'id' not in attributes:
+                                attributes.append('id')
+
+                    query = ORMQuery(self.api_session, {parent_name: attributes})
+                    orm_table = self.options.orm_tables[parent_name]
+                    references = dict(
+                        (r.id, r)
+                        for r in query.filter(orm_table.id.in_(parent_ids)).all(active=active))
+
+                    results = [
+                        new_namedtuple(r + (references.get(getattr(r, name)), ))
+                        for r in results]
 
         return results
+
+    def slice(self, start, stop):
+        self.options.slice = (start, stop)
+        return self
 
     def one(self, active=True):
         response = self.construct_query(active=active).one()
@@ -331,10 +357,20 @@ class ORMQuery(object):
     def all(self, active=True):
         query = self.construct_query(active=active)
         if self.options.page:
-            response = Pagination(query, page=self.options.page, limit_per_page=self.options.limit_per_page)
+            response = Pagination(
+                query,
+                page=self.options.page,
+                limit_per_page=self.options.limit_per_page)
         else:
             response = query.all()
-        return self.parse_results(response, active=active)
+
+        parsed_response = self.parse_results(response, active=active)
+        if self.options.page and parsed_response is not response:
+            # need to replace list to keep Pagination options
+            response[:] = parsed_response
+            return response
+        else:
+            return parsed_response
 
     def count(self, active=True):
         query = self.construct_query(active=active)
@@ -518,6 +554,7 @@ class QueryLookup(object):
         self.secondary_children = MissingList()
         self.page = None
         self.limit_per_page = None
+        self.slice = None
 
     def join(self, attribute_lookup):
         self.tables.update(attribute_lookup.tables)

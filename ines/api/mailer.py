@@ -7,6 +7,8 @@ from os.path import basename
 from os.path import join as join_path
 from smtplib import SMTPRecipientsRefused
 
+from pkg_resources import get_distribution
+
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.api.jobs import job
@@ -42,17 +44,18 @@ class BaseMailerSessionManager(BaseSessionManager):
     def __init__(self, *args, **kwargs):
         super(BaseMailerSessionManager, self).__init__(*args, **kwargs)
 
-        from pyramid_mailer import mailer_factory_from_settings
-        self.mailer = mailer_factory_from_settings(self.settings, prefix='')
-        from pyramid_mailer.message import Message
-        self.message_cls = Message
-        from pyramid_mailer.message import Attachment
-        self.attachment_cls = Attachment
+        import pyramid_mailer.message
+        self.mailer = pyramid_mailer.mailer_factory_from_settings(self.settings, prefix='')
+        self.message_cls = pyramid_mailer.message.Message
+        self.attachment_cls = pyramid_mailer.message.Attachment
 
         if self.settings.get('queue_path'):
             make_dir(self.settings['queue_path'])
-            from repoze.sendmail.queue import QueueProcessor
-            self.queue_processor = QueueProcessor
+
+            import repoze.sendmail.queue
+            self.queue_processor = repoze.sendmail.queue.QueueProcessor
+            self.repoze_sendmail_version = get_distribution('repoze.sendmail').version
+
             import transaction
             self.transaction = transaction
             self.__dict__.setdefault('__middlewares__', []).append(RepozeTMMiddleware)
@@ -156,25 +159,31 @@ class BaseMailerSession(BaseSession):
     def mailer_queue_send(self):
         queue_path = self.settings.get('queue_path')
         if queue_path:
-            subdir_new = join_path(queue_path, 'new')
-            subdir_cur = join_path(queue_path, 'cur')
-
-            while True:
-                # Need to do this! repoze.sendmail "cache" mails to send
-                for f in get_dir_filenames(subdir_new):
-                    if not f.startswith('.'):
-                        break
-                else:
-                    for f in get_dir_filenames(subdir_cur):
-                        if not f.startswith('.'):
-                            break
-                    else:
-                        break  # Break while
-
+            # See: https://github.com/repoze/repoze.sendmail/pull/34
+            if self.api_session_manager.repoze_sendmail_version > (4, 2):
                 qp = self.api_session_manager.queue_processor(
                     self.api_session_manager.mailer.smtp_mailer,
                     self.settings['queue_path'])
                 qp.send_messages()
+            else:
+                subdir_new = join_path(queue_path, 'new')
+                subdir_cur = join_path(queue_path, 'cur')
+
+                while True:
+                    for f in get_dir_filenames(subdir_new):
+                        if not f.startswith('.'):
+                            break
+                    else:
+                        for f in get_dir_filenames(subdir_cur):
+                            if not f.startswith('.'):
+                                break
+                        else:
+                            break  # Break while
+
+                    qp = self.api_session_manager.queue_processor(
+                        self.api_session_manager.mailer.smtp_mailer,
+                        self.settings['queue_path'])
+                    qp.send_messages()
 
     def send_to_queue(self, *args, **kwargs):
         if not self.settings.get('queue_path'):
