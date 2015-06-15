@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.pool import NullPool
 from sqlalchemy.sql.expression import false
 from sqlalchemy.sql.expression import true
+from sqlalchemy.util._collections import lightweight_named_tuple
 
 from ines.api.database import BaseDatabaseSession
 from ines.api.database import BaseDatabaseSessionManager
@@ -577,3 +578,7 @@ def create_filter_by(columns, values):
             return or_queries[0]
         elif or_queries:
             return or_(*or_queries)
+
+
+def new_lightweight_named_tuple(response, *new_fields):
+    return lightweight_named_tuple('result', response._real_fields + tuple(new_fields))

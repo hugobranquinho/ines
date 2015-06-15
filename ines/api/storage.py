@@ -18,6 +18,7 @@ from sqlalchemy import Unicode
 from ines import OPEN_BLOCK_SIZE
 from ines.api.database.sql import BaseSQLSession
 from ines.api.database.sql import BaseSQLSessionManager
+from ines.api.database.sql import new_lightweight_named_tuple
 from ines.api.database.sql import sql_declarative_base
 from ines.convert import force_string
 from ines.convert import force_unicode
@@ -360,8 +361,11 @@ class BaseStorageSession(BaseSQLSession):
                 .all()):
             files_blocks[block.file_id_path].append(block.path)
 
-        for f in response:
-            f.open_file = StorageFile(self.storage_path, files_blocks[f.file_id])
+        # Add items to SQLAlchemy tuple result
+        new_namedtuple = new_lightweight_named_tuple(response[0], 'open_file')
+        response[:] = [
+            new_namedtuple(r + (StorageFile(self.storage_path, files_blocks[r.file_id]), ))
+            for r in response]
 
         if only_one:
             return response[0]

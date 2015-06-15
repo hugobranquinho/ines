@@ -20,7 +20,7 @@ DATETIME = datetime.datetime
 class CSV(object):
     def lookup_header(self, node):
         if isinstance(node.typ, Sequence):
-            return self.lookup_row(node.children[0])
+            return self.lookup_header(node.children[0])
 
         elif isinstance(node.typ, Mapping):
             header = []

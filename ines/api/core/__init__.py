@@ -15,7 +15,6 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.elements import BindParameter
 from sqlalchemy.sql.schema import Table
-from sqlalchemy.util._collections import lightweight_named_tuple
 
 from ines import MARKER
 from ines.api.core.database import ActiveBase
@@ -28,6 +27,7 @@ from ines.api.database.sql import BaseSQLSession
 from ines.api.database.sql import BaseSQLSessionManager
 from ines.api.database.sql import create_filter_by
 from ines.api.database.sql import date_in_period_filter
+from ines.api.database.sql import new_lightweight_named_tuple
 from ines.api.database.sql import Pagination
 from ines.api.database.sql import SQL_DBS
 from ines.convert import convert_timezone
@@ -114,6 +114,9 @@ class ORMQuery(object):
                         outerjoins[orm_table][foreign_orm_table] = (foreign_column == foreign.parent)
                     else:
                         queries.append(foreign_column == foreign.parent)
+
+                else:
+                    set_relations(foreign_orm_table, as_outerjoin=as_outerjoin)
 
             if not self_children:
                 if orm_table.__core_type__ == 'active':
@@ -270,9 +273,7 @@ class ORMQuery(object):
         if self.options.secondary_children:
             for children_name, attributes in self.options.secondary_children.items():
                 # Add items to SQLAlchemy tuple result
-                new_namedtuple = lightweight_named_tuple(
-                    'result',
-                    results[0]._real_fields + (children_name, ))
+                new_namedtuple = new_lightweight_named_tuple(results[0], children_name)
 
                 if attributes:
                     if isinstance(attributes, dict):
@@ -284,13 +285,20 @@ class ORMQuery(object):
                             attributes.append('parent_id')
 
                 query = ORMQuery(self.api_session, {children_name: attributes})
+                if children_name in self.options.secondary_children_order_by:
+                    query.order_by(*self.options.secondary_children_order_by[children_name])
+
                 orm_table = self.options.orm_tables[children_name]
                 if hasattr(orm_table, '__parent__'):
                     name = '%s_child_id' % children_name
                     children_ids = set(getattr(r, name) for r in results)
                     if children_ids:
                         references = MissingList()
-                        for reference in query.filter(orm_table.parent_id.in_(children_ids)).all(active=active):
+
+                        for reference in (
+                                query
+                                .filter(orm_table.parent_id.in_(children_ids))
+                                .all(active=active)):
                             references[reference.parent_id].append(reference)
 
                         results = [
@@ -309,9 +317,7 @@ class ORMQuery(object):
         if self.options.secondary_parents:
             for parent_name, attributes in self.options.secondary_parents.items():
                 # Add items to SQLAlchemy tuple result
-                new_namedtuple = lightweight_named_tuple(
-                    'result',
-                    results[0]._real_fields + (parent_name, ))
+                new_namedtuple = new_lightweight_named_tuple(results[0], parent_name)
 
                 name = '%s_parent_id' % parent_name
                 parent_ids = set(getattr(r, name) for r in results)
@@ -490,6 +496,10 @@ class ORMQuery(object):
         self.options.add_order_by(*arguments, **kwargs)
         return self
 
+    def secondary_order_by(self, **kwargs):
+        self.options.add_secondary_order_by(**kwargs)
+        return self
+
     def on_page(self, page=1, limit_per_page=20):
         self.options.add_page(page, limit_per_page)
         return self
@@ -552,6 +562,7 @@ class QueryLookup(object):
         self.secondary_parents = MissingList()
         self.secondary_parent_attributes = {}
         self.secondary_children = MissingList()
+        self.secondary_children_order_by = MissingList()
         self.page = None
         self.limit_per_page = None
         self.slice = None
@@ -894,6 +905,10 @@ class QueryLookup(object):
             self.order_by.extend(options.attributes)
             for orm_table, orm_branches in options.outerjoin_tables.items():
                 self.outerjoin_tables[orm_table].update(orm_branches)
+
+    def add_secondary_order_by(self, **kwargs):
+        for secondary_name, values in kwargs.items():
+            self.secondary_children_order_by[secondary_name].append(values)
 
     def add_group_by(self, *arguments):
         for value in arguments:
