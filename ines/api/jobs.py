@@ -19,6 +19,7 @@ from ines.api import BaseSessionManager
 from ines.cron import Cron
 from ines.exceptions import LockTimeout
 from ines.exceptions import NoMoreDates
+from ines.interfaces import IBaseSessionManager
 from ines.request import make_request
 from ines.system import start_system_thread
 
@@ -180,7 +181,9 @@ class BaseJobsSession(BaseSession):
 def job(**settings):
     def decorator(wrapped):
         def callback(context, name, ob):
-            context.jobs_manager.add_job(ob.__api_name__, wrapped, settings)
+            iob = context.config.registry.queryUtility(IBaseSessionManager, ob.__api_name__)
+            if iob is not None and issubclass(iob.session, ob):
+                context.jobs_manager.add_job(ob.__api_name__, wrapped, settings)
 
         venusian.attach(
             wrapped,
