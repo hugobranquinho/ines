@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+from io import BytesIO
+from math import ceil
 from os.path import basename
 from os.path import isfile
 from os.path import join as join_path
+from tempfile import gettempdir
 
 from pyramid.decorator import reify
+from pyramid.settings import asbool
 from sqlalchemy import Column
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
@@ -14,24 +18,29 @@ from sqlalchemy import Index
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Unicode
+from sqlalchemy.orm import aliased
 
 from ines import OPEN_BLOCK_SIZE
 from ines.api.database.sql import BaseSQLSession
 from ines.api.database.sql import BaseSQLSessionManager
 from ines.api.database.sql import new_lightweight_named_tuple
 from ines.api.database.sql import sql_declarative_base
+from ines.api.jobs import job
 from ines.convert import force_string
 from ines.convert import force_unicode
 from ines.convert import maybe_date
 from ines.convert import maybe_set
 from ines.convert import maybe_string
 from ines.convert import maybe_unicode
+from ines.exceptions import Error
 from ines.mimetype import find_mimetype
 from ines.utils import file_unique_code
 from ines.utils import get_dir_filenames
 from ines.utils import get_open_file
 from ines.utils import make_unique_hash
 from ines.utils import make_dir
+from ines.utils import MissingDict
+from ines.utils import MissingDictList
 from ines.utils import MissingList
 from ines.utils import put_binary_on_file
 from ines.utils import remove_file_quietly
@@ -40,6 +49,7 @@ from ines.utils import string_unique_code
 
 TODAY_DATE = datetime.date.today
 FilesDeclarative = sql_declarative_base('ines.storage')
+FILES_TEMPORARY_DIR = join_path(gettempdir(), 'ines-tmp-files')
 
 
 class BaseStorageSessionManager(BaseSQLSessionManager):
@@ -48,7 +58,20 @@ class BaseStorageSessionManager(BaseSQLSessionManager):
 
     def __init__(self, *args, **kwargs):
         super(BaseStorageSessionManager, self).__init__(*args, **kwargs)
-        make_dir(self.config.settings['%s.path' % self.__api_name__])
+        make_dir(self.settings['path'])
+
+        if issubclass(self.session, BaseStorageWithImageSession):
+            from PIL import Image
+            self.image_cls = Image
+            self.resize_quality = Image.ANTIALIAS
+
+            self.thumb_sizes = MissingDict()
+            for key, value in self.settings.items():
+                if key.startswith('thumb.'):
+                    blocks = key.split('.', 2)
+                    if len(blocks) == 3:
+                        application_code, thumn_name = blocks[1:]
+                        self.thumb_sizes[application_code][thumn_name] = int(value)
 
 
 class BaseStorageSession(BaseSQLSession):
@@ -60,15 +83,17 @@ class BaseStorageSession(BaseSQLSession):
             application_code,
             code_key,
             filename=None,
-            title=None):
+            title=None,
+            parent_id=None,
+            type_key=None):
 
         # Generate a unique code using SHA256
-        if isinstance(binary, file):
+        if isinstance(binary, (bytes, basestring)):
+            unique_code = string_unique_code(binary)
+        else:
             unique_code = file_unique_code(binary)
             if not filename:
                 filename = basename(binary.name)
-        else:
-            unique_code = string_unique_code(binary)
 
         lock_key = u'storage save %s' % unique_code
         self.cache.lock(lock_key)
@@ -110,11 +135,13 @@ class BaseStorageSession(BaseSQLSession):
             # Add applications file relation
             new = File(
                 file_id=file_path.id,
+                parent_id=parent_id,
                 key=make_unique_hash(70),
                 application_code=force_unicode(application_code),
                 code_key=force_unicode(code_key),
                 filename=maybe_unicode(filename),
-                title=maybe_unicode(title))
+                title=maybe_unicode(title),
+                type_key=maybe_unicode(type_key))
             self.session.add(new)
             self.session.flush()
 
@@ -165,11 +192,11 @@ class BaseStorageSession(BaseSQLSession):
                 return full_path, path
 
     def save_blocks(self, binary):
-        if isinstance(binary, file):
+        if isinstance(binary, (bytes, basestring)):
+            binary_is_string = True
+        else:
             binary.seek(0)
             binary_is_string = False
-        else:
-            binary_is_string = True
 
         blocks = []
         block_size = self.block_size
@@ -309,6 +336,8 @@ class BaseStorageSession(BaseSQLSession):
             key=None,
             application_code=None,
             code_key=None,
+            type_key=None,
+            parent_key=None,
             attributes=None,
             only_one=False):
 
@@ -339,6 +368,11 @@ class BaseStorageSession(BaseSQLSession):
             query = query.filter(File.application_code == application_code)
         if code_key:
             query = query.filter(File.code_key == code_key)
+        if type_key:
+            query = query.filter(File.type_key == type_key)
+        if parent_key:
+            parent = aliased(File)
+            query = query.filter(File.parent_id == parent.id).filter(parent.key == parent_key)
 
         if only_one:
             response = query.first()
@@ -377,10 +411,196 @@ class BaseStorageSession(BaseSQLSession):
 
 
 class BaseStorageWithImageSession(BaseStorageSession):
-    def save_image(self, *args, **kwargs):
-        return self.save_file(*args, **kwargs)
+    def verify_image(self, binary_or_file):
+        if isinstance(binary_or_file, (bytes, basestring)):
+            binary_or_file = BytesIO(binary_or_file)
+
+        try:
+            im = self.api_session_manager.image_cls.open(binary_or_file)
+            im.verify()
+        except:
+            raise Error('image', 'Invalid image.')
+        else:
+            return im
+
+    def get_thumbnail(self, key, thumb_name, attributes=None):
+        thumb = self.get_files(
+            parent_key=key,
+            type_key=u'thumb-%s' % thumb_name,
+            only_one=True,
+            attributes=attributes)
+        if thumb:
+            return thumb
+
+        f = self.session.query(File.id, File.application_code).filter(File.key == key).first()
+        if (f
+                and f.application_code in self.api_session_manager.thumb_sizes
+                and thumb_name in self.api_session_manager.thumb_sizes[f.application_code]
+                and self.create_thumb(f.id, f.application_code, thumb_name)):
+            # Thumb created on the fly
+            self.flush()
+            return self.get_files(
+                parent_key=key,
+                type_key=u'thumb-%s' % thumb_name,
+                only_one=True,
+                attributes=attributes)
+
+    def create_thumb(self, file_id, application_code, thumb_name):
+        if application_code not in self.api_session_manager.thumb_sizes:
+            raise Error('application_code', u'Invalid application code: %s' % application_code)
+
+        thumb_size = self.api_session_manager.thumb_sizes[application_code].get(thumb_name)
+        if not thumb_size:
+            raise Error('thumb_name', u'Invalid thumb name: %s' % thumb_name)
+
+        file_info = self.get_file(
+            id=file_id,
+            application_code=application_code,
+            attributes=['open_file', 'key', 'filename', 'title', 'code_key'])
+        if not file_info:
+            raise Error('file', u'File ID not found')
+
+        temporary_path = None
+        type_key = u'thumb-%s' % thumb_name
+        filename = None
+        if file_info.filename:
+            filename = u'%s-%s' % (thumb_name, file_info.filename)
+
+        lock_key = 'create image thumb %s %s' % (file_id, thumb_name)
+        self.cache.lock(lock_key)
+        try:
+            existing_thumb = (
+                self.session
+                .query(File)
+                .filter(File.parent_id == file_id)
+                .filter(File.application_code == application_code)
+                .filter(File.type_key == type_key)
+                .first())
+
+            if not existing_thumb:
+                im = self.api_session_manager.image_cls.open(file_info.open_file)
+
+                width = int(im.size[0])
+                height = int(im.size[1])
+                thumb_racio = 1.0
+                image_racio = width / float(height)
+
+                if image_racio < thumb_racio:
+                    # Crop image on height
+                    crop_size = ceil(round(height - (width / thumb_racio)) / 2)
+                    lower_position = int(height - int(crop_size))
+                    # Crop as left, upper, right, and lower pixel
+                    im = im.crop((0, int(crop_size), width, lower_position))
+
+                elif image_racio > thumb_racio:
+                    crop_size = ceil(round(width - (height * thumb_racio)) / 2)
+                    right_position = int(width - int(crop_size))
+                    # Crop as left, upper, right, and lower pixel
+                    im = im.crop((int(crop_size), 0, right_position, height))
+
+                # Resize image
+                im = im.resize((thumb_size, thumb_size), self.api_session_manager.resize_quality)
+                temporary_path = save_temporary_image(im)
+                thumb_f = get_open_file(temporary_path)
+                self.save_file(
+                    thumb_f,
+                    application_code=application_code,
+                    code_key=file_info.code_key,
+                    type_key=type_key,
+                    filename=filename,
+                    title=file_info.title,
+                    parent_id=file_id)
+
+        finally:
+            self.cache.unlock(lock_key)
+
+            if temporary_path:
+                remove_file_quietly(temporary_path)
+
+        return True
+
+    @job(second=0, minute=[0, 30])
+    def create_image_thumbs(self):
+        if not asbool(self.settings.get('thumb.create_on_add')) or not self.api_session_manager.thumb_sizes:
+            return None
+
+        existing_thumbs = MissingDictList()
+        for t in (
+                self.session
+                .query(File.parent_id, File.type_key, File.application_code)
+                .filter(File.application_code.in_(self.api_session_manager.thumb_sizes.keys()))
+                .filter(File.parent_id.isnot(None))
+                .filter(File.type_key.like(u'thumb-%'))
+                .all()):
+            existing_thumbs[t.application_code][t.parent_id].append(t.type_key.replace(u'thumb-', u'', 1))
+
+        files = MissingList()
+        for f in (
+                self.session
+                .query(File.id, File.application_code)
+                .filter(File.parent_id.is_(None))
+                .filter(File.application_code.in_(self.api_session_manager.thumb_sizes.keys()))
+                .all()):
+            files[f.application_code].append(f.id)
+
+        for application_code, thumb_names in self.api_session_manager.thumb_sizes.items():
+            app_files = files[application_code]
+            if not app_files:
+                continue
+
+            existing_app_thumbs = existing_thumbs[application_code]
+            for thumb_name in thumb_names.keys():
+                for f in app_files:
+                    if f not in existing_app_thumbs or thumb_name not in existing_app_thumbs[f]:
+                        self.create_thumb(f, application_code, thumb_name)
+                        self.flush()
+
+    def save_image(
+            self,
+            binary,
+            application_code,
+            code_key,
+            filename=None,
+            title=None,
+            crop_left=None,
+            crop_upper=None,
+            crop_right=None,
+            crop_lower=None):
+
+        im = self.verify_image(binary)
+
+        temporary_path = None
+        if crop_left or crop_upper or crop_right or crop_lower:
+            crop_left = int(crop_left or 0)
+            crop_upper = int(crop_upper or 0)
+            crop_right = int(crop_right or 0)
+            crop_lower = int(crop_lower or 0)
+            width = int(im.size[0])
+            height = int(im.size[1])
+
+            if (crop_left + crop_right) >= width:
+                raise Error('crop_left+crop_right', u'Left and right crop bigger then image width')
+            elif (crop_upper + crop_lower) >= height:
+                raise Error('crop_upper+crop_lower', u'Upper and lower crop bigger then image height')
+
+            new_im = self.api_session_manager.image_cls.open(binary)
+            new_im = new_im.crop((int(crop_left), int(crop_upper), int(width - crop_right), int(height - crop_lower)))
+            temporary_path = save_temporary_image(new_im)
+            binary = get_open_file(temporary_path)
+
+        f = self.save_file(binary, application_code, code_key, filename=filename, title=title)
+        if asbool(self.settings.get('thumb.create_on_add')):
+            self.create_image_thumbs.run_job()
+
+        if temporary_path:
+            remove_file_quietly(temporary_path)
+
+        return f
 
     def delete_images(self, *ids):
+        thumb_ids = set(f.id for f in self.session.query(File.id).filter(File.parent_id.in_(ids)).all())
+        if thumb_ids:
+            self.delete_files(*thumb_ids)
         return self.delete_files(*ids)
 
 
@@ -399,9 +619,11 @@ class File(FilesDeclarative):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     file_id = Column(Integer, ForeignKey(FilePath.id), nullable=False)
+    parent_id = Column(Integer, ForeignKey('storage_files.id'))
     key = Column(Unicode(70), unique=True, nullable=False)
     application_code = Column(Unicode(50), nullable=False)
     code_key = Column(Unicode(150), nullable=False)
+    type_key = Column(Unicode(50))
     filename = Column(Unicode(255))
     title = Column(Unicode(255))
     created_date = Column(DateTime, nullable=False, default=func.now())
@@ -472,3 +694,10 @@ class StorageFile(object):
         for block in self.blocks:
             if not isinstance(block, basestring):
                 block.close()
+
+
+def save_temporary_image(im, default_format='JPEG'):
+    temporary_path = join_path(FILES_TEMPORARY_DIR, make_unique_hash(64))
+    thumb_f = get_open_file(temporary_path, mode='wb')
+    im.save(thumb_f, format=im.format or default_format)
+    return temporary_path

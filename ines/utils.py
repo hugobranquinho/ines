@@ -418,7 +418,11 @@ def get_open_file(path, mode='rb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
             open_file = open(path, mode)
         except IOError as error:
             if error.errno is errno.ENOENT:
-                return None
+                if mode not in ('r', 'rb'):
+                    # Missing folder, create and try again
+                    make_dir(dirname(path))
+                else:
+                    raise
             elif error.errno in retry_errno:
                 # Try again, or not!
                 retries -= 1
