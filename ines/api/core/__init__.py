@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from copy import deepcopy
 import datetime
 
 from pyramid.compat import is_nonstr_iter
@@ -267,85 +268,71 @@ class ORMQuery(object):
                 for i in update_orm:
                     result[i]._active = result.active
 
-        return self.add_secondary_values(results, active=active)
-
-    def add_secondary_values(self, results, active=True):
-        if self.options.secondary_children:
-            for children_name, attributes in self.options.secondary_children.items():
-                # Add items to SQLAlchemy tuple result
-                new_namedtuple = new_lightweight_named_tuple(results[0], children_name)
-
-                if attributes:
-                    if isinstance(attributes, dict):
-                        if 'parent_id' not in attributes:
-                            attributes['parent_id'] = None
-                    else:
-                        attributes = maybe_list(attributes)
-                        if 'parent_id' not in attributes:
-                            attributes.append('parent_id')
-
-                query = ORMQuery(self.api_session, {children_name: attributes})
-                if children_name in self.options.secondary_children_order_by:
-                    query.order_by(*self.options.secondary_children_order_by[children_name])
-
-                orm_table = self.options.orm_tables[children_name]
-                if hasattr(orm_table, '__parent__'):
-                    name = '%s_child_id' % children_name
-                    children_ids = set(getattr(r, name) for r in results)
-                    if children_ids:
-                        references = MissingList()
-
-                        for reference in (
-                                query
-                                .filter(orm_table.parent_id.in_(children_ids))
-                                .all(active=active)):
-                            references[reference.parent_id].append(reference)
-
-                        results = [
-                            new_namedtuple(r + (references[getattr(r, name)], ))
-                            for r in results]
-                    else:
-                        results = [
-                            new_namedtuple(r + ([], ))
-                            for r in results]
-                else:
-                    parent_results = query.all(active=active)
-                    results = [
-                        new_namedtuple(r + (parent_results, ))
-                        for r in results]
-
-        if self.options.secondary_parents:
-            for parent_name, attributes in self.options.secondary_parents.items():
-                # Add items to SQLAlchemy tuple result
-                new_namedtuple = new_lightweight_named_tuple(results[0], parent_name)
-
-                name = '%s_parent_id' % parent_name
-                parent_ids = set(getattr(r, name) for r in results)
-                if not parent_ids:
-                    results = [
-                        new_namedtuple(r + (None, ))
-                        for r in results]
-                else:
-                    if attributes:
-                        if isinstance(attributes, dict):
-                            if 'id' not in attributes:
-                                attributes['id'] = None
-                        else:
-                            attributes = maybe_list(attributes)
-                            if 'id' not in attributes:
-                                attributes.append('id')
-
-                    query = ORMQuery(self.api_session, {parent_name: attributes})
-                    orm_table = self.options.orm_tables[parent_name]
-                    references = dict(
-                        (r.id, r)
-                        for r in query.filter(orm_table.id.in_(parent_ids)).all(active=active))
-
-                    results = [
-                        new_namedtuple(r + (references.get(getattr(r, name)), ))
-                        for r in results]
-
+        self.set_secondary_children(results, active=active)
+        self.set_secondary_parents(results, active=active)
         return results
+
+    def set_secondary_children(self, results, active=True):
+        for children_name, attributes in self.options.secondary_children.items():
+            attribute_name = '%s_child_id' % children_name
+            new_namedtuple = new_lightweight_named_tuple(results[0], children_name)
+
+            orm_table = self.options.orm_tables[children_name]
+            if hasattr(orm_table, '__parent__'):
+                parent_ids = set(getattr(r, attribute_name) for r in results)
+                if not parent_ids:
+                    results[:] = [new_namedtuple(r + ([], )) for r in results]
+                    continue
+            else:
+                parent_ids = None
+
+            new_attributes = {'parent_id': None}
+            for attr in attributes:
+                if not isinstance(attr, dict):
+                    new_attributes.update((k, None) for k in maybe_list(attr))
+                else:
+                    new_attributes.update(deepcopy(attr))
+
+            references = MissingList()
+            for child in getattr(self.api_session, 'get_%s' % orm_table.__tablename__)(
+                    parent_id=parent_ids,
+                    attributes=new_attributes,
+                    order_by=self.options.secondary_children_order_by.get(children_name),
+                    active=active):
+                references[child.parent_id].append(child)
+
+            results[:] = [
+                new_namedtuple(r + (references[getattr(r, attribute_name)], ))
+                for r in results]
+
+    def set_secondary_parents(self, results, active=True):
+        for parent_name, attributes in self.options.secondary_parents.items():
+            attribute_name = '%s_parent_id' % parent_name
+            new_namedtuple = new_lightweight_named_tuple(results[0], parent_name)
+
+            child_ids = set(getattr(r, attribute_name) for r in results)
+            if not child_ids:
+                results[:] = [new_namedtuple(r + (None, )) for r in results]
+            else:
+                new_attributes = {'id': None}
+                for attr in attributes:
+                    if not isinstance(attr, dict):
+                        new_attributes.update((k, None) for k in maybe_list(attr))
+                    else:
+                        new_attributes.update(deepcopy(attr))
+
+                orm_table = self.options.orm_tables[parent_name]
+                references = dict(
+                    (p.id, p)
+                    for p in getattr(self.api_session, 'get_%s' % orm_table.__tablename__)(
+                            id=child_ids,
+                            attributes=new_attributes,
+                            order_by=self.options.secondary_children_order_by.get(parent_name),
+                            active=active))
+
+                results[:] = [
+                    new_namedtuple(r + (references.get(getattr(r, attribute_name)), ))
+                    for r in results]
 
     def slice(self, start, stop):
         self.options.slice = (start, stop)
