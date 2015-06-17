@@ -46,6 +46,12 @@ class BaseJobsManager(BaseSessionManager):
             not self.server_domain_name
             or self.server_domain_name == DOMAIN_NAME)
 
+        try:
+            import transaction
+            self.transaction = transaction
+        except ImportError:
+            self.transaction = None
+
         if self.active:
             temporary_dir = gettempdir()
             domain_start_filename = 'jobs domain %s started' % DOMAIN_NAME
@@ -177,6 +183,8 @@ class BaseJobsSession(BaseSession):
         if hasattr(self.api, 'database') and hasattr(self.api.database, 'flush'):
             self.api.database.flush()
 
+        if self.api_session_manager.transaction:
+            self.api_session_manager.transaction.commit()
 
 def job(**settings):
     def decorator(wrapped):
