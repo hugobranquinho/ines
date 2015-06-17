@@ -11,6 +11,11 @@ from ines.convert.dates import (convert_timezone,
                                 maybe_date,
                                 maybe_datetime)
 
+from ines.convert.metrics import (format_metric,
+                                  format_metric_factory,
+                                  metric_to_unicode,
+                                  metric_to_unicode_factory)
+
 from ines.convert.strings import (camelcase,
                                   force_string,
                                   force_unicode,

@@ -184,6 +184,7 @@ class APIConfigurator(Configurator):
 
         # Default translations dirs
         self.add_translation_dirs('colander:locale')
+        self.add_translation_dirs('ines:locale')
 
     @reify
     def settings(self):

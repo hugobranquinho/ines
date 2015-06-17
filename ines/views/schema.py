@@ -116,7 +116,7 @@ class SchemaView(object):
             details = {
                 'model': name,
                 'type': 'sequence',
-                'title': schema.title,
+                'title': request.translate(schema.title),
                 'description': schema.description or None}
             models[name].append(details)
 
@@ -161,8 +161,8 @@ class SchemaView(object):
             name = camelcase(name)
             details = {
                 'type': 'model',
-                'title': schema.title,
-                'description': schema.description or None,
+                'title': request.translate(schema.title),
+                'description': request.translate(schema.description or None),
                 'fields': fields,
                 'model': name}
             models[name].append(details)
@@ -170,10 +170,14 @@ class SchemaView(object):
 
         else:
             name = camelcase(schema.name)
+            description = schema.description
+            if description:
+                description = request.translate(description)
+
             details = {
                 'fieldType': name,
-                'title': schema.title,
-                'description': schema.description or None}
+                'title': request.translate(schema.title),
+                'description': description}
 
             if hasattr(schema, 'model_reference'):
                 details['modelReference'] = camelcase(schema.model_reference.name)
@@ -205,13 +209,17 @@ class SchemaView(object):
                     if isinstance(validator, OneOfWithDescription):
                         details['options'] = []
                         for choice, description in validator.choices_with_descripton:
+                            if description:
+                                description = request.translate(description)
                             details['options'].append({
                                 'value': choice,
-                                'text': request.translate(description)})
+                                'text': description})
                     elif isinstance(validator, OneOf):
                         details['options'] = []
                         for choice in validator.choices:
                             choice_description = force_unicode(choice).replace(u'_', u' ').title()
+                            if choice_description:
+                                choice_description = request.translate(choice_description)
                             details['options'].append({
                                 'value': choice,
                                 'text': choice_description})
