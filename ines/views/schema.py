@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from copy import deepcopy
 from urllib2 import unquote
 
 from colander import All
@@ -30,6 +31,9 @@ from ines.utils import MissingDict
 from ines.utils import MissingList
 
 
+SCHEMA_NODES_CACHE = {}
+
+
 @implementer(ISchemaView)
 class SchemaView(object):
     def __init__(self, route_name, routes_names, title=None, description=None, model=None):
@@ -40,16 +44,19 @@ class SchemaView(object):
         self.model = model
 
     def __call__(self, context, request):
-        nodes = MissingDict()
-        requested_methods = [key.lower() for key in request.GET.keys()]
+        return self.get_schema_nodes(request)
 
+    def get_schema_nodes(self, request):
+        cache_key = '%s %s' % (request.application_url, self.route_name)
+        if cache_key in SCHEMA_NODES_CACHE:
+            return SCHEMA_NODES_CACHE[cache_key]
+
+        nodes = MissingDict()
         types = MissingList()
         models = MissingList()
+
         for route_name, request_methods in self.routes_names.items():
-            route_methods = []
-            for request_method in maybe_list(request_methods or DEFAULT_METHODS):
-                if not requested_methods or request_method.lower() in requested_methods:
-                    route_methods.append(request_method)
+            route_methods = maybe_list(request_methods or DEFAULT_METHODS)
             if not route_methods:
                 continue
 
@@ -96,6 +103,7 @@ class SchemaView(object):
 
         nodes['fieldTypes'] = lookup_for_common_fields(types, ignore_key='fieldType')
         nodes['models'] = lookup_for_common_fields(models, ignore_key='model')
+        SCHEMA_NODES_CACHE[cache_key] = nodes
         return nodes
 
     def get_route_info(self, request, route_name):
