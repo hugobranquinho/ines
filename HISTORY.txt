@@ -45,6 +45,7 @@ Features
 - Added ORM query to ines.api.core
 - New module ``api.policy.BaseTokenPolicySession``. Helper for authentication using token
 - New module ``api.mailer``. Helper for smtp mailer.
+- New method ``api.route_url``. Creates the application route_url like request.route_url
 
 
 Bug Fixes

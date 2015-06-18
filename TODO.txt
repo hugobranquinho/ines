@@ -3,8 +3,7 @@
 - start application wsgi.py
     - If this application run in a process fork only the father is updated!
     - update all process childs
-- add logs to DB or add core actions
-    - possible to revert actions
+- possible to revert actions
 - register cores in zope registry
 - script create babel templates / update / compile
 - script to read ini run application and compile apidocjs
