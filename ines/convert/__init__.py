@@ -19,12 +19,14 @@ from ines.convert.metrics import (format_metric,
 from ines.convert.strings import (camelcase,
                                   force_string,
                                   force_unicode,
+                                  json_dumps,
                                   maybe_integer,
                                   maybe_null,
                                   maybe_string,
                                   maybe_unicode,
                                   pluralizing_key,
                                   pluralizing_word,
+                                  prepare_for_json,
                                   uncamelcase)
 
 

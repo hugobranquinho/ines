@@ -35,17 +35,21 @@ class BaseSession(object):
         self.settings = self.api_session_manager.settings
         self.request = request
 
-    def __getattr__(self, name):
-        if self.__api_name__ == name:
-            return self
+    def __getattribute__(self, name):
+        try:
+            attribute = object.__getattribute__(self, name)
+        except AttributeError:
+            if object.__getattribute__(self, '__api_name__') == name:
+                attribute = self
+            else:
+                extension = self.registry.queryUtility(IBaseSessionManager, name=name)
+                if not extension:
+                    raise
+                attribute = extension(self.request)
+            object.__setattr__(self, name, attribute)
 
-        extension = self.registry.queryUtility(IBaseSessionManager, name=name)
-        if not extension:
-            raise AttributeError(u'Missing method %s on extension %s' % (name, self.__api_name__))
-
-        attribute = extension(self.request)
-        setattr(self, name, attribute)
         return attribute
+
 
     def __contains__(self, key):
         return (

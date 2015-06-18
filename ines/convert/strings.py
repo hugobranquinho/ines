@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from json import dumps
 import re
 
+from pyramid.compat import is_nonstr_iter
 from repoze.lru import LRUCache
 
 from ines import CAMELCASE_UPPER_WORDS
@@ -177,3 +179,31 @@ def pluralizing_key(key, only_last=True):
         return '_'.join(words)
     else:
         return '_'.join(pluralizing_word(word) for word in key.split('_'))
+
+
+def json_dumps(value):
+    value = prepare_for_json(value)
+    return dumps(value)
+
+
+def prepare_for_json(value):
+    if value is None:
+        return None
+    elif hasattr(value, '__json__'):
+        return value.__json__()
+    elif isinstance(value, (float, int, long)):
+        return value
+    elif isinstance(value, dict):
+        return prepare_dict_for_json(value)
+    elif is_nonstr_iter(value):
+        return prepare_iter_for_json(value)
+    else:
+        return force_unicode(value)
+
+
+def prepare_dict_for_json(values):
+    return dict((force_unicode(key), prepare_for_json(value)) for key, value in values.items())
+
+
+def prepare_iter_for_json(values):
+    return [prepare_for_json(value) for value in values]

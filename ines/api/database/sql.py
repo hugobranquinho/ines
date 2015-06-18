@@ -22,8 +22,8 @@ from sqlalchemy.sql.expression import false
 from sqlalchemy.sql.expression import true
 from sqlalchemy.util._collections import lightweight_named_tuple
 
-from ines.api.database import BaseDatabaseSession
-from ines.api.database import BaseDatabaseSessionManager
+from ines.api import BaseSessionManager
+from ines.api import BaseSession
 from ines.convert import maybe_integer
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
@@ -38,7 +38,8 @@ from ines.utils import MissingSet
 SQL_DBS = MissingDict()
 
 
-class BaseSQLSessionManager(BaseDatabaseSessionManager):
+class BaseSQLSessionManager(BaseSessionManager):
+    __api_name__ = 'database'
     __middlewares__ = [RepozeTMMiddleware]
 
     @reify
@@ -56,7 +57,9 @@ class BaseSQLSessionManager(BaseDatabaseSessionManager):
             **get_sql_settings_from_config(self.config))
 
 
-class BaseSQLSession(BaseDatabaseSession):
+class BaseSQLSession(BaseSession):
+    __api_name__ = 'database'
+
     def flush(self):
         self.session.flush()
         self.api_session_manager.transaction.commit()

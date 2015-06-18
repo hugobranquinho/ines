@@ -342,14 +342,18 @@ def PaginationOrderFinisher(node, appstruct):
             ob = ob.split(' ', 1)
             if output_node:
                 breadcrumbs = ob[0].split('.')
-                if len(breadcrumbs) != 2:
+                if len(breadcrumbs) == 2:
+                    table_name, column_name = breadcrumbs
+                    table_name = uncamelcase(table_name)
+                elif len(breadcrumbs) == 1:
+                    column_name = breadcrumbs[0]
+                    table_name = None
+                else:
                     continue
 
-                table_name, column_name = breadcrumbs
-                table_name = uncamelcase(table_name)
                 column_name = uncamelcase(column_name)
                 for schema in output_node.__class_schema_nodes__:
-                    if schema.name == table_name:
+                    if not table_name or schema.name == table_name:
                         if isinstance(schema, SequenceSchema):
                             schema = schema.__class_schema_nodes__[0]
 

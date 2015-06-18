@@ -385,19 +385,35 @@ class ORMQuery(object):
         if len(self.options.attributes) != 1:
             raise AttributeError('Define only the column you want to delete')
 
-        response = self.construct_query(active=active).all()
+        column = self.options.attributes[0]
+        orm_table = self.options.orm_tables[column.table.name]
+
+        query = ORMQuery(self.api_session)
+        query.join_options(self.options)
+        query.add_attribute(orm_table)
+        response = query.construct_query(active=active).all()
+
         if not response:
             return False
         else:
             delete_ids = [r[0] for r in response]
             result = (
                 self.api_session.session
-                .query(self.options.attributes[0])
-                .filter(self.options.attributes[0].in_(delete_ids))
+                .query(column)
+                .filter(column.in_(delete_ids))
                 .delete(synchronize_session=synchronize_session))
-
             self.api_session.session.flush()
-            # @@TODO add actions
+
+            type_name = column.table.name
+            column_names = [c for c in column.table.c.keys() if c not in ('updated_date', 'created_date')]
+            for type_id, table in response:
+                self.api_session.add_activity(
+                    action='delete',
+                    type=type_name,
+                    type_id=type_id,
+                    context_id=getattr(table, 'parent_id', None),
+                    data=dict((c, getattr(table, c)) for c in column_names))
+
             return result
 
     def join_options(self, options):
@@ -412,6 +428,8 @@ class ORMQuery(object):
 
         column = self.options.attributes[0]
         attributes = set(values.keys())
+        if 'parent_id' in column.table.c:
+            attributes.add('parent_id')
 
         if 'start_date' in values or 'end_date' in values:
             attributes.update(['start_date', 'end_date'])
@@ -454,6 +472,11 @@ class ORMQuery(object):
         if not update_ids:
             return False
 
+        parent_ids = {}
+        type_name = column.table.name
+        if 'parent_id' in column.table.c:
+            parent_ids = dict((r.id, r.parent_id) for r in response)
+
         updated = False
         for keys, ids in update_ids.items():
             update_values = dict((k, values.get(k)) for k in keys)
@@ -466,9 +489,19 @@ class ORMQuery(object):
                     .filter(column.in_(ids))
                     .update(update_values, synchronize_session=synchronize_session)):
                 updated = True
-
                 self.api_session.session.flush()
-                # @@TODO add actions
+
+                updated_items = dict(
+                    (k, v)
+                    for k, v in update_values.items()
+                    if k not in ('updated_date', 'created_date'))
+                for type_id in ids:
+                    self.api_session.add_activity(
+                        action='update',
+                        type=type_name,
+                        type_id=type_id,
+                        context_id=parent_ids.get(type_id),
+                        data=updated_items)
 
         return updated
 
@@ -496,6 +529,14 @@ class ORMQuery(object):
         return self
 
 
+def default_message_method(action, type, type_id, context_id, **data):
+    type_name = u' '.join(type.split()).title()
+    message = u'%s (%s) %s' % (type_name, type_id, action.lower())
+    if context_id:
+        message += u' from %s' % context_id
+    return message
+
+
 class BaseCoreSession(BaseSQLSession):
     __api_name__ = 'core'
 
@@ -508,6 +549,18 @@ class BaseCoreSession(BaseSQLSession):
                 hours=int(time_zone_hours or 0),
                 minutes=int(time_zone_minutes or 0))
 
+    def add_activity(self, action, type, type_id, context_id=None, data=None):
+        message = default_message_method(action, type, type_id, context_id, **(data or {}))
+
+        # Set to logging
+        extra = dict(('extra_%s' % k, v) for k, v in (data or {}).items())
+        extra.update({
+            'action': action,
+            'action_type': type,
+            'action_type_id': type_id,
+            'context_id': context_id})
+        self.logging.log('%s_%s' % (type, action), message, extra=extra)
+
     def query(self, *attributes, **kw_attributes):
         return ORMQuery(self, *attributes, **kw_attributes)
 
@@ -515,6 +568,9 @@ class BaseCoreSession(BaseSQLSession):
         self.add_all([orm_object])
 
     def add_all(self, orm_objects):
+        if not orm_objects:
+            return False
+
         for value in orm_objects:
             if isinstance(value, Base):
                 if not value.key:
@@ -534,7 +590,16 @@ class BaseCoreSession(BaseSQLSession):
 
         self.session.add_all(orm_objects)
         self.session.flush()
-        # @@TODO add actions
+
+        type_name = orm_objects[0].__table__.name
+        column_names = [c for c in orm_objects[0].__table__.c.keys() if c not in ('updated_date', 'created_date')]
+        for value in orm_objects:
+            self.add_activity(
+                action='add',
+                type=type_name,
+                type_id=value.id,
+                context_id=getattr(value, 'parent_id', None),
+                data=dict((c, getattr(value, c)) for c in column_names))
 
 
 class QueryLookup(object):
@@ -627,7 +692,7 @@ class QueryLookup(object):
                 tables.update(self.lookup_table(value.right))
 
         elif not isinstance(value, BindParameter):
-            # @@TODO: Lookup more tables?
+            # @@TODO: Lookup for more tables?
             pass
 
         return tables
