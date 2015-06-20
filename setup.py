@@ -36,7 +36,7 @@ here = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(here, 'README.rst')) as f:
     DESCRIPTION = f.read()
 
-with open(os.path.join(here, 'HISTORY.txt')) as f:
+with open(os.path.join(here, 'HISTORY.rst')) as f:
     history_lines = f.read().splitlines()
     for i, line in enumerate(history_lines):
         if line.startswith(__version__):

@@ -1,2 +1,1 @@
 recursive-include ines/locale *
-recursive-include ines/templates *
