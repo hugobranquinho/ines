@@ -71,7 +71,7 @@ class ORMQuery(object):
         self.options.add_filter(value)
         return self
 
-    def construct_active_query(self, tables):
+    def query_relations(self, tables, relate_actives=False):
         active_tables = set()
         active_table_children = set()
         outerjoins = MissingDict()
@@ -97,7 +97,7 @@ class ORMQuery(object):
                     related_tables.add(foreign_orm_table)
                 foreign_column = getattr(foreign_orm_table, foreign.column.name)
 
-                if foreign_orm_table.__core_type__ == 'active':
+                if relate_actives and foreign_orm_table.__core_type__ == 'active':
                     if foreign_orm_table is orm_table:
                         active_table_children.add(foreign_orm_table)
                         self_children = True
@@ -119,27 +119,26 @@ class ORMQuery(object):
                 else:
                     set_relations(foreign_orm_table, as_outerjoin=as_outerjoin)
 
-            if not self_children:
-                if orm_table.__core_type__ == 'active':
-                    active_tables.add(orm_table)
+            if not self_children and relate_actives and orm_table.__core_type__ == 'active':
+                active_tables.add(orm_table)
 
         for table in tables:
             set_relations(self.options.orm_tables[table.name])
 
-        # Create active query
-        active_queries = []
-        if active_tables:
-            active_queries.append(active_filter(active_tables))
-        if active_table_children:
-            # @@TODO lookup for active items, ignore items without father
-            pass
+        active_query = None
+        if relate_actives:
+            # Create active query
+            active_queries = []
+            if active_tables:
+                active_queries.append(active_filter(active_tables))
+            if active_table_children:
+                # @@TODO lookup for active items, ignore items without father
+                pass
 
-        if len(active_queries) == 1:
-            active_query = active_queries[0]
-        elif active_queries:
-            active_query = and_(*active_queries)
-        else:
-            active_query = None
+            if len(active_queries) == 1:
+                active_query = active_queries[0]
+            elif active_queries:
+                active_query = and_(*active_queries)
 
         return outerjoins, queries, active_query
 
@@ -189,28 +188,29 @@ class ORMQuery(object):
                     break
 
         # Check if we need to check active tables
-        if active is not None or active_in_attributes or active_in_order_by:
-            active_outerjoins, active_queries, active_query = self.construct_active_query(tables)
-            for t, fts in active_outerjoins.items():
-                outerjoins[t].update(fts)
-            queries.extend(active_queries)
+        relate_actives = bool(active is not None or active_in_attributes or active_in_order_by)
 
-            # Add active column
-            if active_in_attributes:
-                if active is None:
-                    if active_query is not None:
-                        active_attribute = active_query
-                    else:
-                        active_attribute = true()
-                elif active:
-                    active_attribute = true()
+        related_outerjoins, related_queries, active_query = self.query_relations(tables, relate_actives)
+        for t, fts in related_outerjoins.items():
+            outerjoins[t].update(fts)
+        queries.extend(related_queries)
+
+        # Add active column
+        if active_in_attributes:
+            if active is None:
+                if active_query is not None:
+                    active_attribute = active_query
                 else:
-                    active_attribute = false()
+                    active_attribute = true()
+            elif active:
+                active_attribute = true()
+            else:
+                active_attribute = false()
 
-                # Replace active attributes
-                for i, attribute in enumerate(attributes):
-                    if attribute is ACTIVE_MARKER:
-                        attributes[i] = active_attribute.label('active')
+            # Replace active attributes
+            for i, attribute in enumerate(attributes):
+                if attribute is ACTIVE_MARKER:
+                    attributes[i] = active_attribute.label('active')
 
         # Create session query
         query = self.api_session.session.query(*attributes)
