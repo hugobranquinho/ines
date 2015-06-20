@@ -9,7 +9,7 @@ Features
 - Add ines translations
 
 
-0.1a2 (unreleased)
+0.1a2 (2015-06-20)
 ==================
 
 Features
