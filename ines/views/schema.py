@@ -202,6 +202,8 @@ class SchemaView(object):
                         details['type'] = str(cls.__name__).lower()
                         break
                 details['filter'] = True
+            elif hasattr(schema, 'schema_type_name'):
+                details['type'] = camelcase(schema.schema_type_name)
             else:
                 details['type'] = get_colander_type_name(schema.typ)
 
