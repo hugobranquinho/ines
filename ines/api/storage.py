@@ -155,12 +155,7 @@ class BaseStorageSession(BaseSQLSession):
 
     @reify
     def block_size(self):
-        min_size = 2**20
-        size_block = int(self.settings.get('file_block_size') or min_size)
-        if size_block < min_size:
-            return min_size
-        else:
-            return size_block
+        return int(self.settings.get('file_block_size') or OPEN_BLOCK_SIZE)
 
     @reify
     def storage_path(self):
