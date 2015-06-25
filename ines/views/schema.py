@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from copy import deepcopy
 from urllib2 import unquote
 
 from colander import All
@@ -19,6 +18,7 @@ from pyramid.settings import asbool
 from zope.interface import implementer
 
 from ines import DEFAULT_METHODS
+from ines import MARKER
 from ines.convert import camelcase
 from ines.convert import force_unicode
 from ines.convert import maybe_list
@@ -27,6 +27,7 @@ from ines.route import lookup_for_route_params
 from ines.route import lookup_for_route_permissions
 from ines.views.fields import FilterByType
 from ines.views.fields import OneOfWithDescription
+from ines.utils import different_values
 from ines.utils import MissingDict
 from ines.utils import MissingList
 
@@ -289,13 +290,11 @@ def lookup_for_common_fields(values, ignore_key=None):
             if key == ignore_key:
                 continue
 
-            the_same = True
             for name_options in name_list[1:]:
-                if key not in name_options:
-                    the_same = False
+                other_value = name_options.get(key, MARKER)
+                if other_value is MARKER or different_values(value, other_value):
                     break
-
-            if the_same:
+            else:
                 result[name][key] = value
                 for name_options in name_list:
                     name_options.pop(key)
