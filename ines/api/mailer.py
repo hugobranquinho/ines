@@ -51,6 +51,9 @@ class BaseMailerSessionManager(BaseSessionManager):
 
         if self.settings.get('queue_path'):
             make_dir(self.settings['queue_path'])
+            make_dir(join_path(self.settings['queue_path'], 'cur'))
+            make_dir(join_path(self.settings['queue_path'], 'tmp'))
+            make_dir(join_path(self.settings['queue_path'], 'new'))
 
             import repoze.sendmail.queue
             self.queue_processor = repoze.sendmail.queue.QueueProcessor

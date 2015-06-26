@@ -5,7 +5,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-06-16 18:21+0100\n"
+"POT-Creation-Date: 2015-06-26 03:07+0100\n"
 "PO-Revision-Date: 2015-06-16 18:22+0100\n"
 "Last-Translator: Hugo Branquinho <hugobranq@gmail.com>\n"
 "Language-Team: Portuguese\n"
@@ -255,47 +255,59 @@ msgstr "${week}"
 msgid "No data"
 msgstr "Sem data"
 
-#: ines/views/fields.py:376
+#: ines/validator.py:62 ines/validator.py:39
+msgid "Invalid number"
+msgstr "Número inválido"
+
+#: ines/validator.py:72
+msgid "Invalid \"skype\" username"
+msgstr "Contacto \"skype\" inválido"
+
+#: ines/api/utils.py:16
+msgid "Try again later"
+msgstr "Tente novamente mais tarde"
+
+#: ines/views/fields.py:380
 msgid "Page"
 msgstr "Página"
 
-#: ines/views/fields.py:377
+#: ines/views/fields.py:381
 msgid "Results per page"
 msgstr "Resultados por página"
 
-#: ines/views/fields.py:378
+#: ines/views/fields.py:382
 msgid "Order by"
 msgstr "Ordenar por"
 
-#: ines/views/fields.py:379
+#: ines/views/fields.py:383
 msgid "Number of results"
 msgstr "Número de resultados"
 
-#: ines/views/fields.py:380
+#: ines/views/fields.py:384
 msgid "Number of page results"
 msgstr "Número de resultados por página"
 
-#: ines/views/fields.py:381
+#: ines/views/fields.py:385
 msgid "Last page"
 msgstr "Última página"
 
-#: ines/views/fields.py:382
+#: ines/views/fields.py:386
 msgid "Next page url"
 msgstr "Url da página seguinte"
 
-#: ines/views/fields.py:383
+#: ines/views/fields.py:387
 msgid "Previous page url"
 msgstr "Url da página anterior"
 
-#: ines/views/fields.py:384
+#: ines/views/fields.py:388
 msgid "First page url"
 msgstr "Url da primeira página"
 
-#: ines/views/fields.py:385
+#: ines/views/fields.py:389
 msgid "Last page url"
 msgstr "Url da última página"
 
-#: ines/views/fields.py:408
+#: ines/views/fields.py:412
 msgid "Deleted"
 msgstr "Apagado"
 

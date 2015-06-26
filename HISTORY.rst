@@ -19,6 +19,37 @@ Features
 - script to read ini run application and compile apidocjs
 
 
+0.1a3 (unreleased)
+==================
+
+Features
+--------
+
+- Added PT translations
+
+- ``cleaner.clean_phone_number`` to clean telephone / mobile numbers
+
+- ``utils.validate_skype_username`` to validate skype usernames
+
+- ``utils.validate_phone_number`` to validate telephone / mobile numbers
+
+- Create dir folders for ``api.mailer`` (required by repoze.sendmail)
+
+- ``api.utils.requests_limit_decorator`` limit requests, by ip address, to a api method
+
+- ``url.open_url`` opens a URL
+
+- ``url.get_url_body`` opens an URL and read the body as unicode
+
+- ``url.get_url_file`` opens a URL and read the body
+
+- ``url.open_json_url`` opens a URL and decode JSON body
+
+- ``url.ping_url`` check is URL is valid
+
+- ``validator.validate_code`` validate some code using JSON keys to read colander validators or ``ines.validator.*``
+
+
 0.1a2 (2015-06-20)
 ==================
 

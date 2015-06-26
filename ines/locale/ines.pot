@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-06-16 18:21+0100\n"
+"POT-Creation-Date: 2015-06-26 03:07+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -255,47 +255,59 @@ msgstr ""
 msgid "No data"
 msgstr ""
 
-#: ./ines/views/fields.py:376
-msgid "Page"
+#: ./ines/validator.py:62 ./ines/validator.py:39
+msgid "Invalid number"
 msgstr ""
 
-#: ./ines/views/fields.py:377
-msgid "Results per page"
+#: ./ines/validator.py:72
+msgid "Invalid \"skype\" username"
 msgstr ""
 
-#: ./ines/views/fields.py:378
-msgid "Order by"
-msgstr ""
-
-#: ./ines/views/fields.py:379
-msgid "Number of results"
+#: ./ines/api/utils.py:16
+msgid "Try again later"
 msgstr ""
 
 #: ./ines/views/fields.py:380
-msgid "Number of page results"
+msgid "Page"
 msgstr ""
 
 #: ./ines/views/fields.py:381
-msgid "Last page"
+msgid "Results per page"
 msgstr ""
 
 #: ./ines/views/fields.py:382
-msgid "Next page url"
+msgid "Order by"
 msgstr ""
 
 #: ./ines/views/fields.py:383
-msgid "Previous page url"
+msgid "Number of results"
 msgstr ""
 
 #: ./ines/views/fields.py:384
-msgid "First page url"
+msgid "Number of page results"
 msgstr ""
 
 #: ./ines/views/fields.py:385
+msgid "Last page"
+msgstr ""
+
+#: ./ines/views/fields.py:386
+msgid "Next page url"
+msgstr ""
+
+#: ./ines/views/fields.py:387
+msgid "Previous page url"
+msgstr ""
+
+#: ./ines/views/fields.py:388
+msgid "First page url"
+msgstr ""
+
+#: ./ines/views/fields.py:389
 msgid "Last page url"
 msgstr ""
 
-#: ./ines/views/fields.py:408
+#: ./ines/views/fields.py:412
 msgid "Deleted"
 msgstr ""
 

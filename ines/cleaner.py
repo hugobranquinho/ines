@@ -9,6 +9,8 @@ from ines.convert import force_unicode
 from ines.convert import maybe_unicode
 
 
+STRING_TO_DICT = lambda S: dict((unicode(L), unicode(L)) for L in S)
+
 MAPPING = {
     u'Š': u'S', u'š': u's', u'Ž': u'Z', u'ž': u'z', u'À': u'A', u'Ð': u'Dj',
     u'Á': u'A', u'Â': u'A', u'Ã': u'A', u'Ä': u'A', u'Å': u'A', u'Æ': u'A',
@@ -22,11 +24,12 @@ MAPPING = {
     u'ó': u'o', u'ô': u'o', u'õ': u'o', u'ö': u'o', u'ø': u'o', u'ù': u'u',
     u'ú': u'u', u'ý': u'y', u'þ': u'b', u'ÿ': u'y', u'ƒ': u'f', u' ': u' '}
 
-MAPPING.update(dict((unicode(L), unicode(L)) for L in base_letters))
-MAPPING.update(dict((unicode(D), unicode(D)) for D in base_digits))
+MAPPING.update(STRING_TO_DICT(base_letters + base_digits))
 
 FILENAME_MAPPING = MAPPING.copy()
-FILENAME_MAPPING.update({u'.': u'.', u'-': u'-', u' ': u'_', u'_': u'_'})
+FILENAME_MAPPING.update(STRING_TO_DICT('.-_ '))
+
+PHONE_MAPPING = STRING_TO_DICT('x+' + base_digits)
 
 
 def clean_unicode(value, replace_case=None, mapping_dict=None):
@@ -39,9 +42,14 @@ def clean_unicode(value, replace_case=None, mapping_dict=None):
 
 
 def clean_filename(filename):
-    value = force_unicode(filename, 'ignore')
+    value = force_unicode(filename, errors='ignore')
     cleaned = clean_unicode(value, replace_case=u'_', mapping_dict=FILENAME_MAPPING)
     return cleaned.encode('utf-8')
+
+
+def clean_phone_number(value):
+    value = force_unicode(value or '', errors='ignore').lower()
+    return clean_unicode(value, replace_case=u'', mapping_dict=PHONE_MAPPING)
 
 
 def normalize_full_name(value):

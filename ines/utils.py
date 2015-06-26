@@ -25,6 +25,7 @@ from pyramid.httpexceptions import HTTPError
 from ines import DOMAIN_NAME
 from ines import DEFAULT_RETRY_ERRNO
 from ines import OPEN_BLOCK_SIZE
+from ines.cleaner import clean_phone_number
 from ines.cleaner import normalize_full_name
 from ines.convert import camelcase
 from ines.convert import force_string
@@ -32,6 +33,7 @@ from ines.convert import force_unicode
 from ines.convert import maybe_integer
 from ines.convert.codes import make_sha256_no_cache
 from ines.i18n import translate_factory
+from ines.url import open_json_url
 
 
 NOW = datetime.datetime.now
@@ -43,6 +45,9 @@ PROCESS_ID = getpid()
 EMAIL_REGEX = regex_compile(
     "[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
     "@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?")
+
+# Skype REGEX validation
+SKYPE_USERNAME_REGEX = regex_compile('^[a-z][a-z0-9\.,\-_]{5,31}$')
 
 
 class WarningDict(dict):
@@ -531,3 +536,27 @@ def file_unique_code(open_file, block_size=OPEN_BLOCK_SIZE):
 def string_unique_code(value):
     value = force_string(value)
     return force_unicode(sha256(value).hexdigest())
+
+
+def validate_skype_username(username, validate_with_api=False):
+    if username:
+        username = force_string(username)
+        if SKYPE_USERNAME_REGEX.match(username):
+            if not validate_with_api:
+                return True
+
+            response = open_json_url(
+                u'https://login.skype.com/json/validator',
+                data={'new_username': username},
+                method='get')
+            if response['data']['markup'].lower() == 'skype name not available':
+                return True
+
+    return False
+
+
+def validate_phone_number(number):
+    if number:
+        number = clean_phone_number(force_unicode(number))
+        if number and len(number) < 20 and len(number) > 5:
+            return number
