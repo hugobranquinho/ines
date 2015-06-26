@@ -49,6 +49,10 @@ Features
 
 - ``validator.validate_code`` validate some code using JSON keys to read colander validators or ``ines.validator.*``
 
+- ``utils.is_prime`` to check if number is a prime
+
+- ``utils.find_next_prime`` return next prime number
+
 
 0.1a2 (2015-06-20)
 ==================

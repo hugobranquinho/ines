@@ -59,6 +59,7 @@ requires = [
     'pyramid',
     'WebOb',
     'Babel',
+    'lingua',
     'translationstring',
     'zope.interface',
     'Paste',

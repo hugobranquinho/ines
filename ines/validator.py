@@ -10,6 +10,7 @@ from colander import Invalid
 
 from ines import _
 from ines.convert import force_unicode
+from ines.utils import find_next_prime
 from ines.utils import validate_skype_username
 
 
@@ -70,3 +71,28 @@ class isSkype(object):
     def __call__(self, node, value):
         if not validate_skype_username(value, validate_with_api=self.validate_with_api):
             raise Invalid(node, _(u'Invalid "skype" username'))
+
+
+@register_code
+class codeValidation(object):
+    def __init__(self, length, reverse=False):
+        self.length = int(length)
+        self.prime = find_next_prime(self.length)
+        self.reverse = reverse
+
+    def __call__(self, node, value):
+        number = force_unicode(value).lower()
+        if number and number.isnumeric() and len(number) == self.length:
+            last_number = int(number[-1])
+            number = number[:-1]
+
+            if self.reverse:
+                number_list = reversed(number)
+            else:
+                number_list = list(number)
+
+            check_digit = self.prime - (sum(i * int(d) for i, d in enumerate(number_list, 2)) % self.prime)
+            if last_number == check_digit:
+                return True
+
+        raise Invalid(node, _(u'Invalid number'))

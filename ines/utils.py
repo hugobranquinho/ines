@@ -5,6 +5,7 @@ import datetime
 import errno
 from hashlib import sha256
 from json import dumps
+from math import sqrt as square_root_of
 from os import getpid
 from os import listdir
 from os import makedirs
@@ -560,3 +561,17 @@ def validate_phone_number(number):
         number = clean_phone_number(force_unicode(number))
         if number and len(number) < 20 and len(number) > 5:
             return number
+
+
+# See: http://golf.shinh.org/p.rb?Find+the+nearest+Prime
+def is_prime(number):
+    return pow(2, number - 1, number) < 2 > pow(13, number - 1, number)
+
+
+def find_next_prime(number):
+    number += 1
+    number += not number % 2
+    while True:
+        if is_prime(number):
+            return number
+        number += 2
