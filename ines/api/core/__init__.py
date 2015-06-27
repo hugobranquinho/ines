@@ -2,11 +2,14 @@
 
 from copy import deepcopy
 import datetime
+from os.path import normpath
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from sqlalchemy import and_
+from sqlalchemy import Boolean
 from sqlalchemy import Column
+from sqlalchemy import DateTime
 from sqlalchemy import false
 from sqlalchemy import func
 from sqlalchemy import not_
@@ -20,7 +23,7 @@ from sqlalchemy.sql.schema import Table
 from ines import MARKER
 from ines.api.core.database import ActiveBase
 from ines.api.core.database import Base
-from ines.api.core.database import Core
+from ines.api.core.database import BranchBase
 from ines.api.core.views import CorePagination
 from ines.api.core.views import QueryPagination
 from ines.api.database.sql import active_filter
@@ -33,24 +36,134 @@ from ines.api.database.sql import Pagination
 from ines.api.database.sql import SQL_DBS
 from ines.convert import convert_timezone
 from ines.convert import force_string
+from ines.convert import force_unicode
 from ines.convert import maybe_integer
 from ines.convert import maybe_list
+from ines.convert import maybe_unicode
 from ines.exceptions import Error
 from ines.views.fields import OrderBy
 from ines.utils import different_values
+from ines.utils import make_dir
 from ines.utils import MissingDict
 from ines.utils import MissingList
 from ines.utils import MissingSet
+from ines.utils import PaginationClass
 
 
 DATETIME = datetime.datetime
 TIMEDELTA = datetime.timedelta
 ACTIVE_MARKER = object()
 
+WHOOSH = {}
+WHOOSH_DIRS = {}
+
 
 class BaseCoreSessionManager(BaseSQLSessionManager):
     __api_name__ = 'core'
     __database_name__ = 'ines.core'
+
+
+class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
+    def __init__(self, config, session, api_name=None):
+        super(BaseCoreIndexedSessionManager, self).__init__(config, session, api_name)
+
+        if not WHOOSH:
+            from whoosh import fields
+            WHOOSH['fields'] = fields
+            from whoosh import index
+            WHOOSH['index'] = index
+            from whoosh import query
+            WHOOSH['query'] = query
+            from whoosh import qparser
+            WHOOSH['qparser'] = qparser
+            from whoosh import sorting
+            WHOOSH['sorting'] = sorting
+
+        indexer_folder = self.settings['indexer.folder'] = normpath(self.settings['indexer.folder'])
+
+        ignore_fields = self.settings.get('indexer.ignore') or []
+        if ignore_fields:
+            ignore_fields = [f.strip() for f in self.indexer_ignore_fields.split(',')]
+
+        if indexer_folder not in WHOOSH_DIRS:
+            make_dir(indexer_folder)
+
+            wFields = WHOOSH['fields']
+            schema_fields = {
+                'id': wFields.ID(unique=True, stored=True),
+                'application_name': wFields.ID(stored=True),
+                'key': wFields.TEXT(stored=True),
+                'indexer_description': wFields.TEXT(stored=True),
+                'updated_date': wFields.DATETIME(stored=True),
+                'created_date': wFields.DATETIME(stored=True),
+                'start_date': wFields.DATETIME(stored=True),
+                'end_date': wFields.DATETIME(stored=True)}
+
+            WHOOSH_DIRS[indexer_folder] = {
+                'database_names': [self.__database_name__],
+                'application_names': [self.config.application_name],
+                'fields': schema_fields,
+                'base_fields': schema_fields.keys(),
+                'ignore_fields': set(ignore_fields),
+                'description_method': MissingDict(),
+                'indexer': None}
+        else:
+            database_options = WHOOSH_DIRS[indexer_folder]
+            database_options['database_names'].append(self.__database_name__)
+            database_options['application_names'].append(self.config.application_name)
+            if ignore_fields:
+                database_options['ignore_fields'].update(ignore_fields)
+
+    def make_indexer_key(self, table_name, column_name):
+        return '%s_%s' % (table_name, column_name)
+
+    @reify
+    def indexer_options(self):
+        indexer_folder = self.settings['indexer.folder']
+        options = WHOOSH_DIRS[indexer_folder]
+        if options['indexer'] is not None:
+            return options
+
+        wFields = WHOOSH['fields']
+        for database_name in options['database_names']:
+            orm_tables = get_orm_tables(SQL_DBS[database_name]['bases'])
+            for table_name, table in SQL_DBS[database_name]['metadata'].tables.items():
+                orm_table = orm_tables[table_name]
+                options['description_method']\
+                    [self.config.application_name]\
+                    [orm_table.__tablename__] = orm_table.get_indexer_description
+
+                if issubclass(orm_table, BranchBase):
+                    table_name = orm_table.__parent__.__tablename__
+
+                for column_name, column in table.c.items():
+                    if column_name in options['base_fields']:
+                        continue
+
+                    key = self.make_indexer_key(table_name, column_name)
+                    if key in options['ignore_fields']:
+                        continue
+
+                    if isinstance(column.type, DateTime):
+                        options['fields'][key] = wFields.DATETIME(stored=True)
+                    if isinstance(column.type, Boolean):
+                        options['fields'][key] = wFields.BOOLEAN(stored=True)
+                    else:
+                        options['fields'][key] = wFields.TEXT(stored=True)
+
+        wIndex = WHOOSH['index']
+        if not wIndex.exists_in(indexer_folder):
+            options['indexer'] = wIndex.create_in(indexer_folder, wFields.Schema(**options['fields']))
+        else:
+            options['indexer'] = wIndex.open_dir(indexer_folder)
+
+        return options
+
+    @property
+    def indexer(self):
+        options = self.indexer_options
+        if options:
+            return options['indexer']
 
 
 class ORMQuery(object):
@@ -413,6 +526,7 @@ class ORMQuery(object):
                     type_id=type_id,
                     context_id=getattr(table, 'parent_id', None),
                     data=dict((c, getattr(table, c)) for c in column_names))
+                self.api_session.delete_from_index(type_name, type_id)
 
             return result
 
@@ -502,6 +616,7 @@ class ORMQuery(object):
                         type_id=type_id,
                         context_id=parent_ids.get(type_id),
                         data=updated_items)
+                    self.api_session.update_on_index(type_name, type_id, updated_items)
 
         return updated
 
@@ -561,6 +676,15 @@ class BaseCoreSession(BaseSQLSession):
             'context_id': context_id})
         self.logging.log('%s_%s' % (type, action), message, extra=extra)
 
+    def add_to_index(self, type_name, type_id, data):
+        pass
+
+    def update_on_index(self, type_name, type_id, data):
+        pass
+
+    def delete_from_index(self, type_name, type_id):
+        pass
+
     def query(self, *attributes, **kw_attributes):
         return ORMQuery(self, *attributes, **kw_attributes)
 
@@ -594,12 +718,177 @@ class BaseCoreSession(BaseSQLSession):
         type_name = orm_objects[0].__table__.name
         column_names = [c for c in orm_objects[0].__table__.c.keys() if c not in ('updated_date', 'created_date')]
         for value in orm_objects:
+            data = dict((c, getattr(value, c)) for c in column_names)
             self.add_activity(
                 action='add',
                 type=type_name,
                 type_id=value.id,
                 context_id=getattr(value, 'parent_id', None),
-                data=dict((c, getattr(value, c)) for c in column_names))
+                data=data)
+
+            self.add_to_index(
+                type_name=type_name,
+                type_id=value.id,
+                data=data)
+
+
+class BaseCoreIndexedSession(BaseCoreSession):
+    __default_session_manager__ = BaseCoreIndexedSessionManager
+
+    @reify
+    def indexer_orm_tables(self):
+        tables = {}
+        for database_name in self.api_session_manager.indexer_options['database_names']:
+            tables.update(get_orm_tables(SQL_DBS[database_name]['bases']))
+        return tables
+
+    def make_indexed_unique_id(self, type_name, type_id):
+        table = self.indexer_orm_tables[type_name]
+        if issubclass(table, BranchBase):
+            table = table.__parent__
+        return force_unicode(u'%s-%s' % (table.__tablename__, type_id))
+
+    def break_indexed_unique_id(self, unique_id):
+        type_name, type_id = unique_id.rsplit(u'-', 1)
+        return type_name, int(type_id)
+
+    def add_to_index(self, type_name, type_id, data):
+        self.update_on_index(type_name, type_id, data)
+
+    def update_on_index(self, type_name, type_id, data):
+        options = self.api_session_manager.indexer_options
+        ignore_fields = options['ignore_fields']
+        base_fields = options['base_fields']
+        make_key = self.api_session_manager.make_indexer_key
+
+        unique_id = self.make_indexed_unique_id(type_name, type_id)
+        my_data = self.get_indexed_id(unique_id)
+
+        if my_data:
+            wQuery = WHOOSH['query']
+            delete_query = wQuery.And([
+                wQuery.Term('id', unique_id),
+                wQuery.Term('application_name', force_unicode(self.application_name))])
+        else:
+            delete_query = None
+            my_data = {
+                'id': unique_id,
+                'application_name': force_unicode(self.application_name)}
+
+        for key, value in data.items():
+            if key in ('id', 'application_name', 'indexer_description'):
+                continue
+
+            elif key not in base_fields:
+                key = make_key(type_name, key)
+                if key in ignore_fields:
+                    continue
+
+            value = maybe_unicode(value)
+            if value:
+                my_data[key] = value
+            else:
+                my_data.pop(key, None)
+
+        methods = options['description_method']
+        type_name, type_id = self.break_indexed_unique_id(unique_id)
+        description = maybe_unicode(methods[self.application_name][type_name](self.request, my_data))
+        if description:
+            my_data['indexer_description'] = description
+        else:
+            my_data.pop('indexer_description', None)
+
+        with options['indexer'].writer() as writer:
+            if delete_query is not None:
+                writer.delete_by_query(delete_query)
+            writer.add_document(**my_data)
+
+    def delete_from_index(self, type_name, type_id):
+        unique_id = self.make_indexed_unique_id(type_name, type_id)
+
+        wQuery = WHOOSH['query']
+        query = wQuery.And([
+            wQuery.Term('id', unique_id),
+            wQuery.Term('application_name', force_unicode(self.application_name))])
+
+        with self.api_session_manager.indexer.writer() as writer:
+            writer.delete_by_query(query)
+
+    def get_indexed_id(self, unique_id):
+        wQuery = WHOOSH['query']
+        query = wQuery.And([
+            wQuery.Term('id', unique_id),
+            wQuery.Term('application_name', force_unicode(self.application_name))])
+
+        with self.api_session_manager.indexer.searcher() as searcher:
+            for response in searcher.search(query, limit=1):
+                return dict(response.items())
+
+    def get_indexed(
+            self,
+            query_string,
+            application_names=None,
+            page=1,
+            limit_per_page=20,
+            order_by=None):
+
+        pagination = PaginationClass(page, limit_per_page)
+        if not query_string:
+            return
+
+        options = self.api_session_manager.indexer_options
+        query_string = u'*%s*' % force_unicode(query_string).replace(u' ', u'*')
+        wParser = WHOOSH['qparser']
+        query_terms = wParser.MultifieldParser(
+            options['fields'].keys(),
+            options['indexer'].schema).parse(query_string)
+
+        if application_names:
+            wQuery = WHOOSH['query']
+            application_terms = wQuery.And([
+                wQuery.Term('application_name', force_unicode(n))
+                for n in application_names])
+            query_terms = wQuery.And([query_terms, application_terms])
+
+        sortedby = []
+        if order_by:
+            if not is_nonstr_iter(order_by):
+                order_by = [order_by]
+
+            wSort = WHOOSH['sorting']
+            for ob in order_by:
+                reverse = False
+                if isinstance(ob, OrderBy):
+                    column_name = ob.column_name
+                    reverse = ob.descendant
+                else:
+                    column_name = ob
+
+                if column_name == 'type':
+                    column_name = 'id'
+                elif column_name == 'description':
+                    column_name = 'indexer_description'
+                sortedby.append(wSort.FieldFacet(column_name, reverse=reverse))
+
+        with options['indexer'].searcher() as searcher:
+            response = searcher.search_page(
+                query_terms,
+                pagenum=pagination.page,
+                pagelen=pagination.limit_per_page,
+                sortedby=sortedby or None)
+            pagination.set_number_of_results(response.total)
+
+            for hit in response:
+                details = dict(hit.items())
+                type_name, type_id = self.break_indexed_unique_id(details['id'])
+                pagination.append({
+                    'application_name': details['application_name'],
+                    'type': type_name,
+                    'key': details['key'],
+                    'description': details.get('indexer_description'),
+                    'details': details})
+
+        return pagination
 
 
 class QueryLookup(object):
@@ -649,18 +938,7 @@ class QueryLookup(object):
 
     @reify
     def orm_tables(self):
-        references = {}
-        for base in self.sql_options['bases']:
-            for name, table in base._decl_class_registry.items():
-                if name == '_sa_module_registry':
-                    continue
-
-                references[table.__tablename__] = table
-                table_alias = getattr(table, '__table_alias__', None)
-                if table_alias:
-                    references.update((k, table) for k in table_alias)
-
-        return references
+        return get_orm_tables(self.sql_options['bases'])
 
     def get_table(self, maybe_name):
         if isinstance(maybe_name, Table):
@@ -999,3 +1277,18 @@ class OrderByLookup(object):
 
     def add_outerjoin(self, orm_table, orm_branch):
         self.outerjoin_tables[orm_table][orm_branch] = (orm_table.id == orm_branch.id)
+
+
+def get_orm_tables(bases):
+    references = {}
+    for base in bases:
+        for name, table in base._decl_class_registry.items():
+            if name == '_sa_module_registry':
+                continue
+
+            references[table.__tablename__] = table
+            table_alias = getattr(table, '__table_alias__', None)
+            if table_alias:
+                references.update((k, table) for k in table_alias)
+
+    return references

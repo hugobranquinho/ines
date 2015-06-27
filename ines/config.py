@@ -46,6 +46,7 @@ from ines.views.schema import SchemaView
 from ines.request import inesRequest
 from ines.route import RootFactory
 from ines.utils import MissingDict
+from ines.utils import MissingList
 from ines.utils import WarningDict
 
 
@@ -161,18 +162,25 @@ class APIConfigurator(Configurator):
                 bases[session_manager.__api_name__] = session_manager
 
         # Find default session manager
-        for session_manager in find_class_on_module(
-                'ines.api',
-                BaseSessionManager):
+        default_bases = MissingList()
+        for session_manager in find_class_on_module('ines.api', BaseSessionManager):
             api_name = getattr(session_manager, '__api_name__', None)
-            if api_name and api_name not in bases:
-                bases[api_name] = session_manager
+            default_bases[api_name].append(session_manager)
 
         # Define extensions
         for api_name, session in sessions.items():
-            session_manager = bases.get(api_name, BaseSessionManager)(self, session, api_name)
+            session_manager = bases.get(api_name)
+            if session_manager is None:
+                session_manager = getattr(session, '__default_session_manager__', None)
+                if session_manager is None:
+                    default_session_managers = default_bases.get(api_name)
+                    if not default_session_managers:
+                        session_manager = BaseSessionManager
+                    else:
+                        session_manager = default_session_managers[0]
+
             self.registry.registerUtility(
-                session_manager,
+                session_manager(self, session, api_name),
                 provided=IBaseSessionManager,
                 name=api_name)
 

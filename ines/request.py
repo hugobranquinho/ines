@@ -153,6 +153,9 @@ class ApplicationsConnector(object):
         setattr(self, key, attribute)
         return attribute
 
+    def asdict(self):
+        return dict((k, getattr(self, k)) for k in APPLICATIONS.keys())
+
 
 def make_request(config, environ=None):
     request_factory = config.registry.queryUtility(IRequestFactory)

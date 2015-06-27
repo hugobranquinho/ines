@@ -33,6 +33,7 @@ from ines.path import get_object_on_path
 from ines.views.fields import FilterBy
 from ines.utils import MissingDict
 from ines.utils import MissingSet
+from ines.utils import PaginationClass
 
 
 SQL_DBS = MissingDict()
@@ -295,41 +296,24 @@ def create_rlike_filter(column, value):
             return column.op('rlike')(rlike_str)
 
 
-class Pagination(list):
+class Pagination(PaginationClass):
     def __init__(self, query, page=1, limit_per_page=20):
-        super(Pagination, self).__init__()
-
-        self.limit_per_page = maybe_integer(limit_per_page)
-        if not self.limit_per_page or self.limit_per_page < 1:
-            self.limit_per_page = 20
-        elif self.limit_per_page > 5000:
-            self.limit_per_page = 5000
-
         if query is None:
-            self.number_of_results = 0
-            self.last_page = 1
-            self.page = 1
+            super(Pagination, self).__init__(page=1, limit_per_page=limit_per_page)
         else:
+            super(Pagination, self).__init__(page=page, limit_per_page=limit_per_page)
+
             # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
             entities = set(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
-            self.number_of_results = (
+            self.set_number_of_results(
                 query
                 .with_entities(func.count(1), *entities)
                 .order_by(None)
                 .first()[0])
-            self.last_page = int(ceil(self.number_of_results / float(self.limit_per_page))) or 1
-
-            self.page = maybe_integer(page)
-            if not self.page or self.page < 1:
-                self.page = 1
-            elif self.page > self.last_page:
-                self.page = self.last_page
 
             end_slice = self.page * self.limit_per_page
             start_slice = end_slice - self.limit_per_page
             self.extend(query.slice(start_slice, end_slice).all())
-
-        self.number_of_page_results = len(self)
 
 
 class TablesSet(set):

@@ -25,6 +25,8 @@ Features
 Features
 --------
 
+- New api module, ``api.core.BaseCoreIndexedSession``. This module is equals to ``api.core.BaseCoreSession`` but indexs all information saved in DB with ``Whoosh`` package.
+
 - Added PT translations
 
 - ``cleaner.clean_phone_number`` to clean telephone / mobile numbers
@@ -52,6 +54,16 @@ Features
 - ``utils.is_prime`` to check if number is a prime
 
 - ``utils.find_next_prime`` return next prime number
+
+- ``utils.PaginationClass`` to use as pagination class in pagination views
+
+- Added method ``asdict`` to ``request.ApplicationsConnector``. Available as ``request.applications.asdict()``
+
+
+Bug Fixes
+---------
+
+- Choose correct SessionManager for api modules
 
 
 0.1a2 (2015-06-20)

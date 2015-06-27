@@ -5,7 +5,7 @@ import datetime
 import errno
 from hashlib import sha256
 from json import dumps
-from math import sqrt as square_root_of
+from math import ceil
 from os import getpid
 from os import listdir
 from os import makedirs
@@ -575,3 +575,30 @@ def find_next_prime(number):
         if is_prime(number):
             return number
         number += 2
+
+
+class PaginationClass(list):
+    def __init__(self, page=1, limit_per_page=20):
+        super(PaginationClass, self).__init__()
+
+        self.limit_per_page = maybe_integer(limit_per_page)
+        if not self.limit_per_page or self.limit_per_page < 1:
+            self.limit_per_page = 20
+
+        self.number_of_results = 0
+
+        self.page = maybe_integer(page)
+        if not self.page or self.page < 1:
+            self.page = 1
+        self.last_page = self.page
+
+    @property
+    def number_of_page_results(self):
+        return len(self)
+
+    def set_number_of_results(self, number_of_results):
+        self.number_of_results = int(number_of_results)
+        self.last_page = int(ceil(number_of_results / float(self.limit_per_page))) or 1
+
+        if self.page > self.last_page:
+            self.page = self.last_page
