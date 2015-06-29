@@ -37,10 +37,12 @@ from ines.api.database.sql import SQL_DBS
 from ines.convert import convert_timezone
 from ines.convert import force_string
 from ines.convert import force_unicode
+from ines.convert import maybe_datetime
 from ines.convert import maybe_integer
 from ines.convert import maybe_list
 from ines.convert import maybe_unicode
 from ines.exceptions import Error
+from ines.exceptions import LockTimeout
 from ines.views.fields import OrderBy
 from ines.utils import different_values
 from ines.utils import make_dir
@@ -51,6 +53,7 @@ from ines.utils import PaginationClass
 
 
 DATETIME = datetime.datetime
+NOW = DATETIME.now
 TIMEDELTA = datetime.timedelta
 ACTIVE_MARKER = object()
 
@@ -90,20 +93,25 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
 
             wFields = WHOOSH['fields']
             schema_fields = {
-                'id': wFields.ID(unique=True, stored=True),
-                'application_name': wFields.ID(stored=True),
-                'key': wFields.TEXT(stored=True),
-                'indexer_description': wFields.TEXT(stored=True),
                 'updated_date': wFields.DATETIME(stored=True),
                 'created_date': wFields.DATETIME(stored=True),
                 'start_date': wFields.DATETIME(stored=True),
                 'end_date': wFields.DATETIME(stored=True)}
+            datetime_fields = schema_fields.keys()
+            schema_fields.update({
+                'key': wFields.TEXT(stored=True),
+                'indexer_description': wFields.TEXT(stored=True)})
+            search_fields = schema_fields.keys()
+            schema_fields['id'] = wFields.ID(unique=True, stored=True)
+            schema_fields['application_name'] = wFields.ID(stored=True)
 
             WHOOSH_DIRS[indexer_folder] = {
                 'database_names': [self.__database_name__],
                 'application_names': [self.config.application_name],
                 'fields': schema_fields,
+                'search_fields': search_fields,
                 'base_fields': schema_fields.keys(),
+                'datetime_fields': datetime_fields,
                 'ignore_fields': set(ignore_fields),
                 'description_method': MissingDict(),
                 'indexer': None}
@@ -117,7 +125,7 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
     def make_indexer_key(self, table_name, column_name):
         return '%s_%s' % (table_name, column_name)
 
-    @reify
+    @property
     def indexer_options(self):
         indexer_folder = self.settings['indexer.folder']
         options = WHOOSH_DIRS[indexer_folder]
@@ -125,31 +133,38 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
             return options
 
         wFields = WHOOSH['fields']
-        for database_name in options['database_names']:
+        for database_name in WHOOSH_DIRS[self.settings['indexer.folder']]['database_names']:
             orm_tables = get_orm_tables(SQL_DBS[database_name]['bases'])
             for table_name, table in SQL_DBS[database_name]['metadata'].tables.items():
                 orm_table = orm_tables[table_name]
-                options['description_method']\
-                    [self.config.application_name]\
-                    [orm_table.__tablename__] = orm_table.get_indexer_description
+                if getattr(orm_table, '__dont_index_me__', False):
+                    continue
 
                 if issubclass(orm_table, BranchBase):
-                    table_name = orm_table.__parent__.__tablename__
+                    real_table = orm_table.__parent__
+                else:
+                    real_table = orm_table
 
-                for column_name, column in table.c.items():
+                options['description_method']\
+                    [self.config.application_name]\
+                    [real_table.__tablename__] = real_table.get_indexer_description
+
+                for column_name, column in orm_table.__table__.c.items():
                     if column_name in options['base_fields']:
                         continue
 
-                    key = self.make_indexer_key(table_name, column_name)
+                    key = self.make_indexer_key(real_table.__tablename__, column_name)
                     if key in options['ignore_fields']:
                         continue
 
                     if isinstance(column.type, DateTime):
                         options['fields'][key] = wFields.DATETIME(stored=True)
-                    if isinstance(column.type, Boolean):
+                        options['datetime_fields'].append(key)
+                    elif isinstance(column.type, Boolean):
                         options['fields'][key] = wFields.BOOLEAN(stored=True)
                     else:
                         options['fields'][key] = wFields.TEXT(stored=True)
+                    options['search_fields'].append(key)
 
         wIndex = WHOOSH['index']
         if not wIndex.exists_in(indexer_folder):
@@ -738,15 +753,20 @@ class BaseCoreIndexedSession(BaseCoreSession):
     @reify
     def indexer_orm_tables(self):
         tables = {}
-        for database_name in self.api_session_manager.indexer_options['database_names']:
-            tables.update(get_orm_tables(SQL_DBS[database_name]['bases']))
+        for database_name in WHOOSH_DIRS[self.settings['indexer.folder']]['database_names']:
+            orm_tables = get_orm_tables(SQL_DBS[database_name]['bases'])
+            for table_name, table in SQL_DBS[database_name]['metadata'].tables.items():
+                orm_table = orm_tables[table_name]
+                if not getattr(orm_table, '__dont_index_me__', False):
+                    if issubclass(orm_table, BranchBase):
+                        tables[orm_table.__tablename__] = orm_table.__parent__
+                    else:
+                        tables[orm_table.__tablename__] = orm_table
         return tables
 
     def make_indexed_unique_id(self, type_name, type_id):
-        table = self.indexer_orm_tables[type_name]
-        if issubclass(table, BranchBase):
-            table = table.__parent__
-        return force_unicode(u'%s-%s' % (table.__tablename__, type_id))
+        orm_table = self.indexer_orm_tables[type_name]
+        return force_unicode(u'%s-%s' % (orm_table.__tablename__, type_id))
 
     def break_indexed_unique_id(self, unique_id):
         type_name, type_id = unique_id.rsplit(u'-', 1)
@@ -759,6 +779,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
         options = self.api_session_manager.indexer_options
         ignore_fields = options['ignore_fields']
         base_fields = options['base_fields']
+        datetime_fields = options['datetime_fields']
         make_key = self.api_session_manager.make_indexer_key
 
         unique_id = self.make_indexed_unique_id(type_name, type_id)
@@ -784,7 +805,11 @@ class BaseCoreIndexedSession(BaseCoreSession):
                 if key in ignore_fields:
                     continue
 
-            value = maybe_unicode(value)
+            if key in datetime_fields:
+                value = maybe_datetime(value)
+            else:
+                value = maybe_unicode(value)
+
             if value:
                 my_data[key] = value
             else:
@@ -798,10 +823,17 @@ class BaseCoreIndexedSession(BaseCoreSession):
         else:
             my_data.pop('indexer_description', None)
 
-        with options['indexer'].writer() as writer:
-            if delete_query is not None:
-                writer.delete_by_query(delete_query)
-            writer.add_document(**my_data)
+        now = NOW()
+        start_date = my_data.get('start_date')
+        end_date = my_data.get('end_date')
+        active = bool((not start_date or start_date <= now) and (not end_date or end_date >= now))
+
+        if delete_query is not None or active:
+            with options['indexer'].writer() as writer:
+                if delete_query is not None:
+                    writer.delete_by_query(delete_query)
+                if active:
+                    writer.add_document(**my_data)
 
     def delete_from_index(self, type_name, type_id):
         unique_id = self.make_indexed_unique_id(type_name, type_id)
@@ -840,7 +872,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
         query_string = u'*%s*' % force_unicode(query_string).replace(u' ', u'*')
         wParser = WHOOSH['qparser']
         query_terms = wParser.MultifieldParser(
-            options['fields'].keys(),
+            options['search_fields'],
             options['indexer'].schema).parse(query_string)
 
         if application_names:
@@ -889,6 +921,61 @@ class BaseCoreIndexedSession(BaseCoreSession):
                     'details': details})
 
         return pagination
+
+    def sync_indexer(self):
+        options = self.api_session_manager.indexer_options
+
+        tables = MissingList()
+        for database_name in options['database_names']:
+            orm_tables = get_orm_tables(SQL_DBS[database_name]['bases'])
+            for table_name, table in SQL_DBS[database_name]['metadata'].tables.items():
+                orm_table = orm_tables[table_name]
+                if not getattr(orm_table, '__dont_index_me__', False):
+                    if issubclass(orm_table, BranchBase):
+                        table_name = orm_table.__parent__.__tablename__
+                    else:
+                        table_name = orm_table.__tablename__
+                    tables[table_name].append(orm_table)
+        if not tables:
+            return u'Nothing to sync'
+
+        lock_key = u'sync indexer %s' % self.settings['indexer.folder']
+        try:
+            self.cache.lock(lock_key, timeout=0.5)
+        except LockTimeout:
+            raise Error('sync', u'Processing sync...')
+
+        try:
+            whoosh_results = MissingSet()
+            with options['indexer'].searcher() as searcher:
+                for r in searcher.all_stored_fields():
+                    type_name, type_id = self.break_indexed_unique_id(r.get('id'))
+                    whoosh_results[type_name].add(type_id)
+
+            db_results = {}
+            for type_name, orm_tables in tables.items():
+                attributes = dict((ot.__tablename__, ot.__table__.c.keys()) for ot in orm_tables)
+                db_results[type_name] = dict((r.id, r) for r in self.query(**attributes).all(active=True))
+
+            wQuery = WHOOSH['query']
+            for type_name, results in db_results.items():
+                delete_indexed = whoosh_results[type_name].difference(results.keys())
+                if delete_indexed:
+                    query = wQuery.Or([
+                        wQuery.Term('id', self.make_indexed_unique_id(type_name, i))
+                        for i in delete_indexed])
+                    with self.api_session_manager.indexer.writer() as writer:
+                        writer.delete_by_query(query)
+
+                for type_id in set(results.keys()).difference(whoosh_results[type_name]):
+                    self.add_to_index(type_name, type_id, results.pop(type_id)._asdict())
+
+                for type_id, db_result in results.items():
+                    self.update_on_index(type_name, type_id, db_result._asdict())
+        finally:
+            self.cache.unlock(lock_key)
+
+        return u'Indexer synchronized'
 
 
 class QueryLookup(object):
