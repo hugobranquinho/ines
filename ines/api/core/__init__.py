@@ -6,6 +6,7 @@ from os.path import normpath
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
+from pyramid.settings import asbool
 from sqlalchemy import and_
 from sqlalchemy import Boolean
 from sqlalchemy import Column
@@ -110,6 +111,7 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
                 'application_names': [self.config.application_name],
                 'fields': schema_fields,
                 'search_fields': search_fields,
+                'boolean_fields': [],
                 'base_fields': schema_fields.keys(),
                 'datetime_fields': datetime_fields,
                 'ignore_fields': set(ignore_fields),
@@ -162,6 +164,7 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
                         options['datetime_fields'].append(key)
                     elif isinstance(column.type, Boolean):
                         options['fields'][key] = wFields.BOOLEAN(stored=True)
+                        options['boolean_fields'].append(key)
                     else:
                         options['fields'][key] = wFields.TEXT(stored=True)
                     options['search_fields'].append(key)
@@ -780,6 +783,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
         ignore_fields = options['ignore_fields']
         base_fields = options['base_fields']
         datetime_fields = options['datetime_fields']
+        boolean_fields = options['boolean_fields']
         make_key = self.api_session_manager.make_indexer_key
 
         unique_id = self.make_indexed_unique_id(type_name, type_id)
@@ -807,6 +811,8 @@ class BaseCoreIndexedSession(BaseCoreSession):
 
             if key in datetime_fields:
                 value = maybe_datetime(value)
+            elif key in boolean_fields:
+                value = asbool(value)
             else:
                 value = maybe_unicode(value)
 
@@ -868,19 +874,24 @@ class BaseCoreIndexedSession(BaseCoreSession):
         if not query_string:
             return
 
-        options = self.api_session_manager.indexer_options
-        query_string = u'*%s*' % force_unicode(query_string).replace(u' ', u'*')
+        wQuery = WHOOSH['query']
         wParser = WHOOSH['qparser']
-        query_terms = wParser.MultifieldParser(
-            options['search_fields'],
-            options['indexer'].schema).parse(query_string)
+        options = self.api_session_manager.indexer_options
+
+        query_terms = []
+        query_string = u'*%s*' % force_unicode(query_string).replace(u' ', u'*')
+        for q in wParser.MultifieldParser(options['search_fields'], options['indexer'].schema).parse(query_string):
+            if (not isinstance(q, wQuery.qcore._NullQuery)
+                    and (q.fieldname not in options['boolean_fields']
+                         or '%s:' % q.fieldname in query_string)):
+                query_terms.append(q)
+        query = wQuery.Or(query_terms)
 
         if application_names:
-            wQuery = WHOOSH['query']
             application_terms = wQuery.And([
                 wQuery.Term('application_name', force_unicode(n))
                 for n in application_names])
-            query_terms = wQuery.And([query_terms, application_terms])
+            query = wQuery.And([query, application_terms])
 
         sortedby = []
         if order_by:
@@ -904,7 +915,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
 
         with options['indexer'].searcher() as searcher:
             response = searcher.search_page(
-                query_terms,
+                query,
                 pagenum=pagination.page,
                 pagelen=pagination.limit_per_page,
                 sortedby=sortedby or None)
