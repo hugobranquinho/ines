@@ -10,6 +10,7 @@ from pyramid.interfaces import IRequestFactory
 from pyramid.renderers import render_to_response
 from pyramid.request import Request
 from pyramid.settings import asbool
+from webob.compat import parse_qsl_text
 from webob.multidict import MultiDict
 from webob.multidict import NoVars
 from webob.request import FakeCGIBody
@@ -102,35 +103,34 @@ class inesRequest(Request):
             return NoVars('Not a DELETE request')
 
         content_type = self.content_type
-        if content_type not in (
-                '',
+        if content_type in (
                 'application/x-www-form-urlencoded',
                 'multipart/form-data'):
-            # Not an HTML form submission
-            return NoVars(
-                'Not an HTML delete submission (Content-Type: %s)'
-                % content_type)
 
-        self._check_charset()
-        if self.is_body_seekable:
-            self.body_file_raw.seek(0)
-        fs_environ = self.environ.copy()
+            self._check_charset()
+            if self.is_body_seekable:
+                self.body_file_raw.seek(0)
+            fs_environ = self.environ.copy()
 
-        # FieldStorage assumes a missing CONTENT_LENGTH, but a
-        # default of 0 is better:
-        fs_environ.setdefault('CONTENT_LENGTH', '0')
-        fs_environ['QUERY_STRING'] = ''
+            # FieldStorage assumes a missing CONTENT_LENGTH, but a
+            # default of 0 is better:
+            fs_environ.setdefault('CONTENT_LENGTH', '0')
+            fs_environ['QUERY_STRING'] = ''
 
-        fs = FieldStorage(
-            fp=self.body_file,
-            environ=fs_environ,
-            keep_blank_values=True)
-        delete_values = MultiDict.from_fieldstorage(fs)
+            fs = FieldStorage(
+                fp=self.body_file,
+                environ=fs_environ,
+                keep_blank_values=True)
+            delete_values = MultiDict.from_fieldstorage(fs)
 
-        ctype = self._content_type_raw or 'application/x-www-form-urlencoded'
-        f = FakeCGIBody(delete_values, ctype)
-        self.body_file = BufferedReader(f)
-        return delete_values
+            ctype = self._content_type_raw or 'application/x-www-form-urlencoded'
+            f = FakeCGIBody(delete_values, ctype)
+            self.body_file = BufferedReader(f)
+            return delete_values
+
+        else:
+            data = parse_qsl_text(self.environ.get('QUERY_STRING', ''))
+            return MultiDict(data)
 
 
 class ApplicationsConnector(object):

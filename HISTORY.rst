@@ -25,7 +25,7 @@ Features
 Features
 --------
 
-- New api module, ``api.core.BaseCoreIndexedSession``. This module is equals to ``api.core.BaseCoreSession`` but indexs all information saved in DB with ``Whoosh`` package.
+- New api module, ``api.core.BaseCoreIndexedSession``. This module is equals to ``api.core.BaseCoreSession`` but indexs all information with ``Whoosh`` package.
 
 - Added PT translations
 
@@ -58,6 +58,8 @@ Features
 - ``utils.PaginationClass`` to use as pagination class in pagination views
 
 - Added method ``asdict`` to ``request.ApplicationsConnector``. Available as ``request.applications.asdict()``
+
+- ``ines.request.DELETE`` reads data from body (POST) or QUERY_STRING (GET)
 
 
 Bug Fixes
