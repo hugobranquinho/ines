@@ -27,6 +27,8 @@ Features
 
 - New api module, ``api.core.BaseCoreIndexedSession``. This module is equals to ``api.core.BaseCoreSession`` but indexs all information with ``Whoosh`` package.
 
+- ``csv`` renderer now accepts ``request.params``: `CSVDelimiter`, `CSVQuoteChar` and `CSVLineTerminator`
+
 - Added PT translations
 
 - ``cleaner.clean_phone_number`` to clean telephone / mobile numbers

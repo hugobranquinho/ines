@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+from csv import QUOTE_MINIMAL
+from csv import writer as csv_writer
+from cStringIO import StringIO
 import datetime
 from json import dumps
 from os.path import basename
@@ -7,8 +10,10 @@ from os.path import basename
 from colander import Mapping
 from colander import Sequence
 
+from ines import _
 from ines import DEFAULT_RENDERERS
 from ines.convert import camelcase
+from ines.convert import force_string
 from ines.convert import force_unicode
 from ines.convert import maybe_string
 
@@ -56,6 +61,12 @@ class CSV(object):
     def __call__(self, info):
         def _render(value, system):
             request = system.get('request')
+
+            delimiter = ';'
+            quotechar = '"'
+            lineterminator = '\r\n'
+            quoting = QUOTE_MINIMAL
+
             if request is not None:
                 response = request.response
                 ct = response.content_type
@@ -68,42 +79,64 @@ class CSV(object):
                 if output:
                     value = self.lookup_rows(output[0].schema.children[0], value)
 
-            separator = u';'
-            separator_replace = u','
-            line_break = u'\n'
-            line_break_replace = u' '
+                csv_delimiter = request.params.get(camelcase('csv_delimiter'))
+                if csv_delimiter:
+                    delimiter = force_string(csv_delimiter)
+                    if delimiter == '\\t':
+                        delimiter = '\t'
+                    else:
+                        delimiter = delimiter[0]
 
-            lines = []
+                csv_quote_char = request.params.get(camelcase('csv_quote_char'))
+                if csv_quote_char:
+                    quotechar = force_string(csv_quote_char)
+
+                csv_line_terminator = request.params.get(camelcase('csv_line_terminator'))
+                if csv_line_terminator:
+                    if csv_line_terminator == u'\\n\\r':
+                        lineterminator = '\n\r'
+                    elif csv_line_terminator == u'\\n':
+                        lineterminator = '\n'
+                    elif csv_line_terminator == u'\\r':
+                        lineterminator = '\r'
+
+                yes_text = force_string(request.translate(_(u'Yes')))
+                no_text = force_string(request.translate(_(u'No')))
+            else:
+                yes_text = 'Yes'
+                no_text = 'No'
+
+            if not value:
+                return u''
+
+            f = StringIO()
+            csvfile = csv_writer(
+                f,
+                delimiter=delimiter,
+                quotechar=quotechar,
+                lineterminator=lineterminator,
+                quoting=quoting)
+
             for value_items in value:
                 row = []
                 for item in value_items:
                     if item is None:
-                        item = u''
-
+                        item = ''
                     elif isinstance(item, bool):
-                        if item:
-                            item = u'true'
-                        else:
-                            item = u'false'
-
+                        item = item and yes_text or no_text
                     elif isinstance(item, (int, basestring, long)):
-                        item = force_unicode(item)
-
+                        item = force_string(item)
                     elif isinstance(item, (DATE, DATETIME)):
-                        item = item.isoformat()
-
+                        item = force_string(item.isoformat())
                     else:
-                        item = dumps(item)
-
-                    if u'"' in item:
-                        item = u'"%s"' % item.replace(u'"', u'\\"')
-
-                    item = item.replace(separator, separator_replace)
-                    item = item.replace(line_break, line_break_replace)
+                        item = force_string(dumps(item))
                     row.append(item)
+                csvfile.writerow(row)
 
-                lines.append(separator.join(row))
-            return line_break.join(lines)
+            f.seek(0)
+            response = force_unicode(f.read())
+            f.close()
+            return response
 
         return _render
 

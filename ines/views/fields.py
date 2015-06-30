@@ -396,6 +396,12 @@ class PaginationInput(MappingSchema):
     finisher = [PaginationOrderFinisher]
 
 
+class CSVInput(MappingSchema):
+    csv_delimiter = SchemaNode(String(), title=_(u'CSV content delimiter'), missing=None)
+    csv_quote_char = SchemaNode(String(), title=_(u'CSV content quote'), missing=None)
+    csv_line_terminator = SchemaNode(String(), title=_(u'CSV line terminator'), missing=None)
+
+
 class PaginationOutput(MappingSchema):
     page = PAGE
     limit_per_page = LIMIT_PER_PAGE

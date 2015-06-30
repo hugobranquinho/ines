@@ -5,7 +5,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-06-26 03:07+0100\n"
+"POT-Creation-Date: 2015-06-30 20:41+0100\n"
 "PO-Revision-Date: 2015-06-16 18:22+0100\n"
 "Last-Translator: Hugo Branquinho <hugobranq@gmail.com>\n"
 "Language-Team: Portuguese\n"
@@ -255,11 +255,19 @@ msgstr "${week}"
 msgid "No data"
 msgstr "Sem data"
 
-#: ines/validator.py:62 ines/validator.py:39
+#: ines/renderers.py:103
+msgid "Yes"
+msgstr "Sim"
+
+#: ines/renderers.py:104
+msgid "No"
+msgstr "Não"
+
+#: ines/validator.py:63 ines/validator.py:98 ines/validator.py:40
 msgid "Invalid number"
 msgstr "Número inválido"
 
-#: ines/validator.py:72
+#: ines/validator.py:73
 msgid "Invalid \"skype\" username"
 msgstr "Contacto \"skype\" inválido"
 
@@ -307,7 +315,19 @@ msgstr "Url da primeira página"
 msgid "Last page url"
 msgstr "Url da última página"
 
-#: ines/views/fields.py:412
+#: ines/views/fields.py:400
+msgid "CSV content delimiter"
+msgstr "Delimitador das colunas do CSV"
+
+#: ines/views/fields.py:401
+msgid "CSV content quote"
+msgstr "Delimitador do texto de cada coluna do CSV"
+
+#: ines/views/fields.py:402
+msgid "CSV line terminator"
+msgstr "Código para quebra de linha do CSV"
+
+#: ines/views/fields.py:418
 msgid "Deleted"
 msgstr "Apagado"
 
