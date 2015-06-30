@@ -779,6 +779,9 @@ class BaseCoreIndexedSession(BaseCoreSession):
         self.update_on_index(type_name, type_id, data)
 
     def update_on_index(self, type_name, type_id, data):
+        if type_name not in self.indexer_orm_tables:
+            return None
+
         options = self.api_session_manager.indexer_options
         ignore_fields = options['ignore_fields']
         base_fields = options['base_fields']
@@ -842,6 +845,9 @@ class BaseCoreIndexedSession(BaseCoreSession):
                     writer.add_document(**my_data)
 
     def delete_from_index(self, type_name, type_id):
+        if type_name not in self.indexer_orm_tables:
+            return None
+
         unique_id = self.make_indexed_unique_id(type_name, type_id)
 
         wQuery = WHOOSH['query']
