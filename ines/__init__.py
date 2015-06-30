@@ -11,7 +11,7 @@ from translationstring import TranslationStringFactory
 
 _ = TranslationStringFactory('ines')
 APPLICATIONS = {}
-CAMELCASE_UPPER_WORDS = set()
+CAMELCASE_UPPER_WORDS = set(['CSV'])
 MARKER = object()
 API_CONFIGURATION_EXTENSIONS = {}
 
