@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-06-30 20:41+0100\n"
+"POT-Creation-Date: 2015-06-30 21:38+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -272,7 +272,7 @@ msgid "Invalid \"skype\" username"
 msgstr ""
 
 #: ./ines/api/utils.py:16
-msgid "Try again later"
+msgid "Too many tries. Try again later"
 msgstr ""
 
 #: ./ines/views/fields.py:380
