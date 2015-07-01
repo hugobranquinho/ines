@@ -4,7 +4,6 @@ from csv import QUOTE_MINIMAL
 from csv import writer as csv_writer
 from cStringIO import StringIO
 import datetime
-from json import dumps
 from os.path import basename
 
 from colander import Mapping
@@ -15,6 +14,7 @@ from ines import DEFAULT_RENDERERS
 from ines.convert import camelcase
 from ines.convert import force_string
 from ines.convert import force_unicode
+from ines.convert import json_dumps
 from ines.convert import maybe_string
 
 
@@ -129,7 +129,7 @@ class CSV(object):
                     elif isinstance(item, (DATE, DATETIME)):
                         item = force_string(item.isoformat())
                     else:
-                        item = force_string(dumps(item))
+                        item = force_string(json_dumps(item) or '')
                     row.append(item)
                 csvfile.writerow(row)
 

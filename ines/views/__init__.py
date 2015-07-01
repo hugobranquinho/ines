@@ -74,3 +74,13 @@ class DefaultAPIView(object):
             'previous_page_href': previous_href,
             'first_page_href': first_href,
             'last_page_href': last_href}
+
+    def pop_csv_structure(self, structure):
+        response = structure.copy()
+        if 'csv_delimiter' in response:
+            response.pop('csv_delimiter')
+        if 'csv_quote_char' in response:
+            response.pop('csv_quote_char')
+        if 'csv_line_terminator' in response:
+            response.pop('csv_line_terminator')
+        return response
