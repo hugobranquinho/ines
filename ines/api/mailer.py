@@ -9,6 +9,7 @@ from smtplib import SMTPRecipientsRefused
 
 from pkg_resources import get_distribution
 
+from ines import _
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.api.jobs import job
@@ -160,7 +161,8 @@ class BaseMailerSession(BaseSession):
             extra_headers=extra_headers,
             **options)
 
-    @job(second=0, minute=[0, 15, 30, 45])
+    @job(second=0, minute=[0, 15, 30, 45],
+         title=_(u'Send queue emails'))
     def mailer_queue_send(self):
         queue_path = self.settings.get('queue_path')
         if queue_path:

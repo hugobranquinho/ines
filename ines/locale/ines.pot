@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-06-30 21:38+0100\n"
+"POT-Creation-Date: 2015-07-02 19:30+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -269,6 +269,14 @@ msgstr ""
 
 #: ./ines/validator.py:73
 msgid "Invalid \"skype\" username"
+msgstr ""
+
+#: ./ines/api/mailer.py:165
+msgid "Send queue emails"
+msgstr ""
+
+#: ./ines/api/storage.py:532
+msgid "Create configurated images"
 msgstr ""
 
 #: ./ines/api/utils.py:16

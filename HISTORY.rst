@@ -29,6 +29,10 @@ Features
 
 - ``csv`` renderer now accepts ``request.params``: `CSVDelimiter`, `CSVQuoteChar` and `CSVLineTerminator`
 
+- Added method ``api.jobs.BaseJobsSession.get_active_jobs``. This gives all registered jobs and stats
+
+- Added method ``api.jobs.BaseJobsSession.immediate_job_run`` to call and run a job
+
 - Added PT translations
 
 - ``cleaner.clean_phone_number`` to clean telephone / mobile numbers

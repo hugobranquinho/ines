@@ -16,6 +16,7 @@ from ines import PROCESS_ID
 from ines import SYSTEM_VERSION
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
+from ines.convert import maybe_list
 from ines.cron import Cron
 from ines.exceptions import LockTimeout
 from ines.exceptions import NoMoreDates
@@ -40,11 +41,14 @@ class BaseJobsManager(BaseSessionManager):
     def __init__(self, *args, **kwargs):
         super(BaseJobsManager, self).__init__(*args, **kwargs)
 
-        self.save_reports = asbool(self.settings.get('save_reports', False))
+        self.save_reports = asbool(self.settings.get('save_reports', True))
         self.server_domain_name = self.settings.get('server_domain_name')
         self.active = bool(
             not self.server_domain_name
             or self.server_domain_name == DOMAIN_NAME)
+
+        self.domain_names = set(self.settings.get('domain_names', ''))
+        self.domain_names.add(DOMAIN_NAME)
 
         try:
             import transaction
@@ -83,7 +87,7 @@ class BaseJobsManager(BaseSessionManager):
             finally:
                 self.config.cache.unlock(lock_key)
 
-            # Start one Job Thread for each domain
+            # Start only one Thread for each domain
             if start_thread:
                 start_system_thread('jobs_monitor', self.run_monitor)
                 print 'Running jobs monitor on PID %s' % PROCESS_ID
@@ -109,16 +113,19 @@ class BaseJobsManager(BaseSessionManager):
         wrapped.run_job = run_job
 
         if self.active:
-            self.update_job_report_info(apijob, called_date=apijob.last_called_date)
+            self.update_job_report_info(apijob, called_date=apijob.last_called_date, as_add=True)
 
     def register_immediate_job_run(self, apijob):
-        self.config.cache.append_value(JOBS_IMMEDIATE_KEY, apijob.name)
+        self.config.cache.append_value(JOBS_IMMEDIATE_KEY, apijob.name, expire=None)
+
+    def immediate_job_run(self, name):
+        return self.register_immediate_job_run(get_job(name))
 
     def run_monitor(self):
         try:
             self.validate_daemons()
 
-            immediate_jobs = set(self.config.cache.get_values(JOBS_IMMEDIATE_KEY))
+            immediate_jobs = set(self.config.cache.get_values(JOBS_IMMEDIATE_KEY, expire=None))
             for apijob in JOBS:
                 run_job = False
                 if apijob.name in immediate_jobs:
@@ -138,7 +145,7 @@ class BaseJobsManager(BaseSessionManager):
                     else:
                         RUNNING_JOBS.append((apijob, daemon))
 
-            self.config.cache.replace_values(JOBS_IMMEDIATE_KEY, immediate_jobs)
+            self.config.cache.replace_values(JOBS_IMMEDIATE_KEY, immediate_jobs, expire=None)
 
         except Exception as error:
             self.system_session(apijob).logging.log_critical(
@@ -148,18 +155,53 @@ class BaseJobsManager(BaseSessionManager):
         else:
             return 0.5
 
-    def update_job_report_info(self, apijob, called_date=None):
-        if self.save_reports:
-            info = self.config.cache.get(JOBS_REPORT_KEY) or ActiveJobReport()
+    def update_job_report_info(self, apijob, called_date=None, as_add=False):
+        if as_add or self.save_reports:
+            info = self.config.cache.get(JOBS_REPORT_KEY, expire=None) or {}
 
-            key = '%s:%s' % (apijob.application_name, apijob.method_name)
-            info[key]['next'] = apijob.next_date
-            info[key]['active'] = apijob.active
-
+            job_info = info.setdefault(apijob.name, {})
+            job_info['next'] = apijob.next_date
+            job_info['active'] = apijob.active
             if called_date:
-                info[key]['called'].append(called_date)
+                job_info.setdefault('called', []).append(called_date)
 
-            self.config.cache.put(JOBS_REPORT_KEY, info)
+            if as_add:
+                job_info['start'] = NOW()
+
+            self.config.cache.put(JOBS_REPORT_KEY, info, expire=None)
+
+    def get_active_jobs(self, application_names=None):
+        jobs = {}
+        application_names = maybe_list(application_names)
+        for domain_name in self.domain_names:
+            domain_info = self.config.cache.get(JOBS_REPORT_KEY, expire=None)
+            if not domain_info:
+                continue
+
+            for name, info in domain_info.items():
+                application_name = get_job_application_name(name)
+                if not application_names or application_name in application_names:
+                    if name in jobs:
+                        info_next = info['next']
+                        added_info_next = jobs[name]['next']
+                        if info_next:
+                            if not added_info_next or added_info_next > info_next:
+                                jobs[name]['next'] = info_next
+
+                        if info['start'] < jobs[name]['start']:
+                            jobs[name]['start'] = info['start']
+                        if info['active']:
+                            jobs[name]['active'] = True
+                        if info['called']:
+                            jobs[name].setdefault('called', []).extend(info['called'])
+                            jobs[name]['called'].sort()
+                    else:
+                        jobs[name] = info
+
+                        apijob = get_job(name)
+                        jobs[name]['title'] = apijob.title if apijob else None
+
+        return jobs
 
     def validate_daemons(self):
         if RUNNING_JOBS:
@@ -186,6 +228,13 @@ class BaseJobsSession(BaseSession):
         if self.api_session_manager.transaction:
             self.api_session_manager.transaction.commit()
 
+    def get_active_jobs(self, *args, **kwargs):
+        return self.api_session_manager.get_active_jobs(*args, **kwargs)
+
+    def immediate_job_run(self, name):
+        return self.api_session_manager.immediate_job_run(name)
+
+
 def job(**settings):
     def decorator(wrapped):
         def callback(context, name, ob):
@@ -202,12 +251,6 @@ def job(**settings):
     return decorator
 
 
-class ActiveJobReport(dict):
-    def __missing__(self, key):
-        self[key] = {'next': None, 'called': []}
-        return self[key]
-
-
 class APIJob(object):
     def __init__(self, api_session_manager, api_name, wrapped_name, settings):
         self.api_session_manager = api_session_manager
@@ -220,6 +263,8 @@ class APIJob(object):
         self.last_called_date = None
 
         self.domain_name = settings.pop('domain_name', None)
+        self.title = settings.pop('title', None)
+
         self.cron = Cron(**settings)
 
         self.enable()
@@ -230,9 +275,13 @@ class APIJob(object):
     @reify
     def name(self):
         return '%s:%s.%s' % (
-            self.api_session_manager.config.application_name,
+            self.application_name,
             self.api_name,
             self.wrapped_name)
+
+    @property
+    def application_name(self):
+        return self.api_session_manager.config.application_name
 
     def disable(self):
         if self.active:
@@ -268,7 +317,7 @@ class APIJob(object):
             api_session = self.api_session_manager.system_session(self)
 
             lock_key = JOBS_LOCK_KEY(self.name)
-            if lock_key not in self.api_session_manager.config.cache:
+            if lock_key not in self.api_session_manager.config.cache.lockme:
                 try:
                     self.api_session_manager.config.cache.lock(lock_key, timeout=1)
                 except LockTimeout:
@@ -289,3 +338,14 @@ class APIJob(object):
                     self.updating = False
                     self.api_session_manager.config.cache.unlock(lock_key)
                     self.find_next()
+
+
+def get_job_application_name(name):
+    application_name, method_name = name.split(':', 1)
+    return application_name
+
+
+def get_job(name):
+    for job in JOBS:
+        if job.name == name:
+            return job

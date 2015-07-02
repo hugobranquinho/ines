@@ -20,6 +20,7 @@ from sqlalchemy import String
 from sqlalchemy import Unicode
 from sqlalchemy.orm import aliased
 
+from ines import _
 from ines import OPEN_BLOCK_SIZE
 from ines.api.database.sql import BaseSQLSession
 from ines.api.database.sql import BaseSQLSessionManager
@@ -527,7 +528,8 @@ class BaseStorageWithImageSession(BaseStorageSession):
 
         return True
 
-    @job(second=0, minute=[0, 30])
+    @job(second=0, minute=[0, 30],
+         title=_(u'Create configurated images'))
     def create_image_resizes(self):
         if not asbool(self.settings.get('thumb.create_on_add')) or not self.api_session_manager.resizes:
             return None
