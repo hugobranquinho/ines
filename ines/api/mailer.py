@@ -14,6 +14,7 @@ from ines.api import BaseSession
 from ines.api.jobs import job
 from ines.convert import force_string
 from ines.convert import force_unicode
+from ines.convert import maybe_string
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.mimetype import find_mimetype
@@ -33,9 +34,10 @@ def format_email(email, encoding=None):
     elif not isinstance(email, basestring):
         label, email = email
 
-    return formataddr((
-        force_string(label, encoding=encoding),
-        force_string(email, encoding=encoding)))
+    return force_unicode(
+        formataddr((
+            maybe_string(label, encoding=encoding),
+            force_string(email, encoding=encoding))))
 
 
 class BaseMailerSessionManager(BaseSessionManager):
