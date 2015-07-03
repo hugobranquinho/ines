@@ -33,6 +33,8 @@ Features
 
 - Added method ``api.jobs.BaseJobsSession.immediate_job_run`` to call and run a job
 
+- ``authentication.ApplicationHeaderAuthenticationPolicy`` reads cookie if defined
+
 - Added PT translations
 
 - ``cleaner.clean_phone_number`` to clean telephone / mobile numbers

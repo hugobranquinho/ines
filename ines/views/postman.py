@@ -19,8 +19,10 @@ from colander import String
 from colander import Tuple
 from pyramid.authorization import Everyone
 from pyramid.compat import is_nonstr_iter
+from pyramid.interfaces import IAuthenticationPolicy
 
 from ines import DEFAULT_METHODS
+from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import NotAuthenticated
 from ines.convert import camelcase
 from ines.convert import maybe_list
@@ -45,24 +47,36 @@ class PostmanCollection(object):
     def new_unique_id(self):
         return str(uuid4())
 
+    def get_authentication_headers(self, authentication, method_permissions):
+        headers = set()
+        for method_permission in method_permissions:
+            if method_permission not in (Everyone, NotAuthenticated):
+                if isinstance(authentication, ApplicationHeaderAuthenticationPolicy):
+                    if authentication.header_key:
+                        headers.add('%s: Token {{token}}' % authentication.header_key)
+                    if authentication.cookie_key:
+                        headers.add('Cookie: %s={{token}}' % authentication.cookie_key)
+                break
+        return headers
+
     def __call__(self, context, request):
         requests = []
         folders = MissingList()
         folders_descriptions = {}
         config = request.registry.config
+        authentication = request.registry.queryUtility(IAuthenticationPolicy)
 
         for schema_view in request.registry.getAllUtilitiesRegisteredFor(ISchemaView):
             # Make route for url
             intr_route = request.registry.introspector.get('routes', schema_view.route_name)
             if intr_route is not None:
-                # Schema permission
                 headers = set()
-                permissions = lookup_for_route_permissions(request.registry, intr_route)
-                method_permissions = maybe_list(permissions.get('GET'))
-                for method_permission in method_permissions:
-                    if method_permission not in (Everyone, NotAuthenticated):
-                        headers.add('Authorization: Token {{token}}')
-                        break
+
+                # Schema permission
+                if authentication:
+                    permissions = lookup_for_route_permissions(request.registry, intr_route)
+                    method_permissions = maybe_list(permissions.get('GET'))
+                    headers.update(self.get_authentication_headers(authentication, method_permissions))
 
                 request_id = self.new_unique_id()
                 requests.append({
@@ -94,7 +108,10 @@ class PostmanCollection(object):
                 if intr_route is None:
                     continue
                 route = intr_route['object']
-                permissions = lookup_for_route_permissions(request.registry, intr_route)
+
+                if authentication:
+                    permissions = lookup_for_route_permissions(request.registry, intr_route)
+
                 params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
                 url = '%s%s' % (request.application_url, unquote(route.generate(params)))
 
@@ -162,16 +179,12 @@ class PostmanCollection(object):
                     else:
                         request_schema_data = schema_data
 
-                    # Method permission
                     headers = set()
-                    method_permissions = maybe_list(permissions.get(request_method))
-                    for method_permission in method_permissions:
-                        if method_permission not in (Everyone, NotAuthenticated):
-                            headers.add('Authorization: Token {{token}}')
-                            break
 
-                    if not title:
-                        title = route_name.replace('_', ' ').title()
+                    # Method permission
+                    if authentication:
+                        method_permissions = maybe_list(permissions.get(request_method))
+                        headers.update(self.get_authentication_headers(authentication, method_permissions))
 
                     request_id = self.new_unique_id()
                     requests.append({
@@ -188,7 +201,7 @@ class PostmanCollection(object):
                         'currentHelper': 'normal',
                         'helperAttributes': {},
                         'time': self.collection_time,
-                        'name': title,
+                        'name': title or route_name.replace('_', ' ').title(),
                         'description': description or '',
                         'collectionId': self.collection_id,
                         'responses': [],

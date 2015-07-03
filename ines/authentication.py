@@ -9,6 +9,7 @@ from ines.authorization import Authenticated
 from ines.authorization import Everyone
 from ines.authorization import NotAuthenticated
 from ines.authorization import User
+from ines.convert import force_string
 
 
 class AuthenticatedSession(object):
@@ -49,9 +50,15 @@ class ApplicationHeaderAuthenticationPolicy(object):
     def __init__(
             self,
             application_name,
-            header_key='Authorization'):
+            header_key='Authorization',
+            cookie_key=None):
+
         self.application_name = application_name
         self.header_key = header_key
+        self.cookie_key = cookie_key
+
+        if not self.header_key and not self.cookie_key:
+            raise ValueError('Please define a key for authentication validation. `header_key` or `cookie_key`')
 
     def get_authenticated_session(self, request):
         have_cache = hasattr(request, 'session_cache')
@@ -86,7 +93,13 @@ class ApplicationHeaderAuthenticationPolicy(object):
         return self.get_authenticated_session(request)
 
     def unauthenticated_userid(self, request):
-        return request.headers.get(self.header_key)
+        userid = request.headers.get(self.header_key)
+        if userid:
+            return userid
+
+        userid = request.cookies.get(self.cookie_key)
+        if userid:
+            return 'Token %s' % force_string(userid)
 
     def effective_principals(self, request):
         authenticated = self.get_authenticated_session(request)

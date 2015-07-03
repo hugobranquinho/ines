@@ -456,12 +456,14 @@ class APIConfigurator(Configurator):
     def set_token_policy(
             self,
             application_name,
-            header_key='Authorization'):
+            header_key='Authorization',
+            cookie_key=None):
 
         # Authentication Policy
         authentication_policy = ApplicationHeaderAuthenticationPolicy(
             application_name,
-            header_key=header_key)
+            header_key=header_key,
+            cookie_key=cookie_key)
         self.set_authentication_policy(authentication_policy)
 
         authorization_policy = TokenAuthorizationPolicy(application_name)
