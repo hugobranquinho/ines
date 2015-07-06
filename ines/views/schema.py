@@ -126,7 +126,7 @@ class SchemaView(object):
                 'model': name,
                 'type': 'sequence',
                 'title': request.translate(schema.title),
-                'description': schema.description or None}
+                'description': schema.description or ''}
             models[name].append(details)
 
             # Find and add child
@@ -171,7 +171,7 @@ class SchemaView(object):
             details = {
                 'type': 'model',
                 'title': request.translate(schema.title),
-                'description': request.translate(schema.description or None),
+                'description': request.translate(schema.description or ''),
                 'fields': fields,
                 'model': name}
             models[name].append(details)
