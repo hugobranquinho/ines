@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.elements import BindParameter
 from sqlalchemy.sql.schema import Table
+from sqlalchemy.sql.selectable import Alias
 
 from ines import MARKER
 from ines.api.core.database import ActiveBase
@@ -32,6 +33,7 @@ from ines.api.database.sql import BaseSQLSession
 from ines.api.database.sql import BaseSQLSessionManager
 from ines.api.database.sql import create_filter_by
 from ines.api.database.sql import date_in_period_filter
+from ines.api.database.sql import get_orm_tables
 from ines.api.database.sql import new_lightweight_named_tuple
 from ines.api.database.sql import Pagination
 from ines.api.database.sql import SQL_DBS
@@ -136,7 +138,7 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
 
         wFields = WHOOSH['fields']
         for database_name in WHOOSH_DIRS[self.settings['indexer.folder']]['database_names']:
-            orm_tables = get_orm_tables(SQL_DBS[database_name]['bases'])
+            orm_tables = get_orm_tables(database_name)
             for table_name, table in SQL_DBS[database_name]['metadata'].tables.items():
                 orm_table = orm_tables[table_name]
                 if getattr(orm_table, '__dont_index_me__', False):
@@ -208,6 +210,11 @@ class ORMQuery(object):
         outerjoins = MissingDict()
         queries = []
 
+        table_alias = {}
+        for table in tables:
+            if isinstance(table, Alias):
+                table_alias[table.original.name] = table
+
         def set_relations(orm_table, as_outerjoin=False):
             if orm_table.__core_type__ == 'branch':
                 as_outerjoin = True
@@ -215,13 +222,15 @@ class ORMQuery(object):
             self_children = False
             related_tables = set()
             foreign_keys = list(orm_table.__table__.foreign_keys)
-            if len(foreign_keys) > 1 and hasattr(orm_table, '__parent__'):
+            if getattr(orm_table, '__parent__', None) is not None:
                 # Set parent as first on the line!
-                position = [i for i, f in enumerate(foreign_keys) if f.parent.name == 'parent_id'][0]
-                foreign_keys.insert(0, foreign_keys.pop(position))
+                position = [i for i, f in enumerate(foreign_keys) if f.parent.name == 'parent_id']
+                if position:
+                    foreign_keys.insert(0, foreign_keys.pop(position[0]))
 
             for foreign in foreign_keys:
-                foreign_orm_table = self.options.orm_tables[foreign.column.table.name]
+                foreign_table_name = foreign.column.table.name
+                foreign_orm_table = self.options.orm_tables[foreign_table_name]
                 if foreign_orm_table in related_tables:
                     foreign_orm_table = aliased(foreign_orm_table)
                 else:
@@ -241,20 +250,37 @@ class ORMQuery(object):
                             foreign_as_outerjoin = False
                         set_relations(foreign_orm_table, as_outerjoin=foreign_as_outerjoin)
 
-                elif foreign_column.table in tables:
+                elif foreign_orm_table is orm_table:
+                    aliased_foreign = table_alias.get(foreign_table_name)
+                    if aliased_foreign is not None:
+                        aliased_foreign_column = getattr(aliased_foreign.c, foreign.column.name)
+                        if as_outerjoin or foreign.parent.nullable:
+                            outerjoins[orm_table][aliased_foreign] = (aliased_foreign_column == foreign.parent)
+                        else:
+                            queries.append(aliased_foreign_column == foreign.parent)
+
+                else:
                     if as_outerjoin or foreign.parent.nullable:
                         outerjoins[orm_table][foreign_orm_table] = (foreign_column == foreign.parent)
                     else:
                         queries.append(foreign_column == foreign.parent)
 
-                else:
-                    set_relations(foreign_orm_table, as_outerjoin=as_outerjoin)
+                    if foreign_column.table not in tables:
+                        set_relations(foreign_orm_table, as_outerjoin=as_outerjoin)
 
             if not self_children and relate_actives and orm_table.__core_type__ == 'active':
                 active_tables.add(orm_table)
 
+        done_orm_tables = set()
         for table in tables:
-            set_relations(self.options.orm_tables[table.name])
+            if isinstance(table, Alias):
+                orm_table = self.options.orm_tables[table.original.name]
+            else:
+                orm_table = self.options.orm_tables[table.name]
+
+            if orm_table not in done_orm_tables:
+                done_orm_tables.add(orm_table)
+                set_relations(orm_table)
 
         active_query = None
         if relate_actives:
@@ -299,7 +325,7 @@ class ORMQuery(object):
 
         if self.options.secondary_parents:
             for parent_name in self.options.secondary_parents.keys():
-                relation_column = self.options.secondary_parent_attributes[parent_name]
+                relation_column, relation_table = self.options.secondary_parent_attributes[parent_name]
                 if relation_column.table not in tables:
                     tables.add(relation_column.table)
                 parent_label = relation_column.label('%s_parent_id' % parent_name)
@@ -452,10 +478,10 @@ class ORMQuery(object):
                     else:
                         new_attributes.update(deepcopy(attr))
 
-                orm_table = self.options.orm_tables[parent_name]
+                parent_table_name = self.options.secondary_parent_attributes[parent_name][1].name
                 references = dict(
                     (p.id, p)
-                    for p in getattr(self.api_session, 'get_%s' % orm_table.__tablename__)(
+                    for p in getattr(self.api_session, 'get_%s' % parent_table_name)(
                             id=child_ids,
                             attributes=new_attributes,
                             order_by=self.options.secondary_children_order_by.get(parent_name),
@@ -757,7 +783,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
     def indexer_orm_tables(self):
         tables = {}
         for database_name in WHOOSH_DIRS[self.settings['indexer.folder']]['database_names']:
-            orm_tables = get_orm_tables(SQL_DBS[database_name]['bases'])
+            orm_tables = get_orm_tables(database_name)
             for table_name, table in SQL_DBS[database_name]['metadata'].tables.items():
                 orm_table = orm_tables[table_name]
                 if not getattr(orm_table, '__dont_index_me__', False):
@@ -944,7 +970,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
 
         tables = MissingList()
         for database_name in options['database_names']:
-            orm_tables = get_orm_tables(SQL_DBS[database_name]['bases'])
+            orm_tables = get_orm_tables(database_name)
             for table_name, table in SQL_DBS[database_name]['metadata'].tables.items():
                 orm_table = orm_tables[table_name]
                 if not getattr(orm_table, '__dont_index_me__', False):
@@ -1042,7 +1068,7 @@ class QueryLookup(object):
 
     @reify
     def orm_tables(self):
-        return get_orm_tables(self.sql_options['bases'])
+        return get_orm_tables(self.database_name)
 
     def get_table(self, maybe_name):
         if isinstance(maybe_name, Table):
@@ -1124,35 +1150,48 @@ class QueryLookup(object):
                         options.tables.add(table)
                         options.attributes.append(ACTIVE_MARKER)
                     else:
-                        add_for_pos_queries = True
-                        if not attributes:
-                            orm_table = self.orm_tables[table.name]
-                            if hasattr(orm_table, '__branches__'):
-                                for orm_branch in orm_table.__branches__:
-                                    branch_table = self.get_table(orm_branch)
-                                    if maybe_attribute in branch_table.c:
-                                        options.tables.add(table)
-                                        options.add_outerjoin(orm_table, orm_branch)
-                                        options.attributes.append(branch_table.c[maybe_attribute])
-                                        add_for_pos_queries = False
+                        orm_table = self.orm_tables[table.name]
+                        parent_orm_table = getattr(orm_table, '__parent__', None)
+
+                        if parent_orm_table and maybe_attribute == 'parent':
+                            options.secondary_parents[maybe_attribute].append(attributes)
+                            options.secondary_parent_attributes[maybe_attribute] = (table.c.parent_id, table)
+
+                        elif parent_orm_table and force_unicode(maybe_attribute).startswith('parent_'):
+                            parent_table = aliased(table, name='parent')
+                            options.tables.add(parent_table)
+                            column_name = maybe_attribute.split('parent_', 1)[1]
+                            options.attributes.append(getattr(parent_table.c, column_name))
+
+                        else:
+                            add_for_pos_queries = True
+                            if not attributes:
+                                if hasattr(orm_table, '__branches__'):
+                                    for orm_branch in orm_table.__branches__:
+                                        branch_table = self.get_table(orm_branch)
+                                        if maybe_attribute in branch_table.c:
+                                            options.tables.add(table)
+                                            options.add_outerjoin(orm_table, orm_branch)
+                                            options.attributes.append(branch_table.c[maybe_attribute])
+                                            add_for_pos_queries = False
+                                            break
+
+                            if add_for_pos_queries:
+                                if not maybe_attribute:
+                                    raise AttributeError('Need to define a table for children / parent queries')
+
+                                pos_table = self.get_table(maybe_attribute)
+                                relation_name = maybe_attribute
+                                if not isinstance(relation_name, basestring):
+                                    relation_name = pos_table.name
+
+                                for foreign in table.foreign_keys:
+                                    if foreign.column.table is pos_table:
+                                        options.secondary_parents[relation_name].append(attributes)
+                                        options.secondary_parent_attributes[relation_name] = (foreign.parent, foreign.column.table)
                                         break
-
-                        if add_for_pos_queries:
-                            if not maybe_attribute:
-                                raise AttributeError('Need to define a table for children / parent queries')
-
-                            pos_table = self.get_table(maybe_attribute)
-                            relation_name = maybe_attribute
-                            if not isinstance(relation_name, basestring):
-                                relation_name = pos_table.name
-
-                            for foreign in table.foreign_keys:
-                                if foreign.column.table is pos_table:
-                                    options.secondary_parents[relation_name].append(attributes)
-                                    options.secondary_parent_attributes[relation_name] = foreign.parent
-                                    break
-                            else:
-                                options.secondary_children[relation_name].append(attributes)
+                                else:
+                                    options.secondary_children[relation_name].append(attributes)
 
             elif is_nonstr_iter(attribute):
                 for maybe_attribute in attribute:
@@ -1381,18 +1420,3 @@ class OrderByLookup(object):
 
     def add_outerjoin(self, orm_table, orm_branch):
         self.outerjoin_tables[orm_table][orm_branch] = (orm_table.id == orm_branch.id)
-
-
-def get_orm_tables(bases):
-    references = {}
-    for base in bases:
-        for name, table in base._decl_class_registry.items():
-            if name == '_sa_module_registry':
-                continue
-
-            references[table.__tablename__] = table
-            table_alias = getattr(table, '__table_alias__', None)
-            if table_alias:
-                references.update((k, table) for k in table_alias)
-
-    return references

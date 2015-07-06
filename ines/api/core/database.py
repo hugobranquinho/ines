@@ -10,6 +10,7 @@ from sqlalchemy import Integer
 from sqlalchemy import Unicode
 from sqlalchemy.ext.declarative import declared_attr
 
+from ines.api.database.sql import get_tables_on_registry
 from ines.api.database.sql import sql_declarative_base
 from ines.utils import make_unique_hash
 
@@ -35,6 +36,11 @@ class Base(_Base):
     @declared_attr
     def parent_id(self):
         if hasattr(self, '__parent__'):
+            if isinstance(self.__parent__, basestring):
+                if self.__parent__ == self.__tablename__:
+                    self.__parent__ = self
+                else:
+                    self.__parent__ = get_tables_on_registry(self._decl_class_registry)[self.__parent__]
             return Column(Integer, ForeignKey(self.__parent__.id), nullable=False)
 
     updated_date = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)

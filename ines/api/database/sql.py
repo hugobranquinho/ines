@@ -569,3 +569,21 @@ def create_filter_by(columns, values):
 
 def new_lightweight_named_tuple(response, *new_fields):
     return lightweight_named_tuple('result', response._real_fields + tuple(new_fields))
+
+
+def get_orm_tables(database_name):
+    references = {}
+    for base in SQL_DBS[database_name]['bases']:
+        references.update(get_tables_on_registry(base._decl_class_registry))
+    return references
+
+
+def get_tables_on_registry(decl_class_registry):
+    references = {}
+    for name, table in decl_class_registry.items():
+        if name != '_sa_module_registry':
+            references[table.__tablename__] = table
+            table_alias = getattr(table, '__table_alias__', None)
+            if table_alias:
+                references.update((k, table) for k in table_alias)
+    return references
