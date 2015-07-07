@@ -2,6 +2,7 @@
 
 from json import dumps
 from json import loads
+from urllib2 import quote
 
 from webob.request import environ_add_POST
 
@@ -25,9 +26,13 @@ class Payload(Middleware):
                 try:
                     body_json = loads(body)
                     for key, values in dict(body_json).items():
+                        key = force_string(key)
                         values = maybe_list(values)
-                        value = ','.join('' if v is None else dump_query_value(v) for v in values)
-                        arguments.append('%s=%s' % (force_string(key), value))
+                        for value in values:
+                            if value is None:
+                                arguments.append('%s=' % key)
+                            else:
+                                arguments.append('%s=%s' % (key, quote(dump_query_value(value))))
                     body = '&'.join(arguments)
                 except (ValueError, UnicodeEncodeError):
                     headers = [('Content-type', 'application/json')]
