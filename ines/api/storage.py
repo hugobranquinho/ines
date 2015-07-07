@@ -529,7 +529,7 @@ class BaseStorageWithImageSession(BaseStorageSession):
         return True
 
     @job(second=0, minute=[0, 30],
-         title=_(u'Create configurated images'))
+         title=_(u'Create images'))
     def create_image_resizes(self):
         if not asbool(self.settings.get('thumb.create_on_add')) or not self.api_session_manager.resizes:
             return None

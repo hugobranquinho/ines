@@ -10,6 +10,8 @@ from colander import Invalid
 
 from ines import _
 from ines.convert import force_unicode
+from ines.exceptions import Error
+from ines.url import get_url_body
 from ines.utils import find_next_prime
 from ines.utils import validate_skype_username
 
@@ -96,3 +98,31 @@ class codeValidation(object):
                 return True
 
         raise Invalid(node, _(u'Invalid number'))
+
+
+def validate_pt_post_address(postal_address):
+    if u'-' not in postal_address:
+        raise Error('postal_address', _(u'Invalid postal address'))
+
+    cp4, cp3 = postal_address.split(u'-', 1)
+    if not cp4.isnumeric() or not cp3.isnumeric():
+        raise Error('postal_address', _(u'Invalid postal address'))
+
+    cp4 = int(cp4)
+    if cp4 < 1000 or cp4 > 9999:
+        raise Error('postal_address', _(u'First number must be between 1000 and 9999'))
+    elif len(cp3) != 3:
+        raise Error('postal_address', _(u'Second number must have 3 digits'))
+
+    response = get_url_body(
+        url='https://www.ctt.pt/feapl_2/app/open/postalCodeSearch/postalCodeSearch.jspx',
+        data={'method:searchPC2': 'Procurar', 'cp4': cp4, 'cp3': cp3},
+        method='post')
+
+    block = response.split(u'highlighted-result', 1)[1].split(u'</div>', 1)[0]
+    line_1 = block.split(u'subheader">', 1)[1].split('<', 1)[0].title()
+    locality = block.rsplit(u'subheader">', 1)[1].split('<', 1)[0].title()
+
+    return {
+        'line_1': line_1,
+        'locality': locality}

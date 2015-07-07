@@ -5,7 +5,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-07-02 19:30+0100\n"
+"POT-Creation-Date: 2015-07-07 15:19+0100\n"
 "PO-Revision-Date: 2015-06-16 18:22+0100\n"
 "Last-Translator: Hugo Branquinho <hugobranq@gmail.com>\n"
 "Language-Team: Portuguese\n"
@@ -263,21 +263,33 @@ msgstr "Sim"
 msgid "No"
 msgstr "Não"
 
-#: ines/validator.py:63 ines/validator.py:98 ines/validator.py:40
+#: ines/validator.py:65 ines/validator.py:100 ines/validator.py:42
 msgid "Invalid number"
 msgstr "Número inválido"
 
-#: ines/validator.py:73
+#: ines/validator.py:105 ines/validator.py:109
+msgid "Invalid postal address"
+msgstr "Código postal inválido"
+
+#: ines/validator.py:113
+msgid "First number must be between 1000 and 9999"
+msgstr "O primeiro número tem de ser entre 1000 e 9999"
+
+#: ines/validator.py:75
 msgid "Invalid \"skype\" username"
 msgstr "Contacto \"skype\" inválido"
+
+#: ines/validator.py:115
+msgid "Second number must have 3 digits"
+msgstr "O segundo número tem de ter 3 dígitos"
 
 #: ines/api/mailer.py:165
 msgid "Send queue emails"
 msgstr "Enviar emails em lista de espera"
 
 #: ines/api/storage.py:532
-msgid "Create configurated images"
-msgstr "Criar imagens configuradas"
+msgid "Create images"
+msgstr "Criar imagens"
 
 #: ines/api/utils.py:16
 msgid "Too many tries. Try again later"

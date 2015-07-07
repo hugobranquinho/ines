@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-07-02 19:30+0100\n"
+"POT-Creation-Date: 2015-07-07 15:19+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -263,12 +263,24 @@ msgstr ""
 msgid "No"
 msgstr ""
 
-#: ./ines/validator.py:63 ./ines/validator.py:98 ./ines/validator.py:40
+#: ./ines/validator.py:65 ./ines/validator.py:100 ./ines/validator.py:42
 msgid "Invalid number"
 msgstr ""
 
-#: ./ines/validator.py:73
+#: ./ines/validator.py:105 ./ines/validator.py:109
+msgid "Invalid postal address"
+msgstr ""
+
+#: ./ines/validator.py:113
+msgid "First number must be between 1000 and 9999"
+msgstr ""
+
+#: ./ines/validator.py:75
 msgid "Invalid \"skype\" username"
+msgstr ""
+
+#: ./ines/validator.py:115
+msgid "Second number must have 3 digits"
 msgstr ""
 
 #: ./ines/api/mailer.py:165
@@ -276,7 +288,7 @@ msgid "Send queue emails"
 msgstr ""
 
 #: ./ines/api/storage.py:532
-msgid "Create configurated images"
+msgid "Create images"
 msgstr ""
 
 #: ./ines/api/utils.py:16

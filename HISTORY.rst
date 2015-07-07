@@ -43,6 +43,8 @@ Features
 
 - ``utils.validate_phone_number`` to validate telephone / mobile numbers
 
+- ``utils.validate_pt_post_address`` to validate Portuguese postal addresses
+
 - Create dir folders for ``api.mailer`` (required by repoze.sendmail)
 
 - ``api.utils.requests_limit_decorator`` limit requests, by ip address, to a api method
