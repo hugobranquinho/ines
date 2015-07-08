@@ -396,10 +396,47 @@ class PaginationInput(MappingSchema):
     finisher = [PaginationOrderFinisher]
 
 
+CSV_DELIMITER = {
+    u',': _(u'Comma (,)'),
+    u';': _(u'Semicolon (;)'),
+    u'\\t': _(u'TAB (\\t)')}
+
+CSV_QUOTE_CHAR = {
+    u'"': _(u'Double quote'),
+    u'\'': _(u'Single quote')}
+
+CSV_LINE_TERMINATOR = {
+    u'\\r\\n': _(u'Windows (CR+LF)'),
+    u'\\n': _(u'Linux and MacOS (LF)'),
+    u'\\r': _(u'Old MacOS (CR)'),
+    u'\\n\\r': _(u'Other (LF+CR)')}
+
+CSV_ENCODING = {
+    u'utf-8': _(u'All languages'),
+    u'latin-1': _(u'West Europe')}
+
+
 class CSVInput(MappingSchema):
-    csv_delimiter = SchemaNode(String(), title=_(u'CSV content delimiter'), missing=None)
-    csv_quote_char = SchemaNode(String(), title=_(u'CSV content quote'), missing=None)
-    csv_line_terminator = SchemaNode(String(), title=_(u'CSV line terminator'), missing=None)
+    csv_delimiter = SchemaNode(
+        String(),
+        title=_(u'CSV content delimiter'),
+        missing=None,
+        validator=OneOfWithDescription(CSV_DELIMITER))
+    csv_quote_char = SchemaNode(
+        String(),
+        title=_(u'CSV content quote'),
+        missing=None,
+        validator=OneOfWithDescription(CSV_QUOTE_CHAR))
+    csv_line_terminator = SchemaNode(
+        String(),
+        title=_(u'CSV line terminator'),
+        missing=None,
+        validator=OneOfWithDescription(CSV_LINE_TERMINATOR))
+    csv_encoding = SchemaNode(
+        String(),
+        title=_(u'CSV encoding'),
+        missing=None,
+        validator=OneOfWithDescription(CSV_ENCODING))
 
 
 class PaginationOutput(MappingSchema):

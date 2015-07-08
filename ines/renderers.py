@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import codecs
 from csv import QUOTE_MINIMAL
 from csv import writer as csv_writer
 from cStringIO import StringIO
@@ -16,6 +17,7 @@ from ines.convert import force_string
 from ines.convert import force_unicode
 from ines.convert import json_dumps
 from ines.convert import maybe_string
+from ines.exceptions import Error
 
 
 DATE = datetime.date
@@ -66,6 +68,8 @@ class CSV(object):
             quotechar = '"'
             lineterminator = '\r\n'
             quoting = QUOTE_MINIMAL
+            encode_string = force_string
+            decode_string = force_unicode
 
             if request is not None:
                 response = request.response
@@ -81,7 +85,7 @@ class CSV(object):
 
                 csv_delimiter = request.params.get(camelcase('csv_delimiter'))
                 if csv_delimiter:
-                    delimiter = force_string(csv_delimiter)
+                    delimiter = encode_string(csv_delimiter)
                     if delimiter == '\\t':
                         delimiter = '\t'
                     else:
@@ -89,7 +93,7 @@ class CSV(object):
 
                 csv_quote_char = request.params.get(camelcase('csv_quote_char'))
                 if csv_quote_char:
-                    quotechar = force_string(csv_quote_char)
+                    quotechar = encode_string(csv_quote_char)
 
                 csv_line_terminator = request.params.get(camelcase('csv_line_terminator'))
                 if csv_line_terminator:
@@ -100,8 +104,20 @@ class CSV(object):
                     elif csv_line_terminator == u'\\r':
                         lineterminator = '\r'
 
-                yes_text = force_string(request.translate(_(u'Yes')))
-                no_text = force_string(request.translate(_(u'No')))
+                csv_encoding = request.params.get(camelcase('csv_encoding'))
+                if csv_encoding:
+                    try:
+                        encoder = codecs.lookup(csv_encoding)
+                    except LookupError:
+                        raise Error('csv_encoding', _(u'Invalid CSV encoding'))
+                    else:
+                        if encoder.name != 'utf-8':
+                            encode_string = lambda v: encoder.encode(v)[0]
+                            decode_string = lambda v: encoder.decode(v)[0]
+                            request.response.charset = encoder.name
+
+                yes_text = encode_string(request.translate(_(u'Yes')))
+                no_text = encode_string(request.translate(_(u'No')))
             else:
                 yes_text = 'Yes'
                 no_text = 'No'
@@ -125,16 +141,16 @@ class CSV(object):
                     elif isinstance(item, bool):
                         item = item and yes_text or no_text
                     elif isinstance(item, (int, basestring, long)):
-                        item = force_string(item)
+                        item = encode_string(unicode(item))
                     elif isinstance(item, (DATE, DATETIME)):
-                        item = force_string(item.isoformat())
+                        item = encode_string(item.isoformat())
                     else:
-                        item = force_string(json_dumps(item) or '')
+                        item = encode_string(json_dumps(item) or '')
                     row.append(item)
                 csvfile.writerow(row)
 
             f.seek(0)
-            response = force_unicode(f.read())
+            response = decode_string(f.read())
             f.close()
             return response
 

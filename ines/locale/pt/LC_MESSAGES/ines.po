@@ -5,7 +5,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-07-07 15:19+0100\n"
+"POT-Creation-Date: 2015-07-08 01:33+0100\n"
 "PO-Revision-Date: 2015-06-16 18:22+0100\n"
 "Last-Translator: Hugo Branquinho <hugobranq@gmail.com>\n"
 "Language-Team: Portuguese\n"
@@ -255,13 +255,17 @@ msgstr "${week}"
 msgid "No data"
 msgstr "Sem data"
 
-#: ines/renderers.py:103
+#: ines/renderers.py:119
 msgid "Yes"
 msgstr "Sim"
 
-#: ines/renderers.py:104
+#: ines/renderers.py:120
 msgid "No"
 msgstr "Não"
+
+#: ines/renderers.py:112
+msgid "Invalid CSV encoding"
+msgstr "Codificação do CSV inválida"
 
 #: ines/validator.py:65 ines/validator.py:100 ines/validator.py:42
 msgid "Invalid number"
@@ -294,6 +298,50 @@ msgstr "Criar imagens"
 #: ines/api/utils.py:16
 msgid "Too many tries. Try again later"
 msgstr "Demasiadas tentativas. Tente novamente mais tarde"
+
+#: ines/views/fields.py:400
+msgid "Comma (,)"
+msgstr "Vírgula (,)"
+
+#: ines/views/fields.py:401
+msgid "Semicolon (;)"
+msgstr "Ponto e vírgula (,)"
+
+#: ines/views/fields.py:402
+msgid "TAB (\\t)"
+msgstr "TAB (\\t)"
+
+#: ines/views/fields.py:405
+msgid "Double quote"
+msgstr "Aspas duplas"
+
+#: ines/views/fields.py:406
+msgid "Single quote"
+msgstr "Aspas simples"
+
+#: ines/views/fields.py:409
+msgid "Windows (CR+LF)"
+msgstr "Windows (CR+LF)"
+
+#: ines/views/fields.py:410
+msgid "Linux and MacOS (LF)"
+msgstr "Linux e MacOS (LF)"
+
+#: ines/views/fields.py:411
+msgid "Old MacOS (CR)"
+msgstr "MacOS antigo (CR)"
+
+#: ines/views/fields.py:412
+msgid "Other (LF+CR)"
+msgstr "Outro (LF+CR)"
+
+#: ines/views/fields.py:415
+msgid "All languages"
+msgstr "Todas as linguagens"
+
+#: ines/views/fields.py:416
+msgid "West Europe"
+msgstr "Europa Ocidental"
 
 #: ines/views/fields.py:380
 msgid "Page"
@@ -335,19 +383,23 @@ msgstr "Url da primeira página"
 msgid "Last page url"
 msgstr "Url da última página"
 
-#: ines/views/fields.py:400
+#: ines/views/fields.py:422
 msgid "CSV content delimiter"
 msgstr "Delimitador das colunas do CSV"
 
-#: ines/views/fields.py:401
+#: ines/views/fields.py:427
 msgid "CSV content quote"
 msgstr "Delimitador do texto de cada coluna do CSV"
 
-#: ines/views/fields.py:402
+#: ines/views/fields.py:432
 msgid "CSV line terminator"
 msgstr "Código para quebra de linha do CSV"
 
-#: ines/views/fields.py:418
+#: ines/views/fields.py:437
+msgid "CSV encoding"
+msgstr "Codificação do CSV"
+
+#: ines/views/fields.py:455
 msgid "Deleted"
 msgstr "Apagado"
 

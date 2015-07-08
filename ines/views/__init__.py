@@ -83,4 +83,6 @@ class DefaultAPIView(object):
             response.pop('csv_quote_char')
         if 'csv_line_terminator' in response:
             response.pop('csv_line_terminator')
+        if 'csv_encoding' in response:
+            response.pop('csv_encoding')
         return response
