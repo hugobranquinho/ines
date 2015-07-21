@@ -153,10 +153,10 @@ class SchemaView(object):
                             global_models[k].extend(values)
 
             if global_types:
-                nodes['fieldTypes'] = lookup_for_common_fields(global_types, ignore_key='fieldType')
+                nodes['fieldTypes'] = lookup_common_fields(global_types, ignore_key='fieldType')
                 nodes['keep_types_keys'] = keep_types_keys
             if global_models:
-                nodes['models'] = lookup_for_common_fields(global_models, ignore_key='model')
+                nodes['models'] = lookup_common_fields(global_models, ignore_key='model')
                 nodes['keep_models_keys'] = keep_models_keys
 
             request.cache.put(cache_key, nodes, expire=schema_expire_cache)
@@ -381,23 +381,33 @@ def get_colander_type_name(node):
         return camelcase(str(node.__class__.__name__).lower())
 
 
-def lookup_for_common_fields(values, ignore_key=None):
+def lookup_common_fields(values, ignore_key=None):
     result = MissingDict()
     for name, name_list in values.items():
         if not name_list:
             continue
 
-        for key, value in name_list[0].items():
-            if key == ignore_key:
-                continue
+        all_keys = set()
+        for k in name_list:
+            all_keys.update(k.keys())
+        if ignore_key in all_keys:
+            all_keys.remove(ignore_key)
 
-            for name_options in name_list[1:]:
+        for key in all_keys:
+            value = MARKER
+            value_idx = None
+            for i, name_options in enumerate(name_list):
                 other_value = name_options.get(key, MARKER)
-                if other_value is MARKER or different_values(value, other_value):
+                if other_value is MARKER:
+                    value_idx = None
                     break
-            else:
-                result[name][key] = value
-                for name_options in name_list:
+                elif value is MARKER:
+                    value = other_value
+                    value_idx = i
+                elif not different_values(value, other_value):
                     name_options.pop(key)
+
+            if value_idx is not None:
+                result[name][key] = name_list[value_idx].pop(key)
 
     return result
