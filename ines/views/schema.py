@@ -279,12 +279,16 @@ class SchemaView(object):
                 'description': description}
 
             if hasattr(schema, 'model_reference'):
-                details['modelReference'] = camelcase(schema.model_reference.name)
-                route_info = self.get_route_info(request, schema.model_reference_route)
-                if route_info:
-                    details['modelReferenceUrl'] = route_info[1]
-                details['modelReferenceKey'] = camelcase(schema.model_reference_key.name)
-                details['queryField'] = camelcase(schema.query_field.name)
+                model = schema.model_reference['model']
+                model_key = schema.model_reference.get('key') or 'key'
+                model_query = schema.model_reference.get('query') or 'name'
+                model_application = schema.model_reference.get('application_name') or request.application_name
+                details['modelReference'] = {
+                    'applicationName': model_application,
+                    'schemaName': schema.model_reference['schema'],
+                    'key': camelcase(model[model_key].name),
+                    'model': camelcase(model.name),
+                    'queryField': camelcase(model[model_query].name)}
 
             types[name].append(details)
 

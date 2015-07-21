@@ -127,27 +127,18 @@ class BaseTokenPolicySession(BaseSession):
         token_256 = make_sha256(token)
         file_path = self.get_token_file_path(token_256)
         last_read_time = last_read_file_time(file_path)
-        if not last_read_time:
-            raise HTTPUnauthorized()
+        if last_read_time:
+            info = self.get_token_info(token_256)
+            if info:
+                now = NOW_TIME()
+                expire = last_read_time + self.token_expire_seconds
+                end_date = info.get('end_date')
+                if expire > now and (not end_date or end_date > now):
+                    if info['lock_key'] == make_token_lock(self.request, token, info['session_id']):
+                        return info['session_id']
 
-        info = self.get_token_info(token_256)
-        if not info:
-            raise HTTPUnauthorized()
-
-        now = NOW_TIME()
-        expire = last_read_time + self.token_expire_seconds
-        end_date = info.get('end_date')
-        if expire < now or (end_date and end_date < now):
-            error = HTTPTokenExpired()
-        else:
-            lock_key = make_token_lock(self.request, token, info['session_id'])
-            if info['lock_key'] == lock_key:
-                return info['session_id']
-            error = HTTPUnauthorized()
-
-        # Compromised or ended! Force revalidation
-        self.delete_session_key_tokens(info['session_key'])
-        raise error
+                # Compromised or ended! Force revalidation
+                self.delete_session_key_tokens(info['session_key'])
 
     def create_new_session_key_token(self, session_id, session_key_256):
         return self.create_token(session_id, session_key_256)
