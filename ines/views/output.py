@@ -23,9 +23,10 @@ from ines.utils import different_values
 class OutputSchemaView(object):
     schema_type = 'response'
 
-    def __init__(self, route_name, request_method, schema):
+    def __init__(self, route_name, request_method, renderer, schema):
         self.route_name = route_name
         self.request_method = request_method
+        self.renderer = renderer
         self.schema = schema
         self.allowed_fields = self.find_allowed_fields(self.schema)
         if not self.allowed_fields:

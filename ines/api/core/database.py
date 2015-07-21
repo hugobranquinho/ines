@@ -21,6 +21,14 @@ NOW = datetime.datetime.now
 class _Base(object):
     __table_alias__ = None
 
+    @classmethod
+    def get_activity_message(self, request, action, type_id, context_id, data=None):
+        type_name = u' '.join(self.__tablename__.split(u'_')).title()
+        message = u'%s (%s) %s' % (type_name, type_id, action.lower())
+        if context_id:
+            message += u' from %s' % context_id
+        return message
+
 
 class Base(_Base):
     __key_length__ = 7
@@ -36,12 +44,14 @@ class Base(_Base):
     @declared_attr
     def parent_id(self):
         if hasattr(self, '__parent__'):
+            nullable = False
             if isinstance(self.__parent__, basestring):
                 if self.__parent__ == self.__tablename__:
                     self.__parent__ = self
+                    nullable = True
                 else:
                     self.__parent__ = get_tables_on_registry(self._decl_class_registry)[self.__parent__]
-            return Column(Integer, ForeignKey(self.__parent__.id), nullable=False)
+            return Column(Integer, ForeignKey(self.__parent__.id), nullable=nullable)
 
     updated_date = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
     created_date = Column(DateTime, default=func.now(), nullable=False)

@@ -22,10 +22,11 @@ class InputSchemaView(object):
     schema_type = 'request'
 
     def __init__(
-            self, route_name, request_method, schema=None, use_fields=False,
+            self, route_name, request_method, renderer, schema=None, use_fields=False,
             auto_camelcase=True):
         self.route_name = route_name
         self.request_method = request_method
+        self.renderer = renderer
 
         self.schema = schema
         self.fields_schema = None

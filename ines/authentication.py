@@ -97,9 +97,10 @@ class ApplicationHeaderAuthenticationPolicy(object):
         if userid:
             return userid
 
-        userid = request.cookies.get(self.cookie_key)
-        if userid:
-            return 'Token %s' % force_string(userid)
+        # @@TODO
+        #userid = request.cookies.get(self.cookie_key)
+        #if userid:
+        #    return 'Token %s' % force_string(userid)
 
     def effective_principals(self, request):
         authenticated = self.get_authenticated_session(request)

@@ -581,9 +581,12 @@ class PaginationClass(list):
     def __init__(self, page=1, limit_per_page=20):
         super(PaginationClass, self).__init__()
 
-        self.limit_per_page = maybe_integer(limit_per_page)
-        if not self.limit_per_page or self.limit_per_page < 1:
-            self.limit_per_page = 20
+        if str(limit_per_page).lower() == 'all':
+            self.limit_per_page = 'all'
+        else:
+            self.limit_per_page = maybe_integer(limit_per_page)
+            if not self.limit_per_page or self.limit_per_page < 1:
+                self.limit_per_page = 20
 
         self.number_of_results = 0
 
@@ -598,7 +601,11 @@ class PaginationClass(list):
 
     def set_number_of_results(self, number_of_results):
         self.number_of_results = int(number_of_results)
-        self.last_page = int(ceil(number_of_results / float(self.limit_per_page))) or 1
+
+        if self.limit_per_page == 'all':
+            self.last_page = 1
+        else:
+            self.last_page = int(ceil(number_of_results / float(self.limit_per_page))) or 1
 
         if self.page > self.last_page:
             self.page = self.last_page

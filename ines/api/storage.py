@@ -22,6 +22,7 @@ from sqlalchemy.orm import aliased
 
 from ines import _
 from ines import OPEN_BLOCK_SIZE
+from ines import MARKER
 from ines.api.database.sql import BaseSQLSession
 from ines.api.database.sql import BaseSQLSessionManager
 from ines.api.database.sql import new_lightweight_named_tuple
@@ -331,9 +332,10 @@ class BaseStorageSession(BaseSQLSession):
             self,
             id=None,
             key=None,
-            application_code=None,
-            code_key=None,
-            type_key=None,
+            application_code=MARKER,
+            code_key=MARKER,
+            type_key=MARKER,
+            parent_id=MARKER,
             parent_key=None,
             attributes=None,
             only_one=False):
@@ -361,12 +363,27 @@ class BaseStorageSession(BaseSQLSession):
             query = query.filter(File.id.in_(maybe_set(id)))
         if key:
             query = query.filter(File.key.in_(maybe_set(key)))
-        if application_code:
+
+        if application_code is None:
+            query = query.filter(File.application_code == None)
+        elif application_code is not MARKER:
             query = query.filter(File.application_code == force_unicode(application_code))
-        if code_key:
+
+        if code_key is None:
+            query = query.filter(File.code_key == None)
+        elif code_key is not MARKER:
             query = query.filter(File.code_key == force_unicode(code_key))
-        if type_key:
+
+        if type_key is None:
+            query = query.filter(File.type_key == None)
+        elif type_key is not MARKER:
             query = query.filter(File.type_key == force_unicode(type_key))
+
+        if parent_id is None:
+            query = query.filter(File.parent_id == None)
+        elif parent_id is not MARKER:
+            query = query.filter(File.parent_id == int(parent_id))
+
         if parent_key:
             parent = aliased(File)
             query = query.filter(File.parent_id == parent.id).filter(parent.key == force_unicode(parent_key))

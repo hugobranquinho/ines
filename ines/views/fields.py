@@ -377,8 +377,18 @@ def PaginationOrderFinisher(node, appstruct):
     return appstruct
 
 
+class LimitPerPageInteger(Integer):
+    schema_type_name = 'integer'
+
+    def num(self, value):
+        if isinstance(value, basestring) and value.lower() == 'all':
+            return 'all'
+        else:
+            return int(value)
+
+
 PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
-LIMIT_PER_PAGE = SchemaNode(Integer(), title=_(u'Results per page'), missing=20)
+LIMIT_PER_PAGE = SchemaNode(LimitPerPageInteger(), title=_(u'Results per page'), missing=20)
 ORDER_BY = SchemaNode(String(), title=_(u'Order by'), name='order_by')
 NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
 NUMBER_OF_PAGE_RESULTS = SchemaNode(Integer(), title=_(u'Number of page results'))
@@ -391,7 +401,7 @@ LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
 
 class PaginationInput(MappingSchema):
     page = PAGE.clone(missing=1)
-    limit_per_page = LIMIT_PER_PAGE.clone(missing=20)
+    limit_per_page = LIMIT_PER_PAGE
     order_by = SequenceSchema(Sequence(), ORDER_BY, missing=drop, preparer=split_values)
     finisher = [PaginationOrderFinisher]
 

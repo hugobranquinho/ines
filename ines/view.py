@@ -20,12 +20,18 @@ class api_config(view_config):
         auto_camelcase = settings.pop('auto_camelcase', True)
 
         def callback(context, name, ob):
+            view_defaults_settings = getattr(ob, '__view_defaults__', {})
+
             route_name = settings.get('route_name')
             if not route_name:
-                route_name = getattr(ob, '__view_defaults__', {}).get('route_name')
+                route_name = view_defaults_settings.get('route_name')
             request_method = settings.get('request_method')
             if not request_method:
-                request_method = getattr(ob, '__view_defaults__', {}).get('request_method')
+                request_method = view_defaults_settings.get('request_method')
+            renderer = settings.get('renderer')
+            if not renderer:
+                renderer = view_defaults_settings.get('renderer')
+            renderer = renderer or 'json'
 
             # Register input schema
             if input_option or use_fields:
@@ -34,6 +40,7 @@ class api_config(view_config):
                         input_view = InputSchemaView(
                             route_name,
                             request_method,
+                            renderer,
                             schema=input_option,
                             use_fields=use_fields,
                             auto_camelcase=auto_camelcase)
@@ -43,6 +50,7 @@ class api_config(view_config):
                     input_view = InputSchemaView(
                         route_name,
                         request_method,
+                        renderer,
                         use_fields=use_fields,
                         auto_camelcase=auto_camelcase)
 
@@ -58,6 +66,7 @@ class api_config(view_config):
                     output_view = OutputSchemaView(
                         route_name,
                         request_method,
+                        renderer,
                         schema=output_option)
                 else:
                     output_view = output_option

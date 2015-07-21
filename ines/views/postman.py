@@ -68,7 +68,7 @@ class PostmanCollection(object):
 
         for schema_view in request.registry.getAllUtilitiesRegisteredFor(ISchemaView):
             # Make route for url
-            intr_route = request.registry.introspector.get('routes', schema_view.route_name)
+            intr_route = request.registry.introspector.get('routes', schema_view.schema_route_name)
             if intr_route is not None:
                 headers = set()
 
@@ -82,7 +82,7 @@ class PostmanCollection(object):
                 requests.append({
                     'id': request_id,
                     'headers': '\n'.join(headers),
-                    'url': request.route_url(schema_view.route_name),
+                    'url': request.route_url(schema_view.schema_route_name),
                     'preRequestScript': '',
                     'pathVariables': {},
                     'method': u'GET',
@@ -93,17 +93,17 @@ class PostmanCollection(object):
                     'currentHelper': 'normal',
                     'helperAttributes': {},
                     'time': self.collection_time,
-                    'name': u'Schema: %s' % schema_view.title,
+                    'name': u'SCHEMA: %s' % schema_view.title,
                     'description': schema_view.description or '',
                     'collectionId': self.collection_id,
                     'responses': [],
                     'owner': 0,
                     'synced': False})
-                folders[schema_view.title].append(request_id)
+                folders[schema_view.postman_folder_name or schema_view.title].append(request_id)
                 folders_descriptions[schema_view.title] = schema_view.description
 
-            for route_name, request_methods in schema_view.routes_names.items():
-                # Make route for url
+            # Make route for url
+            for route_name in schema_view.get_route_names():
                 intr_route = request.registry.introspector.get('routes', route_name)
                 if intr_route is None:
                     continue
@@ -116,10 +116,10 @@ class PostmanCollection(object):
                 url = '%s%s' % (request.application_url, unquote(route.generate(params)))
 
                 schemas_by_methods = MissingList()
-                for schema in config.lookup_input_schema(route_name, request_methods):
+                for schema in config.lookup_input_schema(route_name, schema_view.request_methods):
                     for request_method in maybe_list(schema.request_method) or DEFAULT_METHODS:
                         schemas_by_methods[request_method].append(schema)
-                for schema in config.lookup_output_schema(route_name, request_methods):
+                for schema in config.lookup_output_schema(route_name, schema_view.request_methods):
                     for request_method in maybe_list(schema.request_method) or DEFAULT_METHODS:
                         schemas_by_methods[request_method].append(schema)
 
@@ -207,7 +207,7 @@ class PostmanCollection(object):
                         'responses': [],
                         'owner': 0,
                         'synced': False})
-                    folders[schema_view.title].append(request_id)
+                    folders[schema_view.postman_folder_name or schema_view.title].append(request_id)
 
         response_folders = []
         for key, requests_ids in folders.items():

@@ -19,6 +19,8 @@ from zope.interface import implementer
 
 from ines import DEFAULT_METHODS
 from ines import MARKER
+from ines.authorization import Everyone
+from ines.authorization import NotAuthenticated
 from ines.convert import camelcase
 from ines.convert import force_unicode
 from ines.convert import maybe_list
@@ -30,81 +32,169 @@ from ines.views.fields import OneOfWithDescription
 from ines.utils import different_values
 from ines.utils import MissingDict
 from ines.utils import MissingList
-
-
-SCHEMA_NODES_CACHE = {}
+from ines.utils import MissingSet
 
 
 @implementer(ISchemaView)
 class SchemaView(object):
-    def __init__(self, route_name, routes_names, title=None, description=None, model=None):
+    def __init__(
+            self,
+            schema_route_name,
+            route_name=None,
+            list_route_name=None,
+            title=None,
+            description=None,
+            csv_route_name=None,
+            request_methods=None,
+            postman_folder_name=None):
+
+        self.schema_route_name = schema_route_name
         self.route_name = route_name
-        self.routes_names = routes_names
+        self.list_route_name = list_route_name
+        self.csv_route_name = csv_route_name
         self.title = title
         self.description = description
-        self.model = model
+        self.request_methods = request_methods or DEFAULT_METHODS
+        self.postman_folder_name = postman_folder_name
 
     def __call__(self, context, request):
         return self.get_schema_nodes(request)
 
+    def get_route_names(self):
+        route_names = []
+        if self.route_name:
+            route_names.append(self.route_name)
+        if self.list_route_name:
+            route_names.append(self.list_route_name)
+        if self.csv_route_name:
+            route_names.append(self.csv_route_name)
+        return route_names
+
+    def validate_permission(self, request, permissions):
+        permissions = maybe_list(permissions)
+        if request.authenticated:
+            return any((p in permissions for p in request.authenticated.get_principals()))
+        else:
+            return bool(Everyone in permissions or NotAuthenticated in permissions)
+
     def get_schema_nodes(self, request):
-        cache_key = '%s %s' % (request.application_url, self.route_name)
-        if cache_key in SCHEMA_NODES_CACHE:
-            return SCHEMA_NODES_CACHE[cache_key]
+        cache_key = 'schema build cache %s' % self.schema_route_name
+        schema_expire_cache = request.settings.get('schema_expire_cache', MARKER)
+        nodes = request.cache.get(cache_key, MARKER, expire=schema_expire_cache)
+        if nodes is MARKER:
+            nodes = MissingDict()
+            global_types = MissingList()
+            global_models = MissingList()
+            keep_types_keys = MissingSet()
+            keep_models_keys = MissingSet()
 
-        nodes = MissingDict()
-        types = MissingList()
-        models = MissingList()
+            for route_name in self.get_route_names():
+                info = self.get_route_info(request, route_name)
+                if not info:
+                    continue
 
-        for route_name, request_methods in self.routes_names.items():
-            route_methods = maybe_list(request_methods or DEFAULT_METHODS)
-            if not route_methods:
+                intr_route, url, url_keys = info
+                url_keys = [camelcase(k) for k in url_keys]
+                schemas = request.registry.config.lookup_input_schema(route_name, self.request_methods)
+                schemas.extend(request.registry.config.lookup_output_schema(route_name, self.request_methods))
+
+                for schema in schemas:
+                    fields = []
+                    types = MissingList()
+                    models = MissingList()
+
+                    if schema.schema:
+                        details = self.construct_structure(
+                            request,
+                            schema.schema,
+                            schema.schema_type,
+                            types,
+                            models)
+
+                        if isinstance(details, dict):
+                            fields.append(details)
+                        else:
+                            fields.extend(details)
+
+                    if schema.schema_type == 'request' and schema.fields_schema:
+                        details = self.construct_structure(
+                            request,
+                            schema.fields_schema,
+                            schema.schema_type,
+                            types,
+                            models)
+
+                        if isinstance(details, dict):
+                            fields.append(details)
+                        else:
+                            fields.extend(details)
+
+                    if schema.route_name != self.csv_route_name:
+                        key = schema.request_method.lower()
+                        if key == 'get' and schema.route_name == self.list_route_name:
+                            key = 'list'
+                    else:
+                        key = 'csv'
+
+                    nodes[key][schema.schema_type] = fields
+                    nodes[key]['routeName'] = route_name
+                    nodes[key]['method'] = schema.request_method.upper()
+                    nodes[key]['url'] = url
+                    nodes[key]['urlKeys'] = url_keys
+                    nodes[key]['renderer'] = schema.renderer.lower()
+
+                    if types:
+                        keep_types_keys[key].update(types.keys())
+                        for k, values in types.items():
+                            global_types[k].extend(values)
+                    if models:
+                        keep_models_keys[key].update(models.keys())
+                        for k, values in models.items():
+                            global_models[k].extend(values)
+
+            if global_types:
+                nodes['fieldTypes'] = lookup_for_common_fields(global_types, ignore_key='fieldType')
+                nodes['keep_types_keys'] = keep_types_keys
+            if global_models:
+                nodes['models'] = lookup_for_common_fields(global_models, ignore_key='model')
+                nodes['keep_models_keys'] = keep_models_keys
+
+            request.cache.put(cache_key, nodes, expire=schema_expire_cache)
+
+        permissions_cache = {}
+        types_keys = set()
+        types = nodes.pop('fieldTypes', None)
+        keep_types_keys = nodes.pop('keep_types_keys', None)
+        models_keys = set()
+        models = nodes.pop('models', None)
+        keep_models_keys = nodes.pop('keep_models_keys', None)
+
+        for key, details in nodes.items():
+            route_name = details['routeName']
+            if route_name not in permissions_cache:
+                info = self.get_route_info(request, route_name)
+                permissions_cache[route_name] = lookup_for_route_permissions(request.registry, info[0])
+
+            method_permissions = maybe_list(permissions_cache[route_name].get(details['method']))
+            if not self.validate_permission(request, method_permissions):
+                nodes.pop(key)
                 continue
 
-            info = self.get_route_info(request, route_name)
-            if not info:
-                continue
-            intr_route, url = info
+            if keep_types_keys:
+                types_keys.update(keep_types_keys[key])
+            if keep_models_keys:
+                models_keys.update(keep_models_keys[key])
 
-            permissions = lookup_for_route_permissions(request.registry, intr_route)
-            schemas = request.registry.config.lookup_input_schema(route_name, route_methods)
-            schemas.extend(request.registry.config.lookup_output_schema(route_name, route_methods))
-            for schema in schemas:
-                fields = []
-                if schema.schema:
-                    details = self.construct_structure(
-                        request,
-                        schema.schema,
-                        schema.schema_type,
-                        types,
-                        models)
-                    if isinstance(details, dict):
-                        fields.append(details)
-                    else:
-                        fields.extend(details)
+        if types_keys:
+            nodes['fieldTypes'] = {}
+            for k in types_keys:
+                nodes['fieldTypes'][k] = types[k]
 
-                if schema.schema_type == 'request' and schema.fields_schema:
-                    details = self.construct_structure(
-                        request,
-                        schema.fields_schema,
-                        schema.schema_type,
-                        types,
-                        models)
-                    if isinstance(details, dict):
-                        fields.append(details)
-                    else:
-                        fields.extend(details)
+        if models_keys:
+            nodes['models'] = {}
+            for k in models_keys:
+                nodes['models'][k] = models[k]
 
-                name = camelcase('%s_%s' % (schema.request_method, schema.route_name))
-                nodes[name][schema.schema_type] = fields
-                request_method_upper = schema.request_method.upper()
-                nodes[name]['method'] = request_method_upper
-                nodes[name]['url'] = url
-                nodes[name]['permissions'] = maybe_list(permissions.get(request_method_upper))
-
-        nodes['fieldTypes'] = lookup_for_common_fields(types, ignore_key='fieldType')
-        nodes['models'] = lookup_for_common_fields(models, ignore_key='model')
-        SCHEMA_NODES_CACHE[cache_key] = nodes
         return nodes
 
     def get_route_info(self, request, route_name):
@@ -113,7 +203,7 @@ class SchemaView(object):
             route = intr_route['object']
             params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
             url = '%s%s' % (request.application_url, unquote(route.generate(params)))
-            return intr_route, url
+            return intr_route, url, params.keys()
 
     def construct_structure(self, request, schema, schema_type, types, models, parent_name=None):
         if isinstance(schema.typ, Sequence):
@@ -190,7 +280,9 @@ class SchemaView(object):
 
             if hasattr(schema, 'model_reference'):
                 details['modelReference'] = camelcase(schema.model_reference.name)
-                details['modelReferenceUrl'] = self.get_route_info(request, schema.model_reference_route)[1]
+                route_info = self.get_route_info(request, schema.model_reference_route)
+                if route_info:
+                    details['modelReferenceUrl'] = route_info[1]
                 details['modelReferenceKey'] = camelcase(schema.model_reference_key.name)
                 details['queryField'] = camelcase(schema.query_field.name)
 
@@ -279,7 +371,10 @@ class SchemaView(object):
 
 
 def get_colander_type_name(node):
-    return camelcase(str(node.__class__.__name__).lower())
+    if hasattr(node, 'schema_type_name'):
+        return node.schema_type_name
+    else:
+        return camelcase(str(node.__class__.__name__).lower())
 
 
 def lookup_for_common_fields(values, ignore_key=None):

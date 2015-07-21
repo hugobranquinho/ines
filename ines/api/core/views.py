@@ -15,17 +15,23 @@ def define_pagination(query, page, limit_per_page):
         .with_entities(func.count(1))
         .first()[0])
 
-    last_page = int(ceil(
-        number_of_results / float(limit_per_page))) or 1
+    all_pages = str(limit_per_page).lower() == 'all'
+    if all_pages:
+        last_page = 1
+        limit_per_page = 'all'
+    else:
+        last_page = int(ceil(number_of_results / float(limit_per_page))) or 1
 
     if page > last_page:
         page = last_page
 
-    end_slice = page * limit_per_page
-    start_slice = end_slice - limit_per_page
+    if not all_pages:
+        end_slice = page * limit_per_page
+        start_slice = end_slice - limit_per_page
+        query = query.slice(start_slice, end_slice)
 
     return QueryPagination(
-        query.slice(start_slice, end_slice),
+        query,
         page,
         limit_per_page,
         last_page,
@@ -40,6 +46,7 @@ class QueryPagination(object):
             limit_per_page,
             last_page,
             number_of_results):
+
         self.query = query
         self.page = page
         self.limit_per_page = limit_per_page
@@ -62,6 +69,7 @@ class CorePagination(list):
             limit_per_page,
             last_page,
             number_of_results):
+
         super(CorePagination, self).__init__()
         self.page = page
         self.limit_per_page = limit_per_page

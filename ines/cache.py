@@ -30,7 +30,7 @@ class _SaveMe(object):
     def get_binary(self, name, expire=MARKER):
         pass
 
-    def put_binary(self, name, info, expire=MARKER):
+    def put_binary(self, name, binary, mode='put', expire=MARKER):
         pass
 
     def __delitem__(self, name):

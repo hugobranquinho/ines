@@ -22,6 +22,7 @@ from sqlalchemy.sql.elements import BindParameter
 from sqlalchemy.sql.schema import Table
 from sqlalchemy.sql.selectable import Alias
 
+from ines import _
 from ines import MARKER
 from ines.api.core.database import ActiveBase
 from ines.api.core.database import Base
@@ -195,6 +196,9 @@ class ORMQuery(object):
             self.add_attribute(attribute)
         if kw_attributes:
             self.add_attribute(kw_attributes)
+
+    def query(self, *attributes, **kw_attributes):
+        return ORMQuery(self.api_session, *attributes, **kw_attributes)
 
     def add_attribute(self, attribute, table_or_name=None):
         self.options.add_attribute(attribute, table_or_name)
@@ -545,7 +549,7 @@ class ORMQuery(object):
         column = self.options.attributes[0]
         orm_table = self.options.orm_tables[column.table.name]
 
-        query = ORMQuery(self.api_session)
+        query = self.query()
         query.join_options(self.options)
         query.add_attribute(orm_table)
         response = query.construct_query(active=active).all()
@@ -562,14 +566,24 @@ class ORMQuery(object):
             self.api_session.session.flush()
 
             type_name = column.table.name
-            column_names = [c for c in column.table.c.keys() if c not in ('updated_date', 'created_date')]
+            column_names = [k for k in column.table.c.keys() if k not in ('updated_date', 'created_date')]
             for type_id, table in response:
+                context_id = getattr(table, 'parent_id', None)
+                data = dict((c, getattr(table, c)) for c in column_names)
+                message = orm_table.get_activity_message(
+                    self.api_session.request,
+                    action='delete',
+                    type_id=type_id,
+                    context_id=context_id,
+                    data=data)
                 self.api_session.add_activity(
                     action='delete',
                     type=type_name,
                     type_id=type_id,
-                    context_id=getattr(table, 'parent_id', None),
-                    data=dict((c, getattr(table, c)) for c in column_names))
+                    context_id=context_id,
+                    data=data,
+                    message=message)
+
                 self.api_session.delete_from_index(type_name, type_id)
 
             return result
@@ -578,6 +592,62 @@ class ORMQuery(object):
         self.options.join(options)
         return self
 
+    def find_child_ids(self, core_type, core_type_values, first, invert=False, drill_down_limit=0):
+        response = set()
+        if not core_type_values:
+            return response
+
+        references = MissingList()
+        if not invert:
+            for child, parent in core_type_values:
+                references[parent].append(child)
+        else:
+            for child, parent in core_type_values:
+                references[child].append(parent)
+
+        first_references = references.get(first)
+        if not first_references:
+            return response
+        response.add(first)
+
+        def construct_tree(ob, drill_counter=0):
+            if drill_down_limit > 0:
+                if drill_down_limit == drill_counter:
+                    return None
+                drill_counter += 1
+
+            ob_references = references.get(ob)
+            if ob_references:
+                for reference in ob_references:
+                    if reference not in response:
+                        response.add(reference)
+                        construct_tree(reference, drill_counter)
+                    else:
+                        message = u'Loop on %s ID:%s' % (core_type, ob)
+                        self.api_session.logging.log_critical('%s_loop' % core_type, message)
+
+        construct_tree(first)
+
+        if invert and None in response:
+            response.remove(None)
+        if first in response:
+            response.remove(first)
+
+        return response
+
+    def core_id_in_loop(self, core_type, core_id, parent_core_id):
+        core_type_values = self.query({core_type: ['id', 'parent_id']}).all(active=None)
+        if not core_type_values:
+            return False
+
+        child_ids = self.find_child_ids(
+            core_type,
+            core_type_values,
+            first=core_id,
+            invert=False,
+            drill_down_limit=0)
+        return parent_core_id in child_ids
+
     def update(self, values, active=None, synchronize_session=False):
         if len(self.options.attributes) != 1:
             raise AttributeError('Define only the column you want to update')
@@ -585,15 +655,8 @@ class ORMQuery(object):
             return False
 
         column = self.options.attributes[0]
-        attributes = set(values.keys())
-        if 'parent_id' in column.table.c:
-            attributes.add('parent_id')
-
-        if 'start_date' in values or 'end_date' in values:
-            attributes.update(['start_date', 'end_date'])
-
         response = (
-            ORMQuery(self.api_session, {column.table: attributes})
+            self.query({column.table: None})
             .join_options(self.options)
             .all(active=active))
         if not response:
@@ -608,8 +671,30 @@ class ORMQuery(object):
         if 'end_date' in values:
             values['end_date'] = convert_timezone(values['end_date'], self.api_session.application_time_zone)
 
+        orm_table = self.options.orm_tables[column.table.name]
+        check_parent_loop = bool(
+            values.get('parent_id')
+            and orm_table.__parent__ is orm_table)
+        if check_parent_loop:
+            core_type_values = self.query({column.table: ['id', 'parent_id']}).all(active=None)
+
         update_ids = MissingSet()
+        references = {}
         for orm_response in response:
+            references[orm_response.id] = orm_response
+            if check_parent_loop:
+                child_ids = self.find_child_ids(
+                    column.table.name,
+                    core_type_values,
+                    first=orm_response.id,
+                    invert=False,
+                    drill_down_limit=0)
+
+                # Prevent parents loop
+                if int(values['parent_id']) in child_ids:
+                    message = _(u'Cannot update to this parent. Loop found.')
+                    raise Error('parent_id', message)
+
             update_keys = []
             for key, value in values.items():
                 response_value = getattr(orm_response, key)
@@ -636,6 +721,8 @@ class ORMQuery(object):
             parent_ids = dict((r.id, r.parent_id) for r in response)
 
         updated = False
+        ignore_columns = ('updated_date', 'created_date')
+        column_names = [k for k in orm_table.__table__.c.keys() if k not in ignore_columns]
         for keys, ids in update_ids.items():
             update_values = dict((k, values.get(k)) for k in keys)
             if 'updated_date' not in update_values:
@@ -649,18 +736,29 @@ class ORMQuery(object):
                 updated = True
                 self.api_session.session.flush()
 
-                updated_items = dict(
-                    (k, v)
-                    for k, v in update_values.items()
-                    if k not in ('updated_date', 'created_date'))
                 for type_id in ids:
+                    context_id = parent_ids.get(type_id)
+
+                    r_value = references[type_id]
+                    data = dict((k, getattr(r_value, k)) for k in column_names)
+                    update_items = dict((k, v) for k, v in update_values.items() if k not in ignore_columns)
+                    data.update(update_items)
+
+                    message = orm_table.get_activity_message(
+                        self.api_session.request,
+                        action='update',
+                        type_id=type_id,
+                        context_id=context_id,
+                        data=data)
                     self.api_session.add_activity(
                         action='update',
                         type=type_name,
                         type_id=type_id,
                         context_id=parent_ids.get(type_id),
-                        data=updated_items)
-                    self.api_session.update_on_index(type_name, type_id, updated_items)
+                        data=data,
+                        message=message)
+
+                    self.api_session.update_on_index(type_name, type_id, update_items)
 
         return updated
 
@@ -708,8 +806,8 @@ class BaseCoreSession(BaseSQLSession):
                 hours=int(time_zone_hours or 0),
                 minutes=int(time_zone_minutes or 0))
 
-    def add_activity(self, action, type, type_id, context_id=None, data=None):
-        message = default_message_method(action, type, type_id, context_id, **(data or {}))
+    def add_activity(self, action, type, type_id, context_id=None, data=None, message=None):
+        message = message or default_message_method(action, type, type_id, context_id, **(data or {}))
 
         # Set to logging
         extra = dict(('extra_%s' % k, v) for k, v in (data or {}).items())
@@ -759,16 +857,25 @@ class BaseCoreSession(BaseSQLSession):
         self.session.add_all(orm_objects)
         self.session.flush()
 
+        orm_table = orm_objects[0]
         type_name = orm_objects[0].__table__.name
-        column_names = [c for c in orm_objects[0].__table__.c.keys() if c not in ('updated_date', 'created_date')]
+        column_names = [k for k in orm_objects[0].__table__.c.keys() if k not in ('updated_date', 'created_date')]
         for value in orm_objects:
+            context_id = getattr(value, 'parent_id', None)
             data = dict((c, getattr(value, c)) for c in column_names)
+            message = orm_table.get_activity_message(
+                self.request,
+                action='add',
+                type_id=value.id,
+                context_id=context_id,
+                data=data)
             self.add_activity(
                 action='add',
                 type=type_name,
                 type_id=value.id,
-                context_id=getattr(value, 'parent_id', None),
-                data=data)
+                context_id=context_id,
+                data=data,
+                message=message)
 
             self.add_to_index(
                 type_name=type_name,
@@ -945,11 +1052,15 @@ class BaseCoreIndexedSession(BaseCoreSession):
                     column_name = 'indexer_description'
                 sortedby.append(wSort.FieldFacet(column_name, reverse=reverse))
 
+        limit_per_page = pagination.limit_per_page
+        if str(limit_per_page).lower() == 'all':
+            limit_per_page = 10000
+
         with options['indexer'].searcher() as searcher:
             response = searcher.search_page(
                 query,
                 pagenum=pagination.page,
-                pagelen=pagination.limit_per_page,
+                pagelen=limit_per_page,
                 sortedby=sortedby or None)
             pagination.set_number_of_results(response.total)
 
@@ -1393,9 +1504,12 @@ class QueryLookup(object):
         if self.page < 1:
             self.page = 1
 
-        self.limit_per_page = maybe_integer(limit_per_page) or 1
-        if self.limit_per_page < 1:
-            self.limit_per_page = 1
+        if str(limit_per_page).lower() == 'all':
+            self.limit_per_page = 'all'
+        else:
+            self.limit_per_page = maybe_integer(limit_per_page) or 20
+            if self.limit_per_page < 1:
+                self.limit_per_page = 1
 
 
 class OrderByLookup(object):

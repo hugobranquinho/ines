@@ -236,7 +236,7 @@ class APIConfigurator(Configurator):
         request_method.append('')
 
         schemas = []
-        for req_method in maybe_list(request_method):
+        for req_method in request_method:
             utility_name = '%s %s' % (route_name or '', req_method or '')
             view = self.registry.queryUtility(IInputSchemaView, name=utility_name)
             if view is not None:
@@ -256,7 +256,7 @@ class APIConfigurator(Configurator):
         request_method.append('')
 
         schemas = []
-        for req_method in maybe_list(request_method):
+        for req_method in request_method:
             utility_name = '%s %s' % (route_name, req_method or '')
             view = self.registry.queryUtility(IOutputSchemaView, name=utility_name)
             if view is not None:
@@ -277,26 +277,39 @@ class APIConfigurator(Configurator):
             **view_kwargs)
 
     def add_schema(
-            self, pattern, routes_names, route_name=None,
+            self,
+            pattern,
+            route_name=None,
+            list_route_name=None,
+            schema_route_name=None,
+            csv_route_name=None,
             title=None,
             description=None,
-            model=None,
+            request_methods=None,
+            route_pattern=None,
+            list_route_pattern=None,
+            csv_route_pattern=None,
+            postman_folder_name=None,
             **view_kwargs):
 
-        if not isinstance(routes_names, dict):
-            routes_names = OrderedDict((k, None) for k in maybe_list(routes_names))
-        if not routes_names:
-            raise Error('schema', 'Define some routes_names')
-        if not route_name:
-            route_name = '%s_schema' % routes_names.keys()[0]
-
+        schema_route_name = schema_route_name or '%s_schema' % (route_name or list_route_name or csv_route_name)
         view = SchemaView(
-            route_name,
-            routes_names,
+            schema_route_name=schema_route_name,
+            route_name=route_name,
+            list_route_name=list_route_name,
+            csv_route_name=csv_route_name,
             title=title,
             description=description,
-            model=model)
-        self.add_schema_manager(view, route_name, pattern, **view_kwargs)
+            request_methods=request_methods,
+            postman_folder_name=postman_folder_name)
+        self.add_schema_manager(view, schema_route_name, pattern, **view_kwargs)
+
+        if route_pattern:
+            self.add_routes((route_name, route_pattern))
+        if list_route_name and list_route_pattern:
+            self.add_routes((list_route_name, list_route_pattern))
+        if csv_route_name and csv_route_pattern:
+            self.add_routes((csv_route_name, csv_route_pattern))
 
     def add_routes(self, *routes, **kwargs):
         for arguments in routes:

@@ -311,9 +311,11 @@ class Pagination(PaginationClass):
                 .order_by(None)
                 .first()[0])
 
-            end_slice = self.page * self.limit_per_page
-            start_slice = end_slice - self.limit_per_page
-            self.extend(query.slice(start_slice, end_slice).all())
+            if self.limit_per_page != 'all':
+                end_slice = self.page * self.limit_per_page
+                start_slice = end_slice - self.limit_per_page
+                query = query.slice(start_slice, end_slice)
+            self.extend(query.all())
 
 
 class TablesSet(set):
