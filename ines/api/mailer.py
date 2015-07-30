@@ -82,28 +82,15 @@ class BaseMailerSession(BaseSession):
             reply_to=None,
             content_charset='utf-8',
             attachments=None,
-            message_id=None,
-            with_signature=True):
-
-        signature = None
-        if with_signature and self.settings.get('signature'):
-            signature = u'\n\n'
-            signature += force_unicode(self.settings['signature'], encoding=content_charset)
+            message_id=None):
 
         if body:
             body = force_unicode(body, encoding=content_charset)
-            if signature:
-                body += signature
             if not html:
                 html = body.replace(u'\n', u'<br>')
 
         if html:
             html = force_unicode(html, encoding=content_charset)
-            if not html.startswith('<html'):
-                html = u'<html><header></header><body>%s</body></html>' % html
-            if signature:
-                signature_html = signature.replace(u'\n', u'<br>')
-                html = html.replace(u'</body>', u'%s</body>' % signature_html)
 
         options = {}
         # FROM sender
