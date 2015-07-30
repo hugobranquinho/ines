@@ -15,6 +15,7 @@ from colander import Sequence
 from colander import Tuple
 from pyramid.compat import is_nonstr_iter
 from pyramid.settings import asbool
+from translationstring import TranslationString
 from zope.interface import implementer
 
 from ines import DEFAULT_METHODS
@@ -87,6 +88,7 @@ class SchemaView(object):
             global_models = MissingList()
             keep_types_keys = MissingSet()
             keep_models_keys = MissingSet()
+            to_translate = MissingList()
 
             for route_name in self.get_route_names():
                 info = self.get_route_info(request, route_name)
@@ -109,7 +111,8 @@ class SchemaView(object):
                             schema.schema,
                             schema.schema_type,
                             types,
-                            models)
+                            models,
+                            to_translate)
 
                         if isinstance(details, dict):
                             fields.append(details)
@@ -122,7 +125,8 @@ class SchemaView(object):
                             schema.fields_schema,
                             schema.schema_type,
                             types,
-                            models)
+                            models,
+                            to_translate)
 
                         if isinstance(details, dict):
                             fields.append(details)
@@ -153,11 +157,23 @@ class SchemaView(object):
                             global_models[k].extend(values)
 
             if global_types:
-                nodes['fieldTypes'] = lookup_common_fields(global_types, ignore_key='fieldType')
+                if to_translate:
+                    to_translate['fieldTypes'] = MissingSet()
+                nodes['fieldTypes'] = lookup_common_fields(
+                    global_types,
+                    to_translate,
+                    ignore_key='fieldType',
+                    is_field_type=True)
                 nodes['keep_types_keys'] = keep_types_keys
+
             if global_models:
-                nodes['models'] = lookup_common_fields(global_models, ignore_key='model')
+                if to_translate:
+                    to_translate['models'] = MissingSet()
+                nodes['models'] = lookup_common_fields(global_models, to_translate, ignore_key='model')
                 nodes['keep_models_keys'] = keep_models_keys
+
+            if to_translate:
+                nodes['to_translate'] = to_translate
 
             request.cache.put(cache_key, nodes, expire=schema_expire_cache)
 
@@ -168,6 +184,14 @@ class SchemaView(object):
         models_keys = set()
         models = nodes.pop('models', None)
         keep_models_keys = nodes.pop('keep_models_keys', None)
+
+        to_translate = nodes.pop('to_translate', None)
+        fields_translation = {}
+        models_translation = {}
+        if to_translate:
+            translator = request.translator
+            fields_translation = to_translate.pop('fieldTypes', fields_translation)
+            models_translation = to_translate.pop('models', fields_translation)
 
         for key, details in nodes.items():
             route_name = details['routeName']
@@ -188,12 +212,38 @@ class SchemaView(object):
         if types_keys:
             nodes['fieldTypes'] = {}
             for k in types_keys:
-                nodes['fieldTypes'][k] = types[k]
+                nodes['fieldTypes'][k] = details = types[k]
+                field_fields = fields_translation.get(k)
+                if field_fields:
+                    for field in field_fields:
+                        if field == 'options':
+                            for option in details[field]:
+                                if option['text']:
+                                    option['text'] = translator(option['text'])
+                        else:
+                            details[field] = translator(details[field])
 
         if models_keys:
             nodes['models'] = {}
             for k in models_keys:
-                nodes['models'][k] = models[k]
+                nodes['models'][k] = details = models[k]
+                model_fields = models_translation.get(k)
+                if model_fields:
+                    for field in model_fields:
+                        if field == 'options':
+                            for option in details[field]:
+                                if option['text']:
+                                    option['text'] = translator(option['text'])
+                        else:
+                            details[field] = translator(details[field])
+
+        if to_translate:
+            for key, values in to_translate.items():
+                for value in values:
+                    text_value = value.get(key)
+                    if text_value:
+                        value[key] = translator(text_value)
+                        print text_value, value[key]
 
         return nodes
 
@@ -205,7 +255,7 @@ class SchemaView(object):
             url = '%s%s' % (request.application_url, unquote(route.generate(params)))
             return intr_route, url, params.keys()
 
-    def construct_structure(self, request, schema, schema_type, types, models, parent_name=None):
+    def construct_structure(self, request, schema, schema_type, types, models, to_translate, parent_name=None):
         if isinstance(schema.typ, Sequence):
             child = schema.children[0]
             if not schema.name:
@@ -215,9 +265,14 @@ class SchemaView(object):
             details = {
                 'model': name,
                 'type': 'sequence',
-                'title': request.translate(schema.title),
-                'description': schema.description or ''}
+                'title': schema.title,
+                'description': schema.description or u''}
             models[name].append(details)
+
+            if isinstance(schema.title, TranslationString):
+                to_translate['title'].append(details)
+            if isinstance(schema.description, TranslationString):
+                to_translate['description'].append(details)
 
             # Find and add child
             child_details = self.construct_structure(
@@ -226,6 +281,7 @@ class SchemaView(object):
                 schema_type,
                 types,
                 models,
+                to_translate,
                 parent_name=schema.name)
 
             if isinstance(details, dict):
@@ -251,6 +307,7 @@ class SchemaView(object):
                     schema_type,
                     types,
                     models,
+                    to_translate,
                     parent_name=schema.name))
 
             name = schema.name or parent_name
@@ -260,23 +317,30 @@ class SchemaView(object):
             name = camelcase(name)
             details = {
                 'type': 'model',
-                'title': request.translate(schema.title),
-                'description': request.translate(schema.description or ''),
+                'title': schema.title,
+                'description': schema.description or u'',
                 'fields': fields,
                 'model': name}
             models[name].append(details)
+
+            if isinstance(schema.title, TranslationString):
+                to_translate['title'].append(details)
+            if isinstance(schema.description, TranslationString):
+                to_translate['description'].append(details)
+
             return details
 
         else:
             name = camelcase(schema.name)
-            description = schema.description
-            if description:
-                description = request.translate(description)
-
             details = {
                 'fieldType': name,
-                'title': request.translate(schema.title),
-                'description': description}
+                'title': schema.title,
+                'description': schema.description or u''}
+
+            if isinstance(schema.title, TranslationString):
+                to_translate['title'].append(details)
+            if isinstance(schema.description, TranslationString):
+                to_translate['description'].append(details)
 
             if hasattr(schema, 'model_reference'):
                 model = schema.model_reference['model']
@@ -315,21 +379,21 @@ class SchemaView(object):
                 for validator in validators:
                     if isinstance(validator, OneOfWithDescription):
                         details['options'] = []
+                        add_option = details['options'].append
+                        save_to_translate = False
                         for choice, description in validator.choices_with_descripton:
-                            if description:
-                                description = request.translate(description)
-                            details['options'].append({
-                                'value': choice,
-                                'text': description})
+                            add_option({'value': choice, 'text': description})
+                            save_to_translate = save_to_translate or isinstance(description, TranslationString)
+                        if save_to_translate:
+                            to_translate['options'].append(details)
+
                     elif isinstance(validator, OneOf):
                         details['options'] = []
+                        add_option = details['options'].append
                         for choice in validator.choices:
-                            choice_description = force_unicode(choice).replace(u'_', u' ').title()
-                            if choice_description:
-                                choice_description = request.translate(choice_description)
-                            details['options'].append({
+                            add_option({
                                 'value': choice,
-                                'text': choice_description})
+                                'text': force_unicode(choice).replace(u'_', u' ').title()})
                     else:
                         if isinstance(validator, Length):
                             validation_option = {}
@@ -381,8 +445,13 @@ def get_colander_type_name(node):
         return camelcase(str(node.__class__.__name__).lower())
 
 
-def lookup_common_fields(values, ignore_key=None):
+def lookup_common_fields(values, to_translate, ignore_key=None, is_field_type=False):
     result = MissingDict()
+
+    dict_key = 'models'
+    if is_field_type:
+        dict_key = 'fieldTypes'
+
     for name, name_list in values.items():
         if not name_list:
             continue
@@ -394,6 +463,10 @@ def lookup_common_fields(values, ignore_key=None):
             all_keys.remove(ignore_key)
 
         for key in all_keys:
+            check_translation = None
+            if key in to_translate:
+                check_translation = to_translate[key]
+
             value = MARKER
             value_idx = None
             for i, name_options in enumerate(name_list):
@@ -405,9 +478,26 @@ def lookup_common_fields(values, ignore_key=None):
                     value = other_value
                     value_idx = i
                 elif not different_values(value, other_value):
+                    if check_translation:
+                        idx = lookup_id(check_translation, name_options)
+                        if idx is not None:
+                            check_translation.pop(idx)
                     name_options.pop(key)
 
             if value_idx is not None:
-                result[name][key] = name_list[value_idx].pop(key)
+                details = name_list[value_idx]
+                if check_translation:
+                    idx = lookup_id(check_translation, details)
+                    if idx is not None:
+                        check_translation.pop(idx)
+                        to_translate[dict_key][name].add(key)
+
+                result[name][key] = details.pop(key)
 
     return result
+
+
+def lookup_id(values, value):
+    for i, v in enumerate(values):
+        if id(v) == id(value):
+            return i
