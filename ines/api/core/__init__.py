@@ -178,6 +178,22 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
         else:
             options['indexer'] = wIndex.open_dir(indexer_folder)
 
+            # Check for new fields
+            existing_names = set(options['indexer'].schema.stored_names())
+            for field, field_type in options['fields'].items():
+                if field not in existing_names:
+                    writer = options['indexer'].writer()
+                    writer.add_field(field, field_type)
+                    writer.commit()
+                else:
+                    existing_names.remove(field)
+
+            if existing_names:
+                for field in existing_names:
+                    writer = options['indexer'].writer()
+                    writer.remove_field(field)
+                    writer.commit()
+
         return options
 
     @property
@@ -1017,13 +1033,13 @@ class BaseCoreIndexedSession(BaseCoreSession):
         wParser = WHOOSH['qparser']
         options = self.api_session_manager.indexer_options
 
-        query_terms = []
         query_string = u'*%s*' % force_unicode(query_string).replace(u' ', u'*')
-        for q in wParser.MultifieldParser(options['search_fields'], options['indexer'].schema).parse(query_string):
-            if (not isinstance(q, wQuery.qcore._NullQuery)
-                    and (q.fieldname not in options['boolean_fields']
-                         or '%s:' % q.fieldname in query_string)):
-                query_terms.append(q)
+        query_terms = clear_whoosh_fields(
+            query_string,
+            options,
+            wParser.MultifieldParser(options['search_fields'], options['indexer'].schema).parse(query_string))
+        if not query_terms:
+            return
         query = wQuery.Or(query_terms)
 
         if application_names:
@@ -1130,6 +1146,20 @@ class BaseCoreIndexedSession(BaseCoreSession):
             self.cache.unlock(lock_key)
 
         return u'Indexer synchronized'
+
+
+def clear_whoosh_fields(query_string, options, query):
+    query_terms = []
+    wQuery = WHOOSH['query']
+    if isinstance(query, (wQuery.compound.Or, wQuery.compound.And)):
+        for q in query:
+            query_terms.extend(clear_whoosh_fields(query_string, options, q))
+
+    elif not isinstance(query, wQuery.qcore._NullQuery):
+        if query.fieldname not in options['boolean_fields'] or '%s:' % query.fieldname in query_string:
+            query_terms.append(query)
+
+    return query_terms
 
 
 class QueryLookup(object):
