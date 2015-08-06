@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import datetime
+from functools import wraps
 from os.path import normpath
 
 from pyramid.compat import is_nonstr_iter
@@ -37,6 +38,7 @@ from ines.api.database.sql import date_in_period_filter
 from ines.api.database.sql import get_orm_tables
 from ines.api.database.sql import new_lightweight_named_tuple
 from ines.api.database.sql import Pagination
+from ines.api.database.sql import resolve_database_value
 from ines.api.database.sql import SQL_DBS
 from ines.convert import convert_timezone
 from ines.convert import force_string
@@ -63,6 +65,15 @@ ACTIVE_MARKER = object()
 
 WHOOSH = {}
 WHOOSH_DIRS = {}
+
+DEFAULT_ACTIVITY_ACTION_MESSAGES = {}
+
+
+def register_activity_message(action):
+    def decorator(func):
+        DEFAULT_ACTIVITY_ACTION_MESSAGES[action] = func
+        return func
+    return decorator
 
 
 class BaseCoreSessionManager(BaseSQLSessionManager):
@@ -558,7 +569,7 @@ class ORMQuery(object):
         else:
             return 0
 
-    def delete(self, active=None, synchronize_session=False):
+    def delete(self, active=None, synchronize_session=False, activity_action='delete'):
         if len(self.options.attributes) != 1:
             raise AttributeError('Define only the column you want to delete')
 
@@ -585,20 +596,14 @@ class ORMQuery(object):
             column_names = [k for k in column.table.c.keys() if k not in ('updated_date', 'created_date')]
             for type_id, table in response:
                 context_id = getattr(table, 'parent_id', None)
-                data = dict((c, getattr(table, c)) for c in column_names)
-                message = orm_table.get_activity_message(
-                    self.api_session.request,
-                    action='delete',
-                    type_id=type_id,
-                    context_id=context_id,
-                    data=data)
+                data = dict((c, resolve_database_value(getattr(table, c))) for c in column_names)
                 self.api_session.add_activity(
-                    action='delete',
+                    orm_table,
+                    action=activity_action,
                     type=type_name,
                     type_id=type_id,
                     context_id=context_id,
-                    data=data,
-                    message=message)
+                    data=data)
 
                 self.api_session.delete_from_index(type_name, type_id)
 
@@ -664,7 +669,7 @@ class ORMQuery(object):
             drill_down_limit=0)
         return parent_core_id in child_ids
 
-    def update(self, values, active=None, synchronize_session=False):
+    def update(self, values, active=None, synchronize_session=False, activity_action='update'):
         if len(self.options.attributes) != 1:
             raise AttributeError('Define only the column you want to update')
         elif not values:
@@ -756,23 +761,20 @@ class ORMQuery(object):
                     context_id = parent_ids.get(type_id)
 
                     r_value = references[type_id]
-                    data = dict((k, getattr(r_value, k)) for k in column_names)
-                    update_items = dict((k, v) for k, v in update_values.items() if k not in ignore_columns)
+                    data = dict((k, resolve_database_value(getattr(r_value, k))) for k in column_names)
+
+                    update_items = dict(
+                        (k, resolve_database_value(v))
+                        for k, v in update_values.items() if k not in ignore_columns)
                     data.update(update_items)
 
-                    message = orm_table.get_activity_message(
-                        self.api_session.request,
-                        action='update',
-                        type_id=type_id,
-                        context_id=context_id,
-                        data=data)
                     self.api_session.add_activity(
-                        action='update',
+                        orm_table,
+                        action=activity_action,
                         type=type_name,
                         type_id=type_id,
                         context_id=parent_ids.get(type_id),
-                        data=data,
-                        message=message)
+                        data=data)
 
                     self.api_session.update_on_index(type_name, type_id, update_items)
 
@@ -822,7 +824,27 @@ class BaseCoreSession(BaseSQLSession):
                 hours=int(time_zone_hours or 0),
                 minutes=int(time_zone_minutes or 0))
 
-    def add_activity(self, action, type, type_id, context_id=None, data=None, message=None):
+    def get_activity_message(self, table, action, type_id, context_id=None, data=None):
+        if hasattr(table, 'get_activity_message'):
+            message = table.get_activity_message(
+                self.request,
+                action=action,
+                type_id=type_id,
+                context_id=context_id,
+                data=data)
+            if message:
+                return message
+
+        method = DEFAULT_ACTIVITY_ACTION_MESSAGES.get(action)
+        if method:
+            return method(
+                self.request,
+                type_id=type_id,
+                context_id=context_id,
+                data=data)
+
+    def add_activity(self, table, action, type, type_id, context_id=None, data=None):
+        message = self.get_activity_message(table, action, type_id, context_id=context_id, data=data)
         message = message or default_message_method(action, type, type_id, context_id, **(data or {}))
 
         # Set to logging
@@ -846,10 +868,10 @@ class BaseCoreSession(BaseSQLSession):
     def query(self, *attributes, **kw_attributes):
         return ORMQuery(self, *attributes, **kw_attributes)
 
-    def add(self, orm_object):
-        self.add_all([orm_object])
+    def add(self, orm_object, activity_action='add'):
+        self.add_all([orm_object], activity_action=activity_action)
 
-    def add_all(self, orm_objects):
+    def add_all(self, orm_objects, activity_action='add'):
         if not orm_objects:
             return False
 
@@ -878,20 +900,14 @@ class BaseCoreSession(BaseSQLSession):
         column_names = [k for k in orm_objects[0].__table__.c.keys() if k not in ('updated_date', 'created_date')]
         for value in orm_objects:
             context_id = getattr(value, 'parent_id', None)
-            data = dict((c, getattr(value, c)) for c in column_names)
-            message = orm_table.get_activity_message(
-                self.request,
-                action='add',
-                type_id=value.id,
-                context_id=context_id,
-                data=data)
+            data = dict((c, resolve_database_value(getattr(value, c))) for c in column_names)
             self.add_activity(
-                action='add',
+                orm_table,
+                action=activity_action,
                 type=type_name,
                 type_id=value.id,
                 context_id=context_id,
-                data=data,
-                message=message)
+                data=data)
 
             self.add_to_index(
                 type_name=type_name,

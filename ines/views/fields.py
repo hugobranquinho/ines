@@ -189,6 +189,14 @@ class Boolean(BaseBoolean):
             return super(Boolean, self).deserialize(node, cstruct)
 
 
+class HTMLString(String):
+    pass
+
+
+class TextString(String):
+    pass
+
+
 class File(SchemaType):
     def serialize(self, node, value):
         if value is null:
@@ -399,11 +407,14 @@ FIRST_PAGE_HREF = SchemaNode(String(), title=_(u'First page url'))
 LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
 
 
-class PaginationInput(MappingSchema):
-    page = PAGE.clone(missing=1)
-    limit_per_page = LIMIT_PER_PAGE
+class OrderByInput(MappingSchema):
     order_by = SequenceSchema(Sequence(), ORDER_BY, missing=drop, preparer=split_values)
     finisher = [PaginationOrderFinisher]
+
+
+class PaginationInput(OrderByInput):
+    page = PAGE.clone(missing=1)
+    limit_per_page = LIMIT_PER_PAGE
 
 
 CSV_DELIMITER = {

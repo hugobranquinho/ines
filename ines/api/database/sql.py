@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from math import ceil
+import datetime
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
@@ -24,7 +24,6 @@ from sqlalchemy.util._collections import lightweight_named_tuple
 
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
-from ines.convert import maybe_integer
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
 from ines.exceptions import Error
@@ -37,6 +36,8 @@ from ines.utils import PaginationClass
 
 
 SQL_DBS = MissingDict()
+SQLALCHEMY_NOW_TYPE = type(func.now())
+NOW = datetime.datetime.now
 
 
 class BaseSQLSessionManager(BaseSessionManager):
@@ -589,3 +590,10 @@ def get_tables_on_registry(decl_class_registry):
             if table_alias:
                 references.update((k, table) for k in table_alias)
     return references
+
+
+def resolve_database_value(value):
+    if isinstance(value, SQLALCHEMY_NOW_TYPE):
+        return NOW()
+    else:
+        return value

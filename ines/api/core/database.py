@@ -21,14 +21,6 @@ NOW = datetime.datetime.now
 class _Base(object):
     __table_alias__ = None
 
-    @classmethod
-    def get_activity_message(self, request, action, type_id, context_id, data=None):
-        type_name = u' '.join(self.__tablename__.split(u'_')).title()
-        message = u'%s (%s) %s' % (type_name, type_id, action.lower())
-        if context_id:
-            message += u' from %s' % context_id
-        return message
-
 
 class Base(_Base):
     __key_length__ = 7
