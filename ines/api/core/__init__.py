@@ -595,15 +595,16 @@ class ORMQuery(object):
             type_name = column.table.name
             column_names = [k for k in column.table.c.keys() if k not in ('updated_date', 'created_date')]
             for type_id, table in response:
-                context_id = getattr(table, 'parent_id', None)
-                data = dict((c, resolve_database_value(getattr(table, c))) for c in column_names)
-                self.api_session.add_activity(
-                    orm_table,
-                    action=activity_action,
-                    type=type_name,
-                    type_id=type_id,
-                    context_id=context_id,
-                    data=data)
+                if activity_action:
+                    context_id = getattr(table, 'parent_id', None)
+                    data = dict((c, resolve_database_value(getattr(table, c))) for c in column_names)
+                    self.api_session.add_activity(
+                        orm_table,
+                        action=activity_action,
+                        type=type_name,
+                        type_id=type_id,
+                        context_id=context_id,
+                        data=data)
 
                 self.api_session.delete_from_index(type_name, type_id)
 
@@ -758,8 +759,6 @@ class ORMQuery(object):
                 self.api_session.session.flush()
 
                 for type_id in ids:
-                    context_id = parent_ids.get(type_id)
-
                     r_value = references[type_id]
                     data = dict((k, resolve_database_value(getattr(r_value, k))) for k in column_names)
 
@@ -768,13 +767,14 @@ class ORMQuery(object):
                         for k, v in update_values.items() if k not in ignore_columns)
                     data.update(update_items)
 
-                    self.api_session.add_activity(
-                        orm_table,
-                        action=activity_action,
-                        type=type_name,
-                        type_id=type_id,
-                        context_id=parent_ids.get(type_id),
-                        data=data)
+                    if activity_action:
+                        self.api_session.add_activity(
+                            orm_table,
+                            action=activity_action,
+                            type=type_name,
+                            type_id=type_id,
+                            context_id=parent_ids.get(type_id),
+                            data=data)
 
                     self.api_session.update_on_index(type_name, type_id, update_items)
 
@@ -899,15 +899,17 @@ class BaseCoreSession(BaseSQLSession):
         type_name = orm_objects[0].__table__.name
         column_names = [k for k in orm_objects[0].__table__.c.keys() if k not in ('updated_date', 'created_date')]
         for value in orm_objects:
-            context_id = getattr(value, 'parent_id', None)
             data = dict((c, resolve_database_value(getattr(value, c))) for c in column_names)
-            self.add_activity(
-                orm_table,
-                action=activity_action,
-                type=type_name,
-                type_id=value.id,
-                context_id=context_id,
-                data=data)
+
+            if activity_action:
+                context_id = getattr(value, 'parent_id', None)
+                self.add_activity(
+                    orm_table,
+                    action=activity_action,
+                    type=type_name,
+                    type_id=value.id,
+                    context_id=context_id,
+                    data=data)
 
             self.add_to_index(
                 type_name=type_name,
