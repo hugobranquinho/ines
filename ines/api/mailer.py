@@ -56,8 +56,9 @@ class BaseMailerSessionManager(BaseSessionManager):
 
         pyramid_mailer = _import_module('pyramid_mailer')
         self.mailer = pyramid_mailer.mailer_factory_from_settings(self.settings, prefix='')
-        self.message_cls = pyramid_mailer.message.Message
-        self.attachment_cls = pyramid_mailer.message.Attachment
+        pyramid_mailer_message = _import_module('pyramid_mailer.message')
+        self.message_cls = pyramid_mailer_message.Message
+        self.attachment_cls = pyramid_mailer_message.Attachment
 
         if self.settings.get('queue_path'):
             make_dir(self.settings['queue_path'])

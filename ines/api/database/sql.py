@@ -15,6 +15,7 @@ from sqlalchemy import MetaData
 from sqlalchemy import not_
 from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
@@ -188,7 +189,7 @@ def initialize_sql(
 
                     try:
                         index.create()
-                    except OperationalError:
+                    except (ProgrammingError, OperationalError):
                         pass
 
     return session

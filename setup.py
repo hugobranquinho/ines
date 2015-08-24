@@ -35,7 +35,6 @@ import sys
 
 PY3 = sys.version_info[0] == 3
 
-
 here = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(here, 'README.rst')) as f:
     DESCRIPTION = f.read()
@@ -106,6 +105,7 @@ setupkw = dict(
     entry_points="""
         [console_scripts]
         apidocjs = ines.scripts.apidocjs:main
+        build_ini = ines.scripts.build_ini:main
 
         [paste.app_factory]
         not_found_api_application = ines.wsgi:not_found_api_application
