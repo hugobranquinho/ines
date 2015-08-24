@@ -4,11 +4,13 @@ import sys
 from traceback import format_exception
 
 from pyramid.httpexceptions import HTTPInternalServerError
+from six import print_
 
-from ines.convert import force_string
+from ines.convert import string_join
+from ines.convert import to_string
 from ines.middlewares import Middleware
 from ines.request import make_request
-from ines.utils import format_error_to_json
+from ines.utils import format_error_response_to_json
 
 
 class LoggingMiddleware(Middleware):
@@ -23,7 +25,7 @@ class LoggingMiddleware(Middleware):
             request = make_request(self.config, environ)
 
             try:
-                small_message = '%s: %s' % (error.__class__.__name__, force_string(error))
+                small_message = '%s: %s' % (error.__class__.__name__, to_string(error))
             except (BaseException, Exception):
                 small_message = error
 
@@ -32,9 +34,9 @@ class LoggingMiddleware(Middleware):
                     'internal_server_error',
                     str(small_message))
             except (BaseException, Exception):
-                print ''.join(format_exception(*sys.exc_info()))
+                print_(string_join('', format_exception(*sys.exc_info())))
 
             internal_server_error = HTTPInternalServerError()
             headers = [('Content-type', 'application/json')]
             start_response(internal_server_error.status, headers)
-            yield format_error_to_json(internal_server_error, request=request)
+            yield format_error_response_to_json(internal_server_error, request=request)

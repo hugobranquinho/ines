@@ -9,7 +9,6 @@ from ines.authorization import Authenticated
 from ines.authorization import Everyone
 from ines.authorization import NotAuthenticated
 from ines.authorization import User
-from ines.convert import force_string
 
 
 class AuthenticatedSession(object):
@@ -96,11 +95,6 @@ class ApplicationHeaderAuthenticationPolicy(object):
         userid = request.headers.get(self.header_key)
         if userid:
             return userid
-
-        # @@TODO
-        #userid = request.cookies.get(self.cookie_key)
-        #if userid:
-        #    return 'Token %s' % force_string(userid)
 
     def effective_principals(self, request):
         authenticated = self.get_authenticated_session(request)

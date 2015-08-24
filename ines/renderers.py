@@ -3,23 +3,27 @@
 import codecs
 from csv import QUOTE_MINIMAL
 from csv import writer as csv_writer
-from cStringIO import StringIO
 import datetime
 from os.path import basename
 
 from colander import Mapping
 from colander import Sequence
+from six import integer_types
+from six import moves
+from six import string_types
+from six import u
 
-from ines import _
 from ines import DEFAULT_RENDERERS
 from ines.convert import camelcase
-from ines.convert import force_string
-from ines.convert import force_unicode
+from ines.convert import to_string
+from ines.convert import to_unicode
 from ines.convert import json_dumps
 from ines.convert import maybe_string
 from ines.exceptions import Error
+from ines.i18n import _
 
 
+StringIO = moves.StringIO
 DATE = datetime.date
 DATETIME = datetime.datetime
 
@@ -65,11 +69,11 @@ class CSV(object):
             request = system.get('request')
 
             delimiter = ';'
-            quotechar = '"'
-            lineterminator = '\r\n'
+            quote_char = '"'
+            line_terminator = '\r\n'
             quoting = QUOTE_MINIMAL
-            encode_string = force_string
-            decode_string = force_unicode
+            encode_string = to_string
+            decode_string = to_unicode
 
             if request is not None:
                 response = request.response
@@ -93,59 +97,59 @@ class CSV(object):
 
                 csv_quote_char = request.params.get(camelcase('csv_quote_char'))
                 if csv_quote_char:
-                    quotechar = encode_string(csv_quote_char)
+                    quote_char = encode_string(csv_quote_char)
 
                 csv_line_terminator = request.params.get(camelcase('csv_line_terminator'))
                 if csv_line_terminator:
-                    if csv_line_terminator == u'\\n\\r':
-                        lineterminator = '\n\r'
-                    elif csv_line_terminator == u'\\n':
-                        lineterminator = '\n'
-                    elif csv_line_terminator == u'\\r':
-                        lineterminator = '\r'
+                    if csv_line_terminator == u('\\n\\r'):
+                        line_terminator = '\n\r'
+                    elif csv_line_terminator == u('\\n'):
+                        line_terminator = '\n'
+                    elif csv_line_terminator == u('\\r'):
+                        line_terminator = '\r'
 
                 csv_encoding = request.params.get(camelcase('csv_encoding'))
                 if csv_encoding:
                     try:
                         encoder = codecs.lookup(csv_encoding)
                     except LookupError:
-                        raise Error('csv_encoding', _(u'Invalid CSV encoding'))
+                        raise Error('csv_encoding', _('Invalid CSV encoding'))
                     else:
                         if encoder.name != 'utf-8':
                             encode_string = lambda v: encoder.encode(v)[0]
                             decode_string = lambda v: encoder.decode(v)[0]
                             request.response.charset = encoder.name
 
-                yes_text = encode_string(request.translate(_(u'Yes')))
-                no_text = encode_string(request.translate(_(u'No')))
+                yes_text = encode_string(request.translate(_('Yes')))
+                no_text = encode_string(request.translate(_('No')))
             else:
-                yes_text = 'Yes'
-                no_text = 'No'
+                yes_text = u('Yes')
+                no_text = u('No')
 
             if not value:
-                return u''
+                return u('')
 
             f = StringIO()
             csvfile = csv_writer(
                 f,
                 delimiter=delimiter,
-                quotechar=quotechar,
-                lineterminator=lineterminator,
+                quotechar=quote_char,
+                lineterminator=line_terminator,
                 quoting=quoting)
 
             for value_items in value:
                 row = []
                 for item in value_items:
                     if item is None:
-                        item = ''
+                        item = u('')
                     elif isinstance(item, bool):
                         item = item and yes_text or no_text
-                    elif isinstance(item, (int, basestring, long)):
-                        item = encode_string(unicode(item))
+                    elif isinstance(item, (string_types, integer_types)):
+                        item = encode_string(u(item))
                     elif isinstance(item, (DATE, DATETIME)):
                         item = encode_string(item.isoformat())
                     else:
-                        item = encode_string(json_dumps(item) or '')
+                        item = encode_string(json_dumps(item) or u(''))
                     row.append(item)
                 csvfile.writerow(row)
 

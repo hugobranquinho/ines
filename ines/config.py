@@ -5,17 +5,19 @@ try:
 except ImportError:
     OrderedDict = dict
 
+from collections import defaultdict
 from inspect import getargspec
 
 from colander import Invalid
 from pkg_resources import get_distribution
-from pyramid.config import Configurator
+from pyramid.config import Configurator as PyramidConfigurator
 from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPClientError
 from pyramid.path import caller_package
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
 from pyramid.static import static_view
+from six import string_types
 
 from ines import API_CONFIGURATION_EXTENSIONS
 from ines import APPLICATIONS
@@ -32,6 +34,7 @@ from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
 from ines.cache import SaveMe
 from ines.cache import SaveMeMemcached
+from ines.convert import string_join
 from ines.convert import maybe_list
 from ines.exceptions import Error
 from ines.interfaces import IBaseSessionManager
@@ -43,10 +46,8 @@ from ines.path import find_class_on_module
 from ines.path import get_object_on_path
 from ines.views.postman import PostmanCollection
 from ines.views.schema import SchemaView
-from ines.request import inesRequest
+from ines.request import InesRequest
 from ines.route import RootFactory
-from ines.utils import MissingDict
-from ines.utils import MissingList
 from ines.utils import WarningDict
 
 
@@ -70,7 +71,7 @@ class APIWarningDict(WarningDict):
         super(APIWarningDict, self).__setitem__(key, value)
 
 
-class APIConfigurator(Configurator):
+class Configurator(PyramidConfigurator):
     def __init__(
             self,
             application_name=None,
@@ -81,7 +82,7 @@ class APIConfigurator(Configurator):
             for application_config in APPLICATIONS.values():
                 if application_config.registry is kwargs['registry']:
                     # Nothing to do where. .scan() Configuration
-                    super(APIConfigurator, self).__init__(**kwargs)
+                    super(Configurator, self).__init__(**kwargs)
                     return  # Nothing else to do where
 
         if 'package' not in kwargs:
@@ -102,9 +103,9 @@ class APIConfigurator(Configurator):
         if 'root_factory' not in kwargs:
             kwargs['root_factory'] = RootFactory
         if 'request_factory' not in kwargs:
-            kwargs['request_factory'] = inesRequest
+            kwargs['request_factory'] = InesRequest
 
-        super(APIConfigurator, self).__init__(**kwargs)
+        super(Configurator, self).__init__(**kwargs)
 
         self.registry.config = self
         self.registry.package_name = self.registry.__name__
@@ -114,10 +115,11 @@ class APIConfigurator(Configurator):
         self.registry.application_name = self.application_name
 
         # Define global cache
-        cache_settings = {}
-        for key, value in self.settings.items():
-            if key.startswith('cache.'):
-                cache_settings[key[6:]] = value
+        cache_settings = dict(
+            (key[6:], value)
+            for key, value in self.settings.items()
+            if key.startswith('cache.'))
+
         cache_type = cache_settings.pop('type', None)
         if cache_type == 'memcached':
             self.cache = SaveMeMemcached(**cache_settings)
@@ -137,12 +139,12 @@ class APIConfigurator(Configurator):
                 else:
                     name, option = options
                 if option == 'session_path':
-                    if isinstance(value, basestring):
+                    if isinstance(value, string_types):
                         sessions[name] = get_object_on_path(value)
                     else:
                         sessions[name] = value
                 elif option == 'class_path':
-                    if isinstance(value, basestring):
+                    if isinstance(value, string_types):
                         bases[name] = get_object_on_path(value)
                     else:
                         bases[name] = value
@@ -162,7 +164,7 @@ class APIConfigurator(Configurator):
                 bases[session_manager.__api_name__] = session_manager
 
         # Find default session manager
-        default_bases = MissingList()
+        default_bases = defaultdict(list)
         for session_manager in find_class_on_module('ines.api', BaseSessionManager):
             api_name = getattr(session_manager, '__api_name__', None)
             default_bases[api_name].append(session_manager)
@@ -202,6 +204,126 @@ class APIConfigurator(Configurator):
     def debug(self):
         return self.settings.get('debug')
 
+    @reify
+    def version(self):
+        return get_distribution(self.package_name).version
+
+    def add_routes(self, *routes, **kwargs):
+        for arguments in routes:
+            if not arguments:
+                raise ValueError('Define some arguments')
+            elif not isinstance(arguments, dict):
+                list_arguments = maybe_list(arguments)
+                arguments = {'name': list_arguments[0]}
+                if len(list_arguments) > 1:
+                    arguments['pattern'] = list_arguments[1]
+                if len(list_arguments) > 2:
+                    arguments['permission'] = list_arguments[2]
+
+            self.add_route(**arguments)
+
+    def add_default_renderers(self):
+        super(Configurator, self).add_default_renderers()
+
+        for key, renderer in DEFAULT_RENDERERS.items():
+            self.add_renderer(key, renderer)
+
+    def add_view(self, *args, **kwargs):
+        if 'permission' not in kwargs:
+            # Force permission validation
+            kwargs['permission'] = INES_POLICY
+        return super(Configurator, self).add_view(*args, **kwargs)
+
+    def lookup_extensions(self):
+        found_settings = defaultdict(dict)
+        for find_setting_key, method_name in API_CONFIGURATION_EXTENSIONS.items():
+            if not find_setting_key.endswith('.'):
+                find_setting_key += '.'
+
+            for key, value in self.settings.items():
+                if key.startswith(find_setting_key):
+                    setting_key = key.split(find_setting_key, 1)[1]
+                    found_settings[method_name][setting_key] = value
+
+        for method_name, settings in found_settings.items():
+            method = getattr(self, method_name)
+            method_settings = dict(
+                (argument, settings[argument])
+                for argument in getargspec(method).args
+                if argument in settings)
+            method(**method_settings)
+
+    def install_middleware(self, name, middleware):
+        self.middlewares.append((name, middleware))
+
+    def make_wsgi_app(self, install_middlewares=True):
+        # Find for possible configuration extensions
+        self.lookup_extensions()
+
+        # Scan all package routes
+        self.scan(self.package_name, categories=['pyramid'])
+
+        # Scan package jobs
+        scan_jobs = False
+        jobs_manager = None
+        for name, extension in self.registry.getUtilitiesFor(IBaseSessionManager):
+            if issubclass(extension.session, BaseMailerSession) and 'queue_path' in extension.settings:
+                scan_jobs = True
+            elif issubclass(extension.session, BaseJobsSession):
+                scan_jobs = True
+                jobs_manager = extension
+            elif isinstance(extension, BaseJobsManager):
+                jobs_manager = extension
+        if scan_jobs:
+            if jobs_manager is None:
+                raise ValueError('Please define module for jobs.')
+            self.scan(self.package_name, categories=['ines.jobs'], jobs_manager=jobs_manager)
+            self.scan('ines', categories=['ines.jobs'], jobs_manager=jobs_manager)
+
+        app = super(Configurator, self).make_wsgi_app()
+
+        if install_middlewares:
+            # Look for middlewares in API Sessions
+            for name, extension in self.registry.getUtilitiesFor(IBaseSessionManager):
+                if hasattr(extension, '__middlewares__'):
+                    for extension_middleware in extension.__middlewares__:
+                        self.install_middleware(
+                            extension_middleware.name,
+                            extension_middleware)
+
+            # Define middleware settings
+            middlewares_settings = defaultdict(dict)
+            for key, value in self.settings.items():
+                if key.startswith('middleware.'):
+                    maybe_name = key.split('middleware.', 1)[1]
+                    if '.' in maybe_name:
+                        parts = maybe_name.split('.')
+                        setting_key = parts[-1]
+                        name = string_join('.', parts[:-1])
+                        middlewares_settings[name][setting_key] = value
+                    else:
+                        # Install settings middlewares
+                        middleware_class = get_object_on_path(value)
+                        self.install_middleware(maybe_name, middleware_class)
+
+            # Install middlewares with reversed order. Lower position first
+            if self.middlewares:
+                middlewares = []
+                for name, middleware in self.middlewares:
+                    settings = middlewares_settings[name]
+                    default_position = (
+                        getattr(middleware, 'position', DEFAULT_MIDDLEWARE_POSITION.get(name)))
+                    position = settings.get('position', default_position) or 0
+                    middlewares.append((position, name, middleware, settings))
+                middlewares.sort(reverse=True)
+                for position, name, middleware, settings in middlewares:
+                    app = middleware(self, app, **settings)
+                    app.name = name
+
+        return app
+
+
+class APIConfigurator(Configurator):
     @configuration_extensions('apidocjs')
     def add_apidocjs_view(
             self, pattern='documentation', cache_max_age=86400,
@@ -218,10 +340,6 @@ class APIConfigurator(Configurator):
             route_name=resource_name,
             view=static_func,
             permission=INES_POLICY)
-
-    @reify
-    def version(self):
-        return get_distribution(self.package_name).version
 
     def register_input_schema(self, view, route_name, request_method):
         for req_method in maybe_list(request_method) or ['']:
@@ -311,20 +429,6 @@ class APIConfigurator(Configurator):
         if csv_route_name and csv_route_pattern:
             self.add_routes((csv_route_name, csv_route_pattern))
 
-    def add_routes(self, *routes, **kwargs):
-        for arguments in routes:
-            if not arguments:
-                raise ValueError('Define some arguments')
-            elif not isinstance(arguments, dict):
-                list_arguments = maybe_list(arguments)
-                arguments = {'name': list_arguments[0]}
-                if len(list_arguments) > 1:
-                    arguments['pattern'] = list_arguments[1]
-                if len(list_arguments) > 2:
-                    arguments['permission'] = list_arguments[2]
-
-            self.add_route(**arguments)
-
     @configuration_extensions('postman')
     def add_postman_route(
             self, pattern, name='postman', permission=None,
@@ -343,108 +447,10 @@ class APIConfigurator(Configurator):
             renderer='json',
             **kwargs)
 
-    def add_default_renderers(self):
-        super(APIConfigurator, self).add_default_renderers()
-
-        from ines import renderers  # for DEFAULT_RENDERERS
-        for key, renderer in DEFAULT_RENDERERS.items():
-            self.add_renderer(key, renderer)
-
     def add_view(self, *args, **kwargs):
-        if 'permission' not in kwargs:
-            # Force permission validation
-            kwargs['permission'] = INES_POLICY
         if 'renderer' not in kwargs:
             kwargs['renderer'] = 'json'
         return super(APIConfigurator, self).add_view(*args, **kwargs)
-
-    def lookup_extensions(self):
-        found_settings = MissingDict()
-        for find_setting_key, method_name in API_CONFIGURATION_EXTENSIONS.items():
-            if not find_setting_key.endswith('.'):
-                find_setting_key += '.'
-
-            for key, value in self.settings.items():
-                if key.startswith(find_setting_key):
-                    setting_key = key.split(find_setting_key, 1)[1]
-                    found_settings[method_name][setting_key] = value
-
-        for method_name, settings in found_settings.items():
-            method = getattr(self, method_name)
-            method_settings = dict(
-                (argument, settings[argument])
-                for argument in getargspec(method).args
-                if argument in settings)
-            method(**method_settings)
-
-    def make_wsgi_app(self, install_middlewares=True):
-        # Find for possible configuration extensions
-        self.lookup_extensions()
-
-        # Scan all package routes
-        self.scan(self.package_name, categories=['pyramid'])
-
-        # Scan package jobs
-        scan_jobs = False
-        jobs_manager = None
-        for name, extension in self.registry.getUtilitiesFor(IBaseSessionManager):
-            if issubclass(extension.session, BaseMailerSession) and 'queue_path' in extension.settings:
-                scan_jobs = True
-            elif issubclass(extension.session, BaseJobsSession):
-                scan_jobs = True
-                jobs_manager = extension
-            elif isinstance(extension, BaseJobsManager):
-                jobs_manager = extension
-        if scan_jobs:
-            if jobs_manager is None:
-                raise ValueError('Please define module for jobs.')
-            self.scan(self.package_name, categories=['ines.jobs'], jobs_manager=jobs_manager)
-            self.scan('ines', categories=['ines.jobs'], jobs_manager=jobs_manager)
-
-        app = super(APIConfigurator, self).make_wsgi_app()
-
-        if install_middlewares:
-            # Look for middlewares in API Sessions
-            for name, extension in self.registry.getUtilitiesFor(IBaseSessionManager):
-                if hasattr(extension, '__middlewares__'):
-                    for extension_middleware in extension.__middlewares__:
-                        self.install_middleware(
-                            extension_middleware.name,
-                            extension_middleware)
-
-            # Define middleware settings
-            middlewares_settings = MissingDict()
-            for key, value in self.settings.items():
-                if key.startswith('middleware.'):
-                    maybe_name = key.split('middleware.', 1)[1]
-                    if '.' in maybe_name:
-                        parts = maybe_name.split('.')
-                        setting_key = parts[-1]
-                        name = '.'.join(parts[:-1])
-                        middlewares_settings[name][setting_key] = value
-                    else:
-                        # Install settings middlewares
-                        middleware_class = get_object_on_path(value)
-                        self.install_middleware(maybe_name, middleware_class)
-
-            # Install middlewares with reversed order. Lower position first
-            if self.middlewares:
-                middlewares = []
-                for name, middleware in self.middlewares:
-                    settings = middlewares_settings[name]
-                    default_position = (
-                        getattr(middleware, 'position', DEFAULT_MIDDLEWARE_POSITION.get(name)))
-                    position = settings.get('position', default_position) or 0
-                    middlewares.append((position, name, middleware, settings))
-                middlewares.sort(reverse=True)
-                for position, name, middleware, settings in middlewares:
-                    app = middleware(self, app, **settings)
-                    app.name = name
-
-        return app
-
-    def install_middleware(self, name, middleware):
-        self.middlewares.append((name, middleware))
 
     @configuration_extensions('apierrors.interface')
     def add_api_errors_interface(self, only_http=False):

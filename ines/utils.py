@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 
 from calendar import monthrange
+from collections import defaultdict
 import datetime
 import errno
 from hashlib import sha256
+from io import IOBase
 from json import dumps
 from math import ceil
 from os import getpid
@@ -22,15 +24,19 @@ import warnings
 
 from colander import Invalid
 from pyramid.httpexceptions import HTTPError
+from six import PY3
+from six import u
 
 from ines import DOMAIN_NAME
 from ines import DEFAULT_RETRY_ERRNO
 from ines import OPEN_BLOCK_SIZE
 from ines.cleaner import clean_phone_number
 from ines.cleaner import normalize_full_name
+from ines.convert import bytes_join
 from ines.convert import camelcase
-from ines.convert import force_string
-from ines.convert import force_unicode
+from ines.convert import to_bytes
+from ines.convert import to_string
+from ines.convert import to_unicode
 from ines.convert import maybe_integer
 from ines.convert.codes import make_sha256_no_cache
 from ines.i18n import translate_factory
@@ -81,92 +87,43 @@ class WarningDict(dict):
         return self[key]
 
 
-class MissingDict(dict):
-    _base_type = dict
-
-    def __missing__(self, key):
-        self[key] = self._base_type()
-        return self[key]
-
-    def add_item(self, key, value):
-        self[key][value] = {}
-
-
-class MissingList(MissingDict):
-    _base_type = list
-
-    def add_item(self, key, value):
-        self[key].append(value)
-
-
-class MissingDictList(MissingDict):
-    _base_type = MissingList
-
-    def add_item(self, key, value):
-        self[key][value] = []
-
-
-class MissingInteger(MissingDict):
-    _base_type = int
-
-    def add_item(self, key, value):
-        self[key] += value
-
-
-class MissingSet(MissingDict):
-    _base_type = set
-
-    def add_item(self, key, value):
-        self[key].add(value)
-
-
-class MissingDictSet(MissingDict):
-    _base_type = MissingSet
-
-    def add_item(self, key, value):
-        self[key][value] = set()
-
-
-class InfiniteDict(MissingDict):
-    @property
-    def _base_type(self):
-        return InfiniteDict
+def infinitedict():
+    return defaultdict(defaultdict)
 
 
 def make_uuid_hash():
-    return force_unicode(uuid4().hex)
+    return to_unicode(uuid4().hex)
 
 
 def make_unique_hash(length=64):
-    code = u''
+    code = u('')
     while len(code) < length:
-        code += make_sha256_no_cache('.'.join((
-            uuid4().hex,
-            str(NOW()),
-            str(PROCESS_ID),
-            str(DOMAIN_NAME))))
+        code += make_sha256_no_cache(
+            bytes_join(
+                '.',
+                (uuid4().hex,
+                 str(NOW()),
+                 str(PROCESS_ID),
+                 str(DOMAIN_NAME))))
     return code[:length]
 
 
 def last_read_file_time(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
-    retries = (maybe_integer(retries) or 3) + 1
-    while retries:
-        try:
-            last_read_time = int(os_stat(path).st_atime)
-        except OSError as error:
-            if error.errno is errno.ENOENT:
-                return None
-            elif error.errno in retry_errno:
-                # Try again, or not!
-                retries -= 1
-            else:
-                # Something goes wrong
-                raise
-        else:
-            return last_read_time
+    try:
+        last_read_time = int(os_stat(path).st_atime)
+    except OSError as error:
+        if error.errno is errno.ENOENT:
+            return None
+        elif error.errno in retry_errno:
+            # Try again, or not!
+            retries -= 1
+            if retries:
+                return last_read_file_time(path, retries=retries, retry_errno=retry_errno)
 
-    # After X retries, raise previous IOError
-    raise
+        # Something goes wrong
+        raise
+    else:
+        return last_read_time
 
 
 def format_error_to_json_values(error, kwargs=None, request=None):
@@ -184,7 +141,7 @@ def format_error_to_json_values(error, kwargs=None, request=None):
         key = camelcase(error._keyname())
         message = error.msg
 
-        errors = MissingList()
+        errors = defaultdict(list)
         for path in error.paths():
             for exc in path:
                 key = str(exc.node.name)
@@ -202,7 +159,7 @@ def format_error_to_json_values(error, kwargs=None, request=None):
     else:
         status = getattr(error, 'code', 400)
         key = camelcase(getattr(error, 'key', 'undefined'))
-        message = getattr(error, 'msg', getattr(error, 'message', u'Undefined'))
+        message = getattr(error, 'msg', getattr(error, 'message', u('Undefined')))
 
     values = {
         'status': status,
@@ -217,40 +174,41 @@ def format_error_to_json(error, kwargs=None, request=None):
     return dumps(format_error_to_json_values(error, kwargs, request=request))
 
 
-def file_modified_time(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
-    retries = (maybe_integer(retries) or 3) + 1
-    while retries:
-        try:
-            modified_time = getmtime(path)
-        except OSError as error:
-            if error.errno is errno.ENOENT:
-                return None
-            elif error.errno in retry_errno:
-                # Try again, or not!
-                retries -= 1
-            else:
-                # Something goes wrong
-                raise
-        else:
-            return modified_time
+def format_error_response_to_json(*args, **kwargs):
+    return to_bytes(format_error_to_json(*args, **kwargs))
 
-    # After X retries, raise previous IOError
-    raise
+
+def file_modified_time(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    try:
+        modified_time = getmtime(path)
+    except OSError as error:
+        if error.errno is errno.ENOENT:
+            return None
+        elif error.errno in retry_errno:
+            # Try again, or not!
+            retries -= 1
+            if retries:
+                return file_modified_time(path, retries=retries, retry_errno=retry_errno)
+
+        # Something goes wrong
+        raise
+    else:
+        return modified_time
 
 
 def validate_email(value):
-    value = force_string(value)
+    value = to_string(value)
     return bool(EMAIL_REGEX.match(value))
 
 
 def maybe_email(value):
     if validate_email(value):
-        return force_unicode(value)
+        return to_unicode(value)
 
 
 def get_content_type(value):
     if value:
-        return force_string(value).split(';', 1)[0].strip()
+        return to_string(value).split(';', 1)[0].strip()
 
 
 def different_values(first, second):
@@ -273,7 +231,7 @@ def get_file_size(source_file):
 
 
 def close_words(first, second, deep=1):
-    for i in xrange(deep):
+    for i in range(deep):
         close_word = first[:-1]
         if close_word and close_word == second:
             return True
@@ -358,25 +316,22 @@ def last_day_of_month_for_weekday(year, month, weekday):
 
 
 def remove_file(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
-    retries = (maybe_integer(retries) or 3) + 1
-    while retries:
-        try:
-            _remove_file(path)
-        except OSError as error:
-            if error.errno is errno.ENOENT:
-                # Already deleted!
-                return False
-            elif error.errno in retry_errno:
-                # Try again, or not!
-                retries -= 1
-            else:
-                # Something goes wrong
-                raise
-        else:
-            return True
+    try:
+        _remove_file(path)
+    except OSError as error:
+        if error.errno is errno.ENOENT:
+            # Already deleted!
+            return False
+        elif error.errno in retry_errno:
+            # Try again, or not!
+            retries -= 1
+            if retries:
+                return remove_file(path, retries=retries, retry_errno=retry_errno)
 
-    # After X retries, raise previous OSError
-    raise
+        # Something goes wrong
+        raise
+    else:
+        return True
 
 
 def remove_file_quietly(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
@@ -386,8 +341,8 @@ def remove_file_quietly(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
         pass
 
 
-def make_dir(path, mode=0777, make_dir_recursively=False):
-    path = force_string(path)
+def make_dir(path, mode=0o777, make_dir_recursively=False):
+    path = to_string(path)
     try:
         mkdir(path, mode)
     except OSError as error:
@@ -399,69 +354,63 @@ def make_dir(path, mode=0777, make_dir_recursively=False):
 
 
 def move_file(path, new_path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
-    retries = (maybe_integer(retries) or 3) + 1
-    while retries:
-        try:
-            _rename_file(path, new_path)
-        except OSError as error:
-            if error.errno in retry_errno:
-                # Try again, or not!
-                retries -= 1
-            else:
-                # Something goes wrong
-                raise
-        else:
-            return True
+    try:
+        _rename_file(path, new_path)
+    except OSError as error:
+        if error.errno in retry_errno:
+            # Try again, or not!
+            retries -= 1
+            if retries:
+                return move_file(path, new_path, retries=retries, retry_errno=retry_errno)
 
-    # After X retries, raise previous OSError
-    raise
+        # Something goes wrong
+        raise
+    else:
+        return True
 
 
 def get_open_file(path, mode='rb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
-    retries = (maybe_integer(retries) or 3) + 1
-    while retries:
-        try:
-            open_file = open(path, mode)
-        except IOError as error:
-            if error.errno is errno.ENOENT:
-                if mode not in ('r', 'rb'):
-                    # Missing folder, create and try again
-                    make_dir(dirname(path))
-                else:
-                    raise
-            elif error.errno in retry_errno:
-                # Try again, or not!
-                retries -= 1
+    try:
+        open_file = open(path, mode)
+    except IOError as error:
+        if error.errno is errno.ENOENT:
+            if 'r' not in mode:
+                # Missing folder, create and try again
+                make_dir(dirname(path))
             else:
-                # Something goes wrong
                 raise
+
+        elif error.errno not in retry_errno:
+            raise
+
         else:
-            return open_file
-
-    # After X retries, raise previous IOError
-    raise
-
-
-def get_file_binary(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
-    retries = (maybe_integer(retries) or 3) + 1
-    while retries:
-        try:
-            with open(path, 'rb') as f:
-                binary = f.read()
-        except IOError as error:
-            if error.errno is errno.ENOENT:
-                return None
-            elif error.errno in retry_errno:
-                # Try again, or not!
-                retries -= 1
-            else:
-                # Something goes wrong
+            # Try again, or not!
+            retries -= 1
+            if not retries:
                 raise
-        else:
-            return binary
 
-    # After X retries, raise previous IOError
-    raise
+        return get_open_file(path, mode=mode, retries=retries, retry_errno=retry_errno)
+    else:
+        return open_file
+
+
+def get_file_binary(path, mode='rb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    try:
+        with open(path, mode) as f:
+            binary = f.read()
+    except IOError as error:
+        if error.errno is errno.ENOENT:
+            return None
+        elif error.errno in retry_errno:
+            # Try again, or not!
+            retries -= 1
+            if retries:
+                return get_file_binary(path, retries=retries, retry_errno=retry_errno)
+
+        # Something goes wrong
+        raise
+    else:
+        return binary
 
 
 def put_binary_on_file(
@@ -472,47 +421,53 @@ def put_binary_on_file(
         retry_errno=DEFAULT_RETRY_ERRNO,
         make_dir_recursively=False):
 
-    retries = (maybe_integer(retries) or 3) + 1
-    while retries:
-        try:
-            with open(path, mode) as f:
-                f.write(binary)
-        except IOError as error:
-            if error.errno is errno.ENOENT:
-                # Missing folder, create and try again
-                make_dir(dirname(path), make_dir_recursively=make_dir_recursively)
-            elif error.errno in retry_errno:
-                # Try again, or not!
-                retries -= 1
-            else:
-                # Something goes wrong
-                raise
-        else:
-            return True
+    if 'b' in mode:
+        binary = to_bytes(binary)
+    else:
+        binary = to_string(binary)
 
-    # After X retries, raise previous IOError
-    raise
+    try:
+        with open(path, mode) as f:
+            f.write(binary)
+    except IOError as error:
+        if error.errno is errno.ENOENT:
+            # Missing folder, create and try again
+            make_dir(dirname(path), make_dir_recursively=make_dir_recursively)
+        elif error.errno not in retry_errno:
+            raise
+        else:
+            # Try again, or not!
+            retries -= 1
+            if not retries:
+                raise
+
+        return put_binary_on_file(
+            path,
+            binary,
+            mode=mode,
+            retries=retries,
+            retry_errno=retry_errno,
+            make_dir_recursively=make_dir_recursively)
+    else:
+        return True
 
 
 def get_dir_filenames(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
-    retries = (maybe_integer(retries) or 3) + 1
-    while retries:
-        try:
-            filenames = listdir(path)
-        except OSError as error:
-            if error.errno is errno.ENOENT:
-                return []
-            if error.errno in retry_errno:
-                # Try again, or not!
-                retries -= 1
-            else:
-                # Your path ends here!
-                break
-        else:
-            return filenames
+    try:
+        filenames = listdir(path)
+    except OSError as error:
+        if error.errno is errno.ENOENT:
+            return []
+        if error.errno in retry_errno:
+            # Try again, or not!
+            retries -= 1
+            if retries:
+                return get_dir_filenames(path, retries=retries, retry_errno=retry_errno)
 
-    # After X retries, raise previous OSError
-    raise
+        # Something goes wrong
+        raise
+    else:
+        return filenames
 
 
 def path_unique_code(path, block_size=OPEN_BLOCK_SIZE):
@@ -525,29 +480,33 @@ def file_unique_code(open_file, block_size=OPEN_BLOCK_SIZE):
     h = sha256()
     open_file.seek(0)
     block = open_file.read(block_size)
+    convert_to_bytes = bool('b' not in open_file.mode)
 
     while block:
+        if convert_to_bytes:
+            block = to_bytes(block)
+
         h.update(block)
         block = open_file.read(block_size)
 
     open_file.seek(0)
-    return force_unicode(h.hexdigest())
+    return to_unicode(h.hexdigest())
 
 
 def string_unique_code(value):
-    value = force_string(value)
-    return force_unicode(sha256(value).hexdigest())
+    value = to_bytes(value)
+    return to_unicode(sha256(value).hexdigest())
 
 
 def validate_skype_username(username, validate_with_api=False):
     if username:
-        username = force_string(username)
+        username = to_string(username)
         if SKYPE_USERNAME_REGEX.match(username):
             if not validate_with_api:
                 return True
 
             response = open_json_url(
-                u'https://login.skype.com/json/validator',
+                'https://login.skype.com/json/validator',
                 data={'new_username': username},
                 method='get')
             if response['data']['markup'].lower() == 'skype name not available':
@@ -558,8 +517,8 @@ def validate_skype_username(username, validate_with_api=False):
 
 def validate_phone_number(number):
     if number:
-        number = clean_phone_number(force_unicode(number))
-        if number and len(number) < 20 and len(number) > 5:
+        number = clean_phone_number(to_unicode(number))
+        if 20 > len(number or '') > 5:
             return number
 
 
@@ -609,3 +568,10 @@ class PaginationClass(list):
 
         if self.page > self.last_page:
             self.page = self.last_page
+
+
+def is_file_type(value):
+    if PY3:
+        return isinstance(value, IOBase)
+    else:
+        return isinstance(value, file)

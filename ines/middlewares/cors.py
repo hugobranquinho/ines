@@ -4,10 +4,10 @@ from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPMethodNotAllowed
 from pyramid.httpexceptions import HTTPNoContent
 
-from ines.convert import force_string
+from ines.convert import to_string
 from ines.convert import maybe_integer
 from ines.middlewares import Middleware
-from ines.utils import format_error_to_json
+from ines.utils import format_error_response_to_json
 
 
 DEFAULT_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'OPTIONS', 'DELETE']
@@ -47,25 +47,25 @@ class Cors(Middleware):
             start_response(
                 method_not_allowed.status,
                 [('Content-type', 'application/json')])
-            return format_error_to_json(method_not_allowed)
+            return format_error_response_to_json(method_not_allowed)
 
         cors_headers = []
         if self.allow_all_origins:
             cors_headers.append(('Access-Control-Allow-Origin', '*'))
         else:
-            cors_headers.append(('Access-Control-Allow-Origin', force_string(http_origin)))
+            cors_headers.append(('Access-Control-Allow-Origin', to_string(http_origin)))
 
         if http_method == 'OPTIONS':
             methods = environ.get('HTTP_ACCESS_CONTROL_REQUEST_METHOD')
             if methods:
-                cors_headers.append(('Access-Control-Allow-Methods', force_string(methods)))
+                cors_headers.append(('Access-Control-Allow-Methods', to_string(methods)))
 
             http_headers = environ.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS')
             if http_headers:
-                cors_headers.append(('Access-Control-Allow-Headers', force_string(http_headers)))
+                cors_headers.append(('Access-Control-Allow-Headers', to_string(http_headers)))
 
             if self.max_age is not None:
-                cors_headers.append(('Access-Control-Max-Age', force_string(self.max_age)))
+                cors_headers.append(('Access-Control-Max-Age', to_string(self.max_age)))
 
             start_response(HTTPNoContent().status, cors_headers)
             return []

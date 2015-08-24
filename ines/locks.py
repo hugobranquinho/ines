@@ -2,25 +2,28 @@
 
 import errno
 from os import getpgid
-from os import remove as remove_file
 from os import walk as walk_on_path
-from os.path import join as join_paths
 from os.path import isfile
 from time import sleep
 from time import time as NOW_TIME
 
-from repoze.lru import LRUCache
+from six import _import_module
+from six import b
+from six import u
 
 from ines import DEFAULT_RETRY_ERRNO
 from ines import DOMAIN_NAME
+from ines import lru_cache
 from ines import MARKER
 from ines import PROCESS_ID
-from ines.convert import force_string
-from ines.convert import force_unicode
+from ines.convert import bytes_join
 from ines.convert import make_sha256
 from ines.convert import maybe_integer
 from ines.convert import maybe_set
+from ines.convert import to_bytes
+from ines.convert import to_unicode
 from ines.exceptions import LockTimeout
+from ines.path import join_paths
 from ines.system import start_system_thread
 from ines.system import thread_is_running
 from ines.utils import file_modified_time
@@ -40,11 +43,9 @@ class LockMe(object):
             timeout=30,
             delete_lock_on_timeout=False,
             retry_errno=None,
-            retries=3,
-            lru_size=1000):
+            retries=3):
 
         self.path = make_dir(path)
-        self.path_cache = LRUCache(lru_size)
         self.timeout = int(timeout)
         self.delete_lock_on_timeout = delete_lock_on_timeout
         self.retries = maybe_integer(retries) or 3
@@ -54,14 +55,10 @@ class LockMe(object):
         # Clean locks!
         self.clean_junk_locks_as_daemon()
 
+    @lru_cache(1000)
     def get_file_path(self, name):
-        name = force_string(name)
-        path = self.path_cache.get(name)
-        if not path:
-            name_256 = make_sha256(name)
-            path = join_paths(self.path, name_256[0], name_256)
-            self.path_cache.put(name, path)
-        return path
+        name_256 = make_sha256(name)
+        return join_paths(self.path, name_256[0], name_256)
 
     def get_folder_path(self, name):
         name_256 = make_sha256(name)
@@ -74,7 +71,8 @@ class LockMe(object):
         path = self.get_file_path(name)
         lock_code = make_uuid_hash()
         lock_name = '%s %s %s' % (DOMAIN_NAME, PROCESS_ID, lock_code)
-        lock_name_to_file = lock_name + '\n'
+        lock_name_to_file = to_bytes(lock_name + '\n')
+        compare_lock_code = to_bytes(lock_code)
 
         position = None
         while position is None:
@@ -85,7 +83,7 @@ class LockMe(object):
             binary = get_file_binary(path, retries=self.retries, retry_errno=self.retry_errno)
             if binary:
                 for i, code in enumerate(binary.splitlines()):
-                    if code.split()[-1] == lock_code:
+                    if code.split()[-1] == compare_lock_code:
                         position = i
                         break
 
@@ -122,7 +120,7 @@ class LockMe(object):
                 if delete_lock_on_timeout is MARKER:
                     delete_lock_on_timeout = self.delete_lock_on_timeout
                 if delete_lock_on_timeout:
-                    self.unlock()
+                    self.unlock(name)
                     # Sorry, you need to do everything again
                     return self.lock(name, timeout=timeout, delete_lock_on_timeout=delete_lock_on_timeout)
                 else:
@@ -169,6 +167,7 @@ class LockMe(object):
                         filenames.append(join_paths(dirname, filename))
 
             for filename in filenames:
+                filename = to_unicode(filename)
                 if filename.startswith('.'):
                     continue
 
@@ -205,7 +204,7 @@ class LockMe(object):
                                     except OSError as error:
                                         if error.errno is errno.ESRCH:
                                             # Add empty line to keep position number
-                                            keep_codes[i] = ''
+                                            keep_codes[i] = b('')
 
                             # Check if file as been updated in the process
                             last_modified_time = file_modified_time(file_path)
@@ -214,7 +213,7 @@ class LockMe(object):
                                     remove_file_quietly(file_path)
                                 else:
                                     with open(file_path, 'wb') as f:
-                                        f.write('\n'.join(keep_codes))
+                                        f.write(bytes_join('\n', keep_codes))
 
     def clean_junk_locks_as_daemon(self):
         if not thread_is_running('clean_junk_locks'):
@@ -230,18 +229,18 @@ class LockMeMemcached(object):
             delete_lock_on_timeout=False,
             **settings):
 
-        from memcache import Client
-        self.memcache = Client(url.split(';'), **settings)
+        memcache_module = _import_module('memcache')
+        self.memcache = memcache_module.Client(url.split(';'), **settings)
         self.timeout = int(timeout)
         self.delete_lock_on_timeout = delete_lock_on_timeout
 
     def format_name(self, name):
-        name = u'locks %s' % force_unicode(name)
-        return force_string(make_sha256(name))
+        name = u('locks %s') % to_unicode(name)
+        return to_bytes(make_sha256(name))
 
     def format_position_name(self, name_256, position):
-        name = u'%s.%s' % (name_256, position)
-        return force_string(make_sha256(name))
+        name = u('%s.%s') % (name_256, position)
+        return to_bytes(make_sha256(name))
 
     def _contains(self, name_256):
         return self.memcache.get(name_256) is not None
@@ -287,7 +286,7 @@ class LockMeMemcached(object):
                 if delete_lock_on_timeout is MARKER:
                     delete_lock_on_timeout = self.delete_lock_on_timeout
                 if delete_lock_on_timeout:
-                    self.unlock()
+                    self.unlock(name)
                     # Sorry, you need to do everything again
                     return self.lock(name, timeout=timeout, delete_lock_on_timeout=delete_lock_on_timeout)
                 else:

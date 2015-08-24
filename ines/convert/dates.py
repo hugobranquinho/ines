@@ -3,6 +3,8 @@
 import datetime
 from time import mktime
 
+from ines.convert.strings import to_string
+
 
 DATE = datetime.date
 DATETIME = datetime.datetime
@@ -17,6 +19,7 @@ def maybe_datetime(value, date_format='%Y-%m-%d %H:%M:%S'):
     elif isinstance(value, DATE):
         return COMBINE_DATETIME(value, EMPTY_TIME)
 
+    value = to_string(value)
     try:
         result = STRING_TO_DATETIME(value, date_format)
     except (TypeError, ValueError):
@@ -51,3 +54,20 @@ def convert_timezone(value, time_zone=None):
         if time_zone:
             return value + time_zone
     return value
+
+
+DATETIME_PATTERNS = [
+    '%a, %d %b %Y %H:%M:%S %Z',
+    '%d %b %Y']
+
+
+def guess_datetime(value):
+    if value:
+        value = to_string(value)
+        for pattern in DATETIME_PATTERNS:
+            try:
+                datetime_value = STRING_TO_DATETIME(value, pattern)
+            except ValueError:
+                pass
+            else:
+                return datetime_value

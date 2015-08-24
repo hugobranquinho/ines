@@ -4,11 +4,13 @@ import datetime
 import errno
 from os import getpgid
 from os.path import isfile
-from os.path import join as join_path
 from tempfile import gettempdir
 
 from pyramid.decorator import reify
 from pyramid.settings import asbool
+from six import _import_module
+from six import print_
+from six import u
 import venusian
 
 from ines import DOMAIN_NAME
@@ -21,6 +23,7 @@ from ines.cron import Cron
 from ines.exceptions import LockTimeout
 from ines.exceptions import NoMoreDates
 from ines.interfaces import IBaseSessionManager
+from ines.path import join_paths
 from ines.request import make_request
 from ines.system import start_system_thread
 
@@ -30,7 +33,8 @@ NOW = datetime.datetime.now
 JOBS = []
 RUNNING_JOBS = []
 
-JOBS_REPORT_KEY = 'jobs report %s' % DOMAIN_NAME
+JOBS_REPORT_PATTERN = 'jobs report %s'
+JOBS_REPORT_KEY = JOBS_REPORT_PATTERN % DOMAIN_NAME
 JOBS_LOCK_KEY = lambda k: 'jobs lock %s' % k
 JOBS_IMMEDIATE_KEY = 'jobs immediate run'
 
@@ -51,15 +55,14 @@ class BaseJobsManager(BaseSessionManager):
         self.domain_names.add(DOMAIN_NAME)
 
         try:
-            import transaction
-            self.transaction = transaction
+            self.transaction = _import_module('transaction')
         except ImportError:
             self.transaction = None
 
         if self.active:
             temporary_dir = gettempdir()
             domain_start_filename = 'jobs domain %s started' % DOMAIN_NAME
-            domain_start_file_path = join_path(temporary_dir, domain_start_filename)
+            domain_start_file_path = join_paths(temporary_dir, domain_start_filename)
 
             lock_key = 'jobs monitor start check'
             self.config.cache.lock(lock_key, timeout=10)
@@ -90,12 +93,12 @@ class BaseJobsManager(BaseSessionManager):
             # Start only one Thread for each domain
             if start_thread:
                 start_system_thread('jobs_monitor', self.run_monitor)
-                print 'Running jobs monitor on PID %s' % PROCESS_ID
+                print_('Running jobs monitor on PID %s' % PROCESS_ID)
 
-    def system_session(self, apijob):
+    def system_session(self, apijob=None):
         environ = {
             'HTTP_HOST': DOMAIN_NAME,
-            'PATH_INFO': '/%s' % apijob.name,
+            'PATH_INFO': '/%s' % getattr(apijob, 'name', ''),
             'SERVER_NAME': DOMAIN_NAME,
             'REMOTE_ADDR': '127.0.0.1',
             'wsgi.url_scheme': 'job',
@@ -148,9 +151,7 @@ class BaseJobsManager(BaseSessionManager):
             self.config.cache.replace_values(JOBS_IMMEDIATE_KEY, immediate_jobs, expire=None)
 
         except Exception as error:
-            self.system_session(apijob).logging.log_critical(
-                'jobs_undefined_error',
-                str(error))
+            self.system_session().logging.log_critical('jobs_undefined_error', str(error))
             return 5
         else:
             return 0.5
@@ -174,7 +175,7 @@ class BaseJobsManager(BaseSessionManager):
         jobs = {}
         application_names = maybe_list(application_names)
         for domain_name in self.domain_names:
-            domain_info = self.config.cache.get(JOBS_REPORT_KEY, expire=None)
+            domain_info = self.config.cache.get(JOBS_REPORT_PATTERN % domain_name, expire=None)
             if not domain_info:
                 continue
 
@@ -321,7 +322,7 @@ class APIJob(object):
                 try:
                     self.api_session_manager.config.cache.lock(lock_key, timeout=1)
                 except LockTimeout:
-                    api_session.logging.log_error('job_locked', u'Job already running.')
+                    api_session.logging.log_error('job_locked', u('Job already running.'))
                 else:
                     self.updating = True
                     self.last_called_date = NOW()
@@ -346,6 +347,6 @@ def get_job_application_name(name):
 
 
 def get_job(name):
-    for job in JOBS:
-        if job.name == name:
-            return job
+    for api_job in JOBS:
+        if api_job.name == name:
+            return api_job

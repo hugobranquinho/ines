@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 
-from functools import wraps
-
+from collections import defaultdict
 from colander import Mapping
 from colander import Sequence
 from colander import Tuple
 from pyramid.compat import is_nonstr_iter
+from six import wraps
 from zope.interface import implementer
 
 from ines.convert import camelcase
 from ines.convert import maybe_integer
 from ines.convert import maybe_list
+from ines.convert import string_join
 from ines.convert import uncamelcase
 from ines.interfaces import IInputSchemaView
-from ines.utils import MissingDict
 from ines.views.fields import SearchFields
 
 
@@ -124,7 +124,7 @@ class InputSchemaView(object):
 
 def construct_sequence_items(name, values):
     maybe_deep_name = name + '.'
-    result_sequence = MissingDict()
+    result_sequence = defaultdict(dict)
     for key, value in values.items():
         if not value:
             continue
@@ -141,7 +141,7 @@ def construct_sequence_items(name, values):
             maybe_number, key_second = key_first.split('.', 1)
             maybe_number = maybe_integer(maybe_number)
             if maybe_number is not None:
-                key = u'.'.join([name, key_second])
+                key = string_join('.', [name, key_second])
                 result_sequence[maybe_number][key] = value[0]
                 continue
 
@@ -154,6 +154,4 @@ def construct_sequence_items(name, values):
         for i, key_value in enumerate(value):
             result_sequence[i][key] = key_value
 
-    result_sequence = result_sequence.items()
-    result_sequence.sort()
-    return [v for i, v in result_sequence]
+    return [v for i, v in sorted(result_sequence.items())]

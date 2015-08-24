@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 
+from collections import defaultdict
 import datetime
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.settings import asbool
+from six import u
 from sqlalchemy import and_
 from sqlalchemy import Column
 from sqlalchemy import create_engine
@@ -26,16 +28,15 @@ from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
+from ines.convert import unicode_join
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.path import get_object_on_path
 from ines.views.fields import FilterBy
-from ines.utils import MissingDict
-from ines.utils import MissingSet
 from ines.utils import PaginationClass
 
 
-SQL_DBS = MissingDict()
+SQL_DBS = defaultdict(dict)
 SQLALCHEMY_NOW_TYPE = type(func.now())
 NOW = datetime.datetime.now
 
@@ -79,8 +80,9 @@ class BaseSQLSession(BaseSession):
             name = column.name
             value = getattr(obj, name, None)
             if value is None and column.default:
-                values[name] = column.default.execute()
-            else:
+                value = column.default.execute()
+
+            if value is not None:
                 values[name] = value
 
         return (
@@ -172,7 +174,7 @@ def initialize_sql(
     session.configure(bind=engine)
     SQL_DBS[application_name]['session'] = session
 
-    indexed_columns = SQL_DBS[application_name]['indexed_columns'] = MissingSet()
+    indexed_columns = SQL_DBS[application_name]['indexed_columns'] = defaultdict(set)
     if metadata is not None:
         metadata.bind = engine
         metadata.create_all(engine)
@@ -284,7 +286,7 @@ def create_like_filter(column, value):
     if value:
         words = value.split()
         if words:
-            like_str = u'%%%s%%' % u'%'.join(words)
+            like_str = u('%%%s%%') % unicode_join('%', words)
             return column.like(like_str)
 
 
@@ -293,7 +295,7 @@ def create_rlike_filter(column, value):
     if value:
         words = value.split()
         if words:
-            rlike_str = u'(%s)' % u'|'.join(words)
+            rlike_str = u('(%s)') % unicode_join('|', words)
             return column.op('rlike')(rlike_str)
 
 
@@ -354,7 +356,11 @@ class TemporaryColumnsLabel(dict):
             return column
 
 
-class Options(MissingDict):
+class Options(dict):
+    def __missing__(self, key):
+        self[key] = {}
+        return self[key]
+
     def clone(self):
         new = Options()
         new.add_columns(**self.columns)
@@ -545,7 +551,7 @@ def create_filter_by(columns, values):
                 return and_(*and_queries)
 
         else:
-            raise Error('filter_type', u'Invalid filter type %s' % values.filter_type)
+            raise Error('filter_type', u('Invalid filter type %s') % values.filter_type)
 
     elif not is_nonstr_iter(values):
         queries = [c == values for c in columns]

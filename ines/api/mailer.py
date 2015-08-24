@@ -4,24 +4,31 @@ from email.utils import formataddr
 from email.utils import formatdate
 from email.utils import make_msgid
 from os.path import basename
-from os.path import join as join_path
 from smtplib import SMTPRecipientsRefused
 
 from pkg_resources import get_distribution
+from six import _import_module
+from six import string_types
+from six import u
 
-from ines import _
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.api.jobs import job
-from ines.convert import force_string
-from ines.convert import force_unicode
+from ines.convert import to_string
+from ines.convert import to_unicode
 from ines.convert import maybe_string
 from ines.exceptions import Error
+from ines.i18n import _
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.mimetype import find_mimetype
+from ines.path import join_paths
 from ines.utils import get_dir_filenames
 from ines.utils import make_dir
 from ines.utils import make_unique_hash
+
+
+NEW_LINE = u('\n')
+HTML_NEW_LINE = u('<br>')
 
 
 def format_email(email, encoding=None):
@@ -32,13 +39,13 @@ def format_email(email, encoding=None):
             label = email['label']
         email = email['email']
 
-    elif not isinstance(email, basestring):
+    elif not isinstance(email, string_types):
         label, email = email
 
-    return force_unicode(
+    return to_unicode(
         formataddr((
             maybe_string(label, encoding=encoding),
-            force_string(email, encoding=encoding))))
+            to_string(email, encoding=encoding))))
 
 
 class BaseMailerSessionManager(BaseSessionManager):
@@ -47,23 +54,22 @@ class BaseMailerSessionManager(BaseSessionManager):
     def __init__(self, *args, **kwargs):
         super(BaseMailerSessionManager, self).__init__(*args, **kwargs)
 
-        import pyramid_mailer.message
+        pyramid_mailer = _import_module('pyramid_mailer')
         self.mailer = pyramid_mailer.mailer_factory_from_settings(self.settings, prefix='')
         self.message_cls = pyramid_mailer.message.Message
         self.attachment_cls = pyramid_mailer.message.Attachment
 
         if self.settings.get('queue_path'):
             make_dir(self.settings['queue_path'])
-            make_dir(join_path(self.settings['queue_path'], 'cur'))
-            make_dir(join_path(self.settings['queue_path'], 'tmp'))
-            make_dir(join_path(self.settings['queue_path'], 'new'))
+            make_dir(join_paths(self.settings['queue_path'], 'cur'))
+            make_dir(join_paths(self.settings['queue_path'], 'tmp'))
+            make_dir(join_paths(self.settings['queue_path'], 'new'))
 
-            import repoze.sendmail.queue
-            self.queue_processor = repoze.sendmail.queue.QueueProcessor
+            sendmail_queue = _import_module('repoze.sendmail.queue')
+            self.queue_processor = sendmail_queue.QueueProcessor
             self.repoze_sendmail_version = get_distribution('repoze.sendmail').version
 
-            import transaction
-            self.transaction = transaction
+            self.transaction = _import_module('transaction')
             self.__dict__.setdefault('__middlewares__', []).append(RepozeTMMiddleware)
 
 
@@ -85,12 +91,12 @@ class BaseMailerSession(BaseSession):
             message_id=None):
 
         if body:
-            body = force_unicode(body, encoding=content_charset)
+            body = to_unicode(body, encoding=content_charset)
             if not html:
-                html = body.replace(u'\n', u'<br>')
+                html = body.replace(NEW_LINE, HTML_NEW_LINE)
 
         if html:
-            html = force_unicode(html, encoding=content_charset)
+            html = to_unicode(html, encoding=content_charset)
 
         options = {}
         # FROM sender
@@ -117,19 +123,19 @@ class BaseMailerSession(BaseSession):
 
         extra_headers = {
             'Date': formatdate(localtime=True),
-            'Message-ID': force_string(message_id)}
+            'Message-ID': to_string(message_id)}
 
         # Force reply to another email
         if reply_to:
-            extra_headers['Reply-To'] = '<%s>' % force_string(reply_to)
+            extra_headers['Reply-To'] = '<%s>' % to_string(reply_to)
 
         mime_attachments = []
         if attachments:
             for attachment in attachments:
-                filename = force_string(
+                filename = to_string(
                     attachment.get('filename')
                     or basename(attachment['file'].name)).replace(' ', '')
-                mimetype = force_string(
+                mimetype = to_string(
                     attachment.get('content_type')
                     or find_mimetype(filename, attachment['file']))
 
@@ -140,7 +146,7 @@ class BaseMailerSession(BaseSession):
                     content_type=mimetype))
 
         return self.api_session_manager.message_cls(
-            subject=force_unicode(subject, encoding=content_charset),
+            subject=to_unicode(subject, encoding=content_charset),
             html=html,
             body=body,
             recipients=[format_email(e, content_charset) for e in recipients],
@@ -149,7 +155,7 @@ class BaseMailerSession(BaseSession):
             **options)
 
     @job(second=0, minute=[0, 15, 30, 45],
-         title=_(u'Send queue emails'))
+         title=_('Send queue emails'))
     def mailer_queue_send(self):
         queue_path = self.settings.get('queue_path')
         if queue_path:
@@ -160,8 +166,8 @@ class BaseMailerSession(BaseSession):
                     self.settings['queue_path'])
                 qp.send_messages()
             else:
-                subdir_new = join_path(queue_path, 'new')
-                subdir_cur = join_path(queue_path, 'cur')
+                subdir_new = join_paths(queue_path, 'new')
+                subdir_cur = join_paths(queue_path, 'cur')
 
                 while True:
                     for f in get_dir_filenames(subdir_new):
@@ -199,9 +205,9 @@ class BaseMailerSession(BaseSession):
                 for email, error_message in error.args[0].items():
                     code = error_message[0]
                     if code == 554:
-                        raise Error('email', u'Invalid email "%s"' % force_unicode(email))
+                        raise Error('email', u('Invalid email "%s"') % to_unicode(email))
                     elif code == 450:
-                        raise Error('email', u'Invalid email domain "%s"' % force_unicode(email))
+                        raise Error('email', u('Invalid email domain "%s"') % to_unicode(email))
             raise
         else:
             return True

@@ -25,6 +25,10 @@ Features
 Features
 --------
 
+- Added ``convert.to_string``, in Python 3 this is the same as ``convert.to_unicode``
+
+- Python 3 compatible. Using ``six`` package to help doing the job
+
 - New api module, ``api.core.BaseCoreIndexedSession``. This module is equals to ``api.core.BaseCoreSession`` but indexs all information with ``Whoosh`` package.
 
 - ``csv`` renderer now accepts ``request.params``: `CSVDelimiter`, `CSVQuoteChar` and `CSVLineTerminator`
@@ -72,10 +76,14 @@ Features
 - ``ines.request.DELETE`` reads data from body (POST) or QUERY_STRING (GET)
 
 
-Bug Fixes
----------
+Backwards Incompatibilities
+---------------------------
 
-- Choose correct SessionManager for api modules
+- Removed ``utils.Missing*`` utilities, use ``collections.defaultdict`` instead
+
+- Moved ``convert.force_unicode`` to ``convert.to_unicode``
+
+- Moved ``convert.force_string`` to ``convert.to_bytes``
 
 
 0.1a2 (2015-06-20)

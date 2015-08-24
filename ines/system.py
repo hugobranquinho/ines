@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import atexit
+from collections import defaultdict
 from os import getpid
 from time import sleep
 from threading import Thread
 
-from ines.utils import MissingDict
+from six import _import_module
+from six import print_
 
 
 PROCESS_RUNNING = set()
 KILLED_PROCESS = set()
-ALIVE_THREADS = MissingDict()
+ALIVE_THREADS = defaultdict(dict)
 
 
 def while_system_running_factory():
@@ -64,10 +66,10 @@ def start_system_thread(
 
 def clean_dead_threads():
     process_id = getpid()
-    for name, thread in ALIVE_THREADS[process_id].items():
+    for name, thread in list(ALIVE_THREADS[process_id].items()):
         if not thread.isAlive():
             thread.join()
-            ALIVE_THREADS[process_id].pop(name)
+            ALIVE_THREADS[process_id].pop(name, None)
 
 
 def thread_is_running(name):
@@ -83,21 +85,21 @@ def exit_system():
         return None
     KILLED_PROCESS.add(process_id)
 
-    print 'Stopping process %s...' % process_id
+    print('Stopping process %s...' % process_id)
 
     count = 0
     while ALIVE_THREADS[process_id]:
         clean_dead_threads()
 
         if count and not count % 10:
-            print 'Cant stop threads after %s tries...' % count
+            print_('Cant stop threads after %s tries...' % count)
             for name, thread in ALIVE_THREADS[process_id].items():
-                print ' ' * 4, name, thread
+                print_(' ' * 4, name, thread)
 
         sleep(0.5)
         count += 1
 
-    print 'Process %s stopped!' % process_id
+    print_('Process %s stopped!' % process_id)
 
 
 def register_thread(name, thread):
@@ -117,7 +119,7 @@ atexit.register(exit_system)
 
 # Register uwsgi if exists
 try:
-    import uwsgi
+    uwsgi = _import_module('uwsgi')
 except ImportError:
     pass
 else:

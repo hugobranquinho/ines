@@ -3,7 +3,6 @@
 from json import dumps
 from json import loads
 from os.path import isfile
-from os.path import join as join_paths
 from os.path import normpath
 from time import time as NOW_TIME
 
@@ -12,13 +11,15 @@ from pyramid.decorator import reify
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.authentication import AuthenticatedSession
+from ines.convert import bytes_join
 from ines.convert import date_to_timestamp
-from ines.convert import force_unicode
+from ines.convert import to_unicode
 from ines.convert import make_sha256
 from ines.convert import maybe_integer
 from ines.exceptions import HTTPTokenExpired
 from ines.exceptions import HTTPUnauthorized
 from ines.path import get_object_on_path
+from ines.path import join_paths
 from ines.utils import make_unique_hash
 from ines.utils import get_file_binary
 from ines.utils import last_read_file_time
@@ -54,14 +55,14 @@ class BaseTokenPolicySession(BaseSession):
             session_id = self.get_apikey_authorization(authorization)
             if session_id:
                 return self.api_session_manager.authorization_session(
-                    u'apikey',
+                    'apikey',
                     session_id)
 
         elif session_type == 'token':
             session_id = self.get_token_authorization(authorization)
             if session_id:
                 return self.api_session_manager.authorization_session(
-                    u'user',
+                    'user',
                     session_id,
                     token=authorization)
 
@@ -207,8 +208,9 @@ class BaseTokenPolicySession(BaseSession):
 
 def make_token_lock(request, token, session_id):
     return make_sha256(
-        u'-'.join([
-            force_unicode(request.user_agent or ''),
-            force_unicode(request.ip_address),
-            force_unicode(token),
-            force_unicode(session_id)]))
+        bytes_join(
+            '-',
+            [to_unicode(request.user_agent or ''),
+             to_unicode(request.ip_address),
+             to_unicode(token),
+             to_unicode(session_id)]))

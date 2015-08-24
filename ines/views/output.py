@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 from copy import deepcopy
-from functools import wraps
 
 from colander import Boolean
 from colander import drop
@@ -11,9 +10,12 @@ from colander import Number
 from colander import Sequence
 from colander import Tuple
 from pyramid.settings import asbool
+from six import u
+from six import wraps
 from zope.interface import implementer
 
 from ines.convert import camelcase
+from ines.convert import string_join
 from ines.exceptions import Error
 from ines.interfaces import IOutputSchemaView
 from ines.utils import different_values
@@ -30,7 +32,7 @@ class OutputSchemaView(object):
         self.schema = schema
         self.allowed_fields = self.find_allowed_fields(self.schema)
         if not self.allowed_fields:
-            raise Error('output', u'Define output fields for %s' % self.schema)
+            raise Error('output', u('Define output fields for %s') % self.schema)
 
         self.required_fields = self.find_required_fields(self.schema)
 
@@ -68,8 +70,8 @@ class OutputSchemaView(object):
                             previous.pop(field_blocks[-1])
 
             if not context.output_fields:
-                keys = u'+'.join(self.allowed_fields_to_set(self.allowed_fields))
-                raise Error(keys, u'Please define some fields to export')
+                keys = string_join('+', self.allowed_fields_to_set(self.allowed_fields))
+                raise Error(keys, u('Please define some fields to export'))
 
             context.fields = deepcopy(context.output_fields)
             self.add_required_fields(context.fields, self.required_fields)

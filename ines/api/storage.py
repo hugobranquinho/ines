@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 
+from collections import defaultdict
 import datetime
 from io import BytesIO
 from math import ceil
 from os.path import basename
 from os.path import isfile
-from os.path import join as join_path
 from tempfile import gettempdir
 
 from pyramid.decorator import reify
 from pyramid.settings import asbool
+from six import _import_module
+from six import binary_type
+from six import string_types
+from six import u
 from sqlalchemy import Column
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
@@ -20,7 +24,6 @@ from sqlalchemy import String
 from sqlalchemy import Unicode
 from sqlalchemy.orm import aliased
 
-from ines import _
 from ines import OPEN_BLOCK_SIZE
 from ines import MARKER
 from ines.api.database.sql import BaseSQLSession
@@ -28,22 +31,21 @@ from ines.api.database.sql import BaseSQLSessionManager
 from ines.api.database.sql import new_lightweight_named_tuple
 from ines.api.database.sql import sql_declarative_base
 from ines.api.jobs import job
-from ines.convert import force_string
-from ines.convert import force_unicode
+from ines.convert import to_unicode
 from ines.convert import maybe_date
 from ines.convert import maybe_integer
 from ines.convert import maybe_set
 from ines.convert import maybe_string
 from ines.convert import maybe_unicode
 from ines.exceptions import Error
+from ines.i18n import _
 from ines.mimetype import find_mimetype
+from ines.path import join_paths
 from ines.utils import file_unique_code
 from ines.utils import get_dir_filenames
 from ines.utils import get_open_file
 from ines.utils import make_unique_hash
 from ines.utils import make_dir
-from ines.utils import MissingDictList
-from ines.utils import MissingList
 from ines.utils import put_binary_on_file
 from ines.utils import remove_file_quietly
 from ines.utils import string_unique_code
@@ -51,7 +53,8 @@ from ines.utils import string_unique_code
 
 TODAY_DATE = datetime.date.today
 FilesDeclarative = sql_declarative_base('ines.storage')
-FILES_TEMPORARY_DIR = join_path(gettempdir(), 'ines-tmp-files')
+FILES_TEMPORARY_DIR = join_paths(gettempdir(), 'ines-tmp-files')
+EMPTY_STRING = u('')
 
 
 class BaseStorageSessionManager(BaseSQLSessionManager):
@@ -63,9 +66,8 @@ class BaseStorageSessionManager(BaseSQLSessionManager):
         make_dir(self.settings['path'])
 
         if issubclass(self.session, BaseStorageWithImageSession):
-            from PIL import Image
-            self.image_cls = Image
-            self.resize_quality = Image.ANTIALIAS
+            self.image_cls = _import_module('PIL.Image')
+            self.resize_quality = self.image_cls.ANTIALIAS
 
             self.resizes = {}
             for key, value in self.settings.items():
@@ -91,14 +93,14 @@ class BaseStorageSession(BaseSQLSession):
             type_key=None):
 
         # Generate a unique code using SHA256
-        if isinstance(binary, (bytes, basestring)):
+        if isinstance(binary, (binary_type, string_types)):
             unique_code = string_unique_code(binary)
         else:
             unique_code = file_unique_code(binary)
             if not filename:
                 filename = basename(binary.name)
 
-        lock_key = u'storage save %s' % unique_code
+        lock_key = 'storage save %s' % unique_code
         self.cache.lock(lock_key)
         try:
             file_path = (
@@ -140,7 +142,7 @@ class BaseStorageSession(BaseSQLSession):
                 file_id=file_path.id,
                 parent_id=parent_id,
                 key=make_unique_hash(70),
-                application_code=force_unicode(application_code),
+                application_code=to_unicode(application_code),
                 code_key=maybe_unicode(code_key),
                 filename=maybe_unicode(filename),
                 title=maybe_unicode(title),
@@ -172,25 +174,25 @@ class BaseStorageSession(BaseSQLSession):
         base_folder_path = file_date.strftime('%Y%m/%d')
 
         last_folder = 0
-        full_base_folder_path = join_path(self.storage_path, base_folder_path)
+        full_base_folder_path = join_paths(self.storage_path, base_folder_path)
         folders = sorted(int(i) for i in get_dir_filenames(full_base_folder_path) if i.isdigit())
         if folders:
             last_folder = folders[-1]
-        folder_path = join_path(base_folder_path, str(last_folder))
+        folder_path = join_paths(base_folder_path, last_folder)
 
-        full_folder_path = join_path(self.storage_path, folder_path)
+        full_folder_path = join_paths(self.storage_path, folder_path)
         if len(get_dir_filenames(full_folder_path)) >= self.max_blocks_per_folder:
-            folder_path = join_path(base_folder_path, str(last_folder + 1))
+            folder_path = join_paths(base_folder_path, last_folder + 1)
 
         while True:
             filename = make_unique_hash(length=80)
-            path = join_path(folder_path, force_string(filename))
-            full_path = join_path(self.storage_path, path)
+            path = join_paths(folder_path, filename)
+            full_path = join_paths(self.storage_path, path)
             if not isfile(full_path):
                 return full_path, path
 
     def save_blocks(self, binary):
-        if isinstance(binary, (bytes, basestring)):
+        if isinstance(binary, (binary_type, string_types)):
             binary_is_string = True
         else:
             binary.seek(0)
@@ -324,13 +326,13 @@ class BaseStorageSession(BaseSQLSession):
 
                 # Delete blocks paths from storage
                 for path in delete_paths:
-                    remove_file_quietly(join_path(self.storage_path, path))
+                    remove_file_quietly(join_paths(self.storage_path, path))
 
         return True
 
     def get_files(
             self,
-            id=None,
+            file_id=None,
             key=None,
             application_code=MARKER,
             code_key=MARKER,
@@ -360,33 +362,33 @@ class BaseStorageSession(BaseSQLSession):
             query = query.filter(File.file_id == FilePath.id)
 
         if id:
-            query = query.filter(File.id.in_(maybe_set(id)))
+            query = query.filter(File.id.in_(maybe_set(file_id)))
         if key:
             query = query.filter(File.key.in_(maybe_set(key)))
 
         if application_code is None:
-            query = query.filter(File.application_code == None)
+            query = query.filter(File.application_code.is_(None))
         elif application_code is not MARKER:
-            query = query.filter(File.application_code == force_unicode(application_code))
+            query = query.filter(File.application_code == to_unicode(application_code))
 
         if code_key is None:
-            query = query.filter(File.code_key == None)
+            query = query.filter(File.code_key.is_(None))
         elif code_key is not MARKER:
-            query = query.filter(File.code_key == force_unicode(code_key))
+            query = query.filter(File.code_key == to_unicode(code_key))
 
         if type_key is None:
-            query = query.filter(File.type_key == None)
+            query = query.filter(File.type_key.is_(None))
         elif type_key is not MARKER:
-            query = query.filter(File.type_key == force_unicode(type_key))
+            query = query.filter(File.type_key == to_unicode(type_key))
 
         if parent_id is None:
-            query = query.filter(File.parent_id == None)
+            query = query.filter(File.parent_id.is_(None))
         elif parent_id is not MARKER:
             query = query.filter(File.parent_id == int(parent_id))
 
         if parent_key:
             parent = aliased(File)
-            query = query.filter(File.parent_id == parent.id).filter(parent.key == force_unicode(parent_key))
+            query = query.filter(File.parent_id == parent.id).filter(parent.key == to_unicode(parent_key))
 
         if only_one:
             response = query.first()
@@ -399,7 +401,7 @@ class BaseStorageSession(BaseSQLSession):
         if only_one:
             response = [response]
 
-        files_blocks = MissingList()
+        files_blocks = defaultdict(list)
         for block in (
                 self.session
                 .query(BlockPath.path, FileBlock.file_id_path)
@@ -426,7 +428,7 @@ class BaseStorageSession(BaseSQLSession):
 
 class BaseStorageWithImageSession(BaseStorageSession):
     def verify_image(self, binary_or_file):
-        if isinstance(binary_or_file, (bytes, basestring)):
+        if isinstance(binary_or_file, (binary_type, string_types)):
             binary_or_file = BytesIO(binary_or_file)
 
         try:
@@ -440,7 +442,7 @@ class BaseStorageWithImageSession(BaseStorageSession):
     def get_thumbnail(self, key, resize_name, attributes=None):
         resized = self.get_files(
             parent_key=key,
-            type_key=u'resize-%s' % resize_name,
+            type_key=u('resize-%s') % resize_name,
             only_one=True,
             attributes=attributes)
         if resized:
@@ -455,34 +457,34 @@ class BaseStorageWithImageSession(BaseStorageSession):
             self.flush()
             return self.get_files(
                 parent_key=key,
-                type_key=u'resize-%s' % resize_name,
+                type_key=u('resize-%s') % resize_name,
                 only_one=True,
                 attributes=attributes)
 
     def resize_image(self, file_id, application_code, resize_name):
         if application_code not in self.api_session_manager.resizes:
-            raise Error('application_code', u'Invalid application code: %s' % application_code)
+            raise Error('application_code', u('Invalid application code: %s') % application_code)
 
         resize = self.api_session_manager.resizes[application_code].get(resize_name)
         if not resize:
-            raise Error('resize_name', u'Invalid resize name: %s' % resize_name)
+            raise Error('resize_name', u('Invalid resize name: %s') % resize_name)
         resize_width = maybe_integer(resize.get('width'))
         resize_height = maybe_integer(resize.get('height'))
         if not resize_width and not resize_height:
-            raise Error('resize', u'Invalid resize options')
+            raise Error('resize', u('Invalid resize options'))
 
         file_info = self.get_file(
             id=file_id,
             application_code=application_code,
             attributes=['open_file', 'key', 'filename', 'title', 'code_key'])
         if not file_info:
-            raise Error('file', u'File ID not found')
+            raise Error('file', u('File ID not found'))
 
         temporary_path = None
-        type_key = u'resize-%s' % resize_name
+        type_key = u('resize-%s') % resize_name
         filename = None
         if file_info.filename:
-            filename = u'%s-%s' % (resize_name, file_info.filename)
+            filename = u('%s-%s') % (resize_name, file_info.filename)
 
         lock_key = 'create image resize %s %s' % (file_id, resize_name)
         self.cache.lock(lock_key)
@@ -546,22 +548,22 @@ class BaseStorageWithImageSession(BaseStorageSession):
         return True
 
     @job(second=0, minute=[0, 30],
-         title=_(u'Create images'))
+         title=_('Create images'))
     def create_image_resizes(self):
         if not asbool(self.settings.get('thumb.create_on_add')) or not self.api_session_manager.resizes:
             return None
 
-        existing = MissingDictList()
+        existing = defaultdict(lambda: defaultdict(list))
         for t in (
                 self.session
                 .query(File.parent_id, File.type_key, File.application_code)
                 .filter(File.application_code.in_(self.api_session_manager.resizes.keys()))
                 .filter(File.parent_id.isnot(None))
-                .filter(File.type_key.like(u'thumb-%'))
+                .filter(File.type_key.like(u('thumb-%')))
                 .all()):
-            existing[t.application_code][t.parent_id].append(t.type_key.replace(u'thumb-', u'', 1))
+            existing[t.application_code][t.parent_id].append(t.type_key.replace(u('thumb-'), EMPTY_STRING, 1))
 
-        files = MissingList()
+        files = defaultdict(list)
         for f in (
                 self.session
                 .query(File.id, File.application_code)
@@ -609,9 +611,9 @@ class BaseStorageWithImageSession(BaseStorageSession):
             height = int(im.size[1])
 
             if (crop_left + crop_right) >= width:
-                raise Error('crop_left+crop_right', u'Left and right crop bigger then image width')
+                raise Error('crop_left+crop_right', u('Left and right crop bigger then image width'))
             elif (crop_upper + crop_lower) >= height:
-                raise Error('crop_upper+crop_lower', u'Upper and lower crop bigger then image height')
+                raise Error('crop_upper+crop_lower', u('Upper and lower crop bigger then image height'))
 
             new_im = self.api_session_manager.image_cls.open(binary)
             new_im = new_im.crop((int(crop_left), int(crop_upper), int(width - crop_right), int(height - crop_lower)))
@@ -637,7 +639,7 @@ class BaseStorageWithImageSession(BaseStorageSession):
 class FilePath(FilesDeclarative):
     __tablename__ = 'storage_file_paths'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True)
     code = Column(Unicode(70), unique=True, nullable=False)
     size = Column(Integer, nullable=False)
     mimetype = Column(Unicode(100))
@@ -647,7 +649,7 @@ class FilePath(FilesDeclarative):
 class File(FilesDeclarative):
     __tablename__ = 'storage_files'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True)
     file_id = Column(Integer, ForeignKey(FilePath.id), nullable=False)
     parent_id = Column(Integer, ForeignKey('storage_files.id'))
     key = Column(Unicode(70), unique=True, nullable=False)
@@ -664,7 +666,7 @@ Index('storage_file_code_idx', File.application_code, File.code_key)
 class BlockPath(FilesDeclarative):
     __tablename__ = 'storage_blocks'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True)
     code = Column(Unicode(70), unique=True, nullable=False)
     path = Column(String(255), nullable=False)
     size = Column(Integer, nullable=False)
@@ -674,7 +676,7 @@ class BlockPath(FilesDeclarative):
 class FileBlock(FilesDeclarative):
     __tablename__ = 'storage_file_blocks'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True)
     file_id_path = Column(Integer, ForeignKey(FilePath.id), nullable=False)
     file_id_block = Column(Integer, ForeignKey(BlockPath.id), nullable=False)
     order = Column(Integer, nullable=False)
@@ -696,8 +698,8 @@ class StorageFile(object):
         except IndexError:
             return b''
 
-        if isinstance(open_block, basestring):
-            open_block = self.blocks[self.block_position] = get_open_file(join_path(self.storage_path, open_block))
+        if isinstance(open_block, string_types):
+            open_block = self.blocks[self.block_position] = get_open_file(join_paths(self.storage_path, open_block))
 
         binary = open_block.read(size)
         if size > 0:
@@ -718,16 +720,16 @@ class StorageFile(object):
             raise StopIteration
         return val
 
-    __next__ = next # py3
+    __next__ = next  # py3
 
     def close(self):
         for block in self.blocks:
-            if not isinstance(block, basestring):
+            if not isinstance(block, string_types):
                 block.close()
 
 
 def save_temporary_image(im, default_format='JPEG'):
-    temporary_path = join_path(FILES_TEMPORARY_DIR, make_unique_hash(64))
+    temporary_path = join_paths(FILES_TEMPORARY_DIR, make_unique_hash(64))
     open_file = get_open_file(temporary_path, mode='wb')
     im.save(open_file, format=im.format or default_format)
     return temporary_path

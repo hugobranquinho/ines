@@ -8,23 +8,28 @@ from paste.urlmap import URLMap
 from pyramid.httpexceptions import HTTPNotFound
 from pyramid.paster import get_app
 from pyramid.paster import get_appsettings
-from webob.response import Response
+from six import print_
 
 from ines.convert import maybe_integer
 from ines.system import start_system_thread
 from ines.utils import file_modified_time
-from ines.utils import format_error_to_json
+from ines.utils import format_error_response_to_json
 
 
-def not_found_api_application(global_settings, **settings):
-    def call_not_found(environ, start_response):
+class NotFoundApplication(object):
+    def __init__(self, global_settings, **settings):
+        self.global_settings = global_settings
+        self.settings = settings
+
+    def __call__(self, environ, start_response):
         not_found = HTTPNotFound()
-        response = Response(
-            body=format_error_to_json(not_found),
-            status=not_found.code,
-            content_type='application/json')
-        return response(environ, start_response)
-    return call_not_found
+
+        accept = environ.get('HTTP_ACCEPT', '')
+        if accept and 'json' in accept:
+            not_found.body = format_error_response_to_json(not_found)
+            not_found.content_type = 'application/json'
+
+        return not_found(environ, start_response)
 
 
 def onthefly_url_map_factory(loader, global_settings, **settings):
@@ -62,12 +67,9 @@ class OnTheFlyAPI(URLMap):
             'not_found_application',
             settings.global_conf.get('not_found_application'))
         if not_found_application:
-            not_found_application = loadapp(
-                not_found_application,
-                global_conf=settings.global_conf)
+            not_found_application = loadapp(not_found_application, global_conf=settings.global_conf)
         else:
-            not_found_application = not_found_api_application(
-                settings.global_conf, **settings.local_conf)
+            not_found_application = NotFoundApplication(settings.global_conf, **settings.local_conf)
         self.not_found_application = not_found_application
 
         self.validate_config_seconds = maybe_integer(
@@ -78,6 +80,4 @@ class OnTheFlyAPI(URLMap):
             self[path] = get_app(self.config_path, app_name)
 
             if debug:
-                print (
-                    'Application %s reloaded on pid %s'
-                    % (app_name, getpid()))
+                print_('Application %s reloaded on pid %s' % (app_name, getpid()))

@@ -24,13 +24,16 @@ from colander import Sequence
 from colander import SequenceSchema
 from colander import String
 from colander.compat import is_nonstr_iter
+from six import string_types
+from six import u
 
-from ines import _
 from ines import FALSES
 from ines import TRUES
-from ines.convert import force_string
-from ines.convert import force_unicode
+from ines.convert import to_string
+from ines.convert import to_unicode
 from ines.convert import uncamelcase
+from ines.i18n import _
+from ines.utils import is_file_type
 
 
 # See https://github.com/Pylons/colander/pull/212
@@ -205,7 +208,7 @@ class File(SchemaType):
             return value
 
     def deserialize(self, node, value):
-        if isinstance(value, file):
+        if is_file_type(value):
             return {
                 'file': value,
                 'filename': basename(value.name),
@@ -218,7 +221,7 @@ class File(SchemaType):
                 'type': 'image/png'}
 
         else:
-            raise Invalid(node, u'Ficheiro inválido.')
+            raise Invalid(node, _('Invalid file.'))
 
 
 class Image(File):
@@ -229,7 +232,7 @@ class Image(File):
 
 
 class SplitValues(object):
-    def __init__(self, break_with=u',', break_limit=-1):
+    def __init__(self, break_with=u(','), break_limit=-1):
         self.break_with = break_with
         self.break_limit = break_limit
 
@@ -237,7 +240,7 @@ class SplitValues(object):
         result = []
         if appstruct is not null:
             for value in appstruct:
-                if isinstance(value, basestring) and not value.startswith(u'{"'):
+                if isinstance(value, string_types) and not value.startswith(u('{"')):
                     result.extend(value.split(self.break_with, self.break_limit))
         return result
 
@@ -332,8 +335,8 @@ def set_sequence_nodes(**kwargs):
 
 
 @set_sequence_nodes(
-    field=SchemaNode(String(), title=_(u'Show fields')),
-    exclude_field=SchemaNode(String(), title=_(u'Exclude fields')))
+    field=SchemaNode(String(), title=_('Show fields')),
+    exclude_field=SchemaNode(String(), title=_('Exclude fields')))
 class SearchFields(MappingSchema):
     pass
 
@@ -389,22 +392,22 @@ class LimitPerPageInteger(Integer):
     schema_type_name = 'integer'
 
     def num(self, value):
-        if isinstance(value, basestring) and value.lower() == 'all':
+        if isinstance(value, string_types) and value.lower() == 'all':
             return 'all'
         else:
             return int(value)
 
 
-PAGE = SchemaNode(Integer(), title=_(u'Page'), missing=1)
-LIMIT_PER_PAGE = SchemaNode(LimitPerPageInteger(), title=_(u'Results per page'), missing=20)
-ORDER_BY = SchemaNode(String(), title=_(u'Order by'), name='order_by')
-NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_(u'Number of results'))
-NUMBER_OF_PAGE_RESULTS = SchemaNode(Integer(), title=_(u'Number of page results'))
-LAST_PAGE = SchemaNode(Integer(), title=_(u'Last page'))
-NEXT_PAGE_HREF = SchemaNode(String(), title=_(u'Next page url'))
-PREVIOUS_PAGE_HREF = SchemaNode(String(), title=_(u'Previous page url'))
-FIRST_PAGE_HREF = SchemaNode(String(), title=_(u'First page url'))
-LAST_PAGE_HREF = SchemaNode(String(), title=_(u'Last page url'))
+PAGE = SchemaNode(Integer(), title=_('Page'), missing=1)
+LIMIT_PER_PAGE = SchemaNode(LimitPerPageInteger(), title=_('Results per page'), missing=20)
+ORDER_BY = SchemaNode(String(), title=_('Order by'), name='order_by')
+NUMBER_OF_RESULTS = SchemaNode(Integer(), title=_('Number of results'))
+NUMBER_OF_PAGE_RESULTS = SchemaNode(Integer(), title=_('Number of page results'))
+LAST_PAGE = SchemaNode(Integer(), title=_('Last page'))
+NEXT_PAGE_HREF = SchemaNode(String(), title=_('Next page url'))
+PREVIOUS_PAGE_HREF = SchemaNode(String(), title=_('Previous page url'))
+FIRST_PAGE_HREF = SchemaNode(String(), title=_('First page url'))
+LAST_PAGE_HREF = SchemaNode(String(), title=_('Last page url'))
 
 
 class OrderByInput(MappingSchema):
@@ -418,44 +421,44 @@ class PaginationInput(OrderByInput):
 
 
 CSV_DELIMITER = {
-    u',': _(u'Comma (,)'),
-    u';': _(u'Semicolon (;)'),
-    u'\\t': _(u'TAB (\\t)')}
+    u(','): _('Comma (,)'),
+    u(';'): _('Semicolon (;)'),
+    u('\\t'): _('TAB (\\t)')}
 
 CSV_QUOTE_CHAR = {
-    u'"': _(u'Double quote'),
-    u'\'': _(u'Single quote')}
+    u('"'): _('Double quote'),
+    u('\''): _('Single quote')}
 
 CSV_LINE_TERMINATOR = {
-    u'\\r\\n': _(u'Windows (CR+LF)'),
-    u'\\n': _(u'Linux and MacOS (LF)'),
-    u'\\r': _(u'Old MacOS (CR)'),
-    u'\\n\\r': _(u'Other (LF+CR)')}
+    u('\\r\\n'): _('Windows (CR+LF)'),
+    u('\\n'): _('Linux and MacOS (LF)'),
+    u('\\r'): _('Old MacOS (CR)'),
+    u('\\n\\r'): _('Other (LF+CR)')}
 
 CSV_ENCODING = {
-    u'utf-8': _(u'All languages'),
-    u'latin-1': _(u'West Europe')}
+    u('utf-8'): _('All languages'),
+    u('latin-1'): _('West Europe')}
 
 
 class CSVInput(MappingSchema):
     csv_delimiter = SchemaNode(
         String(),
-        title=_(u'CSV content delimiter'),
+        title=_('CSV content delimiter'),
         missing=None,
         validator=OneOfWithDescription(CSV_DELIMITER))
     csv_quote_char = SchemaNode(
         String(),
-        title=_(u'CSV content quote'),
+        title=_('CSV content quote'),
         missing=None,
         validator=OneOfWithDescription(CSV_QUOTE_CHAR))
     csv_line_terminator = SchemaNode(
         String(),
-        title=_(u'CSV line terminator'),
+        title=_('CSV line terminator'),
         missing=None,
         validator=OneOfWithDescription(CSV_LINE_TERMINATOR))
     csv_encoding = SchemaNode(
         String(),
-        title=_(u'CSV encoding'),
+        title=_('CSV encoding'),
         missing=None,
         validator=OneOfWithDescription(CSV_ENCODING))
 
@@ -473,7 +476,7 @@ class PaginationOutput(MappingSchema):
 
 
 class DeleteOutput(MappingSchema):
-    deleted = SchemaNode(Boolean(), title=_(u'Deleted'))
+    deleted = SchemaNode(Boolean(), title=_('Deleted'))
 
 
 class FilterBy(object):
@@ -486,20 +489,20 @@ class FilterBy(object):
 
     def __str__(self):
         if not is_nonstr_iter(self.value):
-            return force_string(self.value)
+            return to_string(self.value)
         else:
             return self.value
 
     def __unicode__(self):
         if not is_nonstr_iter(self.value):
-            return force_unicode(self.value)
+            return to_unicode(self.value)
         else:
             return self.value
 
 
 class FilterByType(SchemaType):
     def deserialize(self, node, cstruct):
-        if cstruct and isinstance(cstruct, basestring):
+        if cstruct and isinstance(cstruct, string_types):
             try:
                 json_cstruct = loads(cstruct)
             except (ValueError, UnicodeEncodeError):
@@ -534,7 +537,7 @@ class FilterByType(SchemaType):
 
             filter_type = (filter_type or 'and').lower()
             if filter_type not in ('and', 'or'):
-                message = u'Invalid filter type %s for %s' % (value_filter_type, json_value)
+                message = u('Invalid filter type %s for %s') % (filter_type, json_value)
                 raise Invalid('filter_type', message)
             else:
                 return FilterBy(filter_type, queries)

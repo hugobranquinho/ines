@@ -3,30 +3,26 @@
 from hashlib import sha256
 from math import ceil
 
-from repoze.lru import LRUCache
+from six import u
 
-from ines.convert.strings import force_string
-from ines.convert.strings import force_unicode
-
-
-SHA256_CACHE = LRUCache(5000)
+from ines import lru_cache
+from ines.convert.strings import to_bytes
+from ines.convert.strings import to_unicode
+from ines.convert.strings import unicode_join
 
 
 def make_sha256_no_cache(key):
-    key = force_string(key)
-    return force_unicode(sha256(key).hexdigest())
+    key = to_bytes(key)
+    return to_unicode(sha256(key).hexdigest())
 
 
+@lru_cache(5000)
 def make_sha256(key):
-    key_256 = SHA256_CACHE.get(key)
-    if not key_256:
-        key_256 = make_sha256_no_cache(key)
-        SHA256_CACHE.put(key, key_256)
-    return key_256
+    return make_sha256_no_cache(key)
 
 
 def inject_junk(value):
-    value = force_unicode(value)
+    value = to_unicode(value)
 
     if len(value) < 6:
         orders = list('987654')
@@ -37,10 +33,11 @@ def inject_junk(value):
     for order in blocks:
         orders.extend(str(ord(order)))
 
+    junk_code = u('1234qwerty')
     while orders:
         order = int(orders.pop(0))
         # Inject some junk
         position = int(ceil(len(blocks) / (order + 1.)))
-        blocks.insert(position, u'1234qwerty'[order])
+        blocks.insert(position, junk_code[order])
 
-    return u''.join(blocks)
+    return unicode_join('', blocks)

@@ -8,18 +8,15 @@ from ines.convert.codes import (inject_junk,
 
 from ines.convert.dates import (convert_timezone,
                                 date_to_timestamp,
+                                guess_datetime,
                                 maybe_date,
                                 maybe_datetime)
 
-from ines.convert.metrics import (format_metric,
-                                  format_metric_factory,
-                                  metric_to_unicode,
-                                  metric_to_unicode_factory)
-
-from ines.convert.strings import (camelcase,
-                                  force_string,
-                                  force_unicode,
+from ines.convert.strings import (bytes_join,
+                                  camelcase,
+                                  clear_spaces,
                                   json_dumps,
+                                  maybe_bytes,
                                   maybe_integer,
                                   maybe_null,
                                   maybe_string,
@@ -27,7 +24,12 @@ from ines.convert.strings import (camelcase,
                                   pluralizing_key,
                                   pluralizing_word,
                                   prepare_for_json,
-                                  uncamelcase)
+                                  string_join,
+                                  to_bytes,
+                                  to_string,
+                                  to_unicode,
+                                  uncamelcase,
+                                  unicode_join)
 
 
 def maybe_list(value):

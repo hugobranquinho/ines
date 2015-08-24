@@ -4,9 +4,12 @@ import datetime
 import sys
 from traceback import format_exception
 
+from six import print_
+
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
-from ines.convert import force_string
+from ines.convert import string_join
+from ines.convert import to_unicode
 from ines.middlewares.logs import LoggingMiddleware
 
 
@@ -24,7 +27,7 @@ class BaseLogSession(BaseSession):
     def log(self, code, message, level='INFO', extra=None):
         level = level.upper()
         header = ('-' * 30) + ' ' + level + ' ' + ('-' * 30)
-        print header
+        print_(header)
 
         arguments = [
             ('Application', self.request.application_name),
@@ -47,21 +50,21 @@ class BaseLogSession(BaseSession):
 
         bigger = max(len(k) for k, v in arguments)
         for key, value in arguments:
-            print key, ' ' * (bigger - len(key)), ':', force_string(value)
+            print_(key, ' ' * (bigger - len(key)), ':', to_unicode(value))
 
         if level == 'CRITICAL':
-            print
-            print ''.join(format_exception(*sys.exc_info()))
+            print_()
+            print_(string_join('', format_exception(*sys.exc_info())))
 
-        print
+        print_()
         try:
-            message = force_string(message)
+            message = to_unicode(message)
             for line in message.split('\n'):
-                print '  %s' % line
+                print_('  %s' % line)
         except UnicodeEncodeError:
             pass
 
-        print '-' * len(header)
+        print_('-' * len(header))
 
     def log_debug(self, code, message, **kwargs):
         if self.config.debug:

@@ -3,6 +3,7 @@
 import mimetypes
 
 from ines.convert import maybe_string
+from ines.utils import is_file_type
 
 
 class GuessTypeWithData(object):
@@ -83,7 +84,7 @@ guess_mimetype_with_data.add(10, lookup_jpeg)
 
 
 def lookup_netpbm(header):
-    if len(header) >= 3 and header[0] == ord(b'P') and header[2] in b' \t\n\r':
+    if len(header) >= 3 and header[0] == ord('P') and header[2] in b' \t\n\r':
         if header[1] in b'14':
             return 'image/pbm'
         elif header[1] in b'25':
@@ -102,7 +103,7 @@ guess_mimetype_with_data.add(12, lookup_netpbm)
 
 
 def find_mimetype(filename=None, header_or_file=None):
-    if isinstance(header_or_file, file):
+    if is_file_type(header_or_file):
         header_or_file.seek(0)
         header = header_or_file.read(guess_mimetype_with_data.min_header_size)
     else:

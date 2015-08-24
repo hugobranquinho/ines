@@ -1,22 +1,26 @@
 # -*- coding: utf-8 -*-
 
-from functools import wraps
-from os.path import join as join_paths
 from os.path import isfile
 from pickle import dumps as pickle_dumps
 from pickle import loads as pickle_loads
 from time import time
 
-from repoze.lru import LRUCache
+from six import _import_module
+from six import wraps
 
 from ines import DEFAULT_RETRY_ERRNO
+from ines import lru_cache
 from ines import MARKER
-from ines.convert import force_string
+from ines.convert import bytes_join
 from ines.convert import make_sha256
 from ines.convert import maybe_integer
+from ines.convert import maybe_list
 from ines.convert import maybe_set
+from ines.convert import string_join
+from ines.convert import to_bytes
 from ines.locks import LockMe
 from ines.locks import LockMeMemcached
+from ines.path import join_paths
 from ines.utils import file_modified_time
 from ines.utils import get_file_binary
 from ines.utils import make_dir
@@ -54,7 +58,7 @@ class _SaveMe(object):
         if not values:
             raise ValueError('Define some values')
 
-        binary = '\n'.join(force_string(v) for v in values)
+        binary = (to_bytes(v) for v in values)
         binary += '\n'
         self.put_binary(name, binary, mode='append', expire=expire)
 
@@ -65,9 +69,13 @@ class _SaveMe(object):
         if not values:
             self.remove(name)
         else:
-            binary = '\n'.join(force_string(v) for v in values)
-            binary += '\n'
-            self.put_binary(name, binary, expire=expire)
+            values = maybe_list(values)
+            values.append('\n')
+
+            self.put_binary(
+                name,
+                binary=bytes_join('\n', values),
+                expire=expire)
 
     def __getitem__(self, name):
         value = self.get(name, default=MARKER)
@@ -109,19 +117,17 @@ class SaveMe(_SaveMe):
             expire=None,
             retry_errno=None,
             retries=3,
-            lru_size=1000,
             **lock_settings):
 
         self.expire = maybe_integer(expire)
         self.path = make_dir(path)
-        self.path_cache = LRUCache(lru_size)
         self.retries = maybe_integer(retries) or 3
         self.retry_errno = maybe_set(retry_errno)
         self.retry_errno.update(DEFAULT_RETRY_ERRNO)
 
         # Lock settings
         settings = {}
-        for key, value in lock_settings.items():
+        for key, value in list(lock_settings.items()):
             if key.startswith('lock_'):
                 settings[key.split('lock_', 1)[1]] = value
 
@@ -134,14 +140,10 @@ class SaveMe(_SaveMe):
     def unlock(self, *args, **kwargs):
         return self.lockme.unlock(*args, **kwargs)
 
+    @lru_cache(1000)
     def get_file_path(self, name):
-        name = force_string(name)
-        path = self.path_cache.get(name)
-        if not path:
-            name_256 = make_sha256(name)
-            path = join_paths(self.path, name_256[0], name_256)
-            self.path_cache.put(name, path)
-        return path
+        name_256 = make_sha256(name)
+        return join_paths(self.path, name_256[0], name_256)
 
     def _contains(self, path, expire=MARKER):
         if expire is MARKER:
@@ -252,9 +254,12 @@ class SaveMeWithReference(SaveMe):
                     references.remove(name)
 
             if references:
+                references = maybe_list(references)
+                references.append('\n')
+
                 put_binary_on_file(
                     file_path,
-                    '\n'.join(references) + '\n',
+                    binary=bytes_join('\n', references),
                     mode='ab',
                     retries=self.retries,
                     retry_errno=self.retry_errno)
@@ -298,14 +303,13 @@ class SaveMeMemcached(_SaveMe):
 
         # Lock settings
         lock_settings = {}
-        for key, value in settings.items():
+        for key in list(settings.keys()):
             if key.startswith('lock_'):
                 lock_settings[key.split('lock_', 1)[1]] = settings.pop(key)
         lock_settings.update(settings)
 
-        from memcache import Client
-        self.memcache_module = __import__('memcache')
-        self.memcache = Client(url.split(';'), **settings)
+        self.memcache_module = _import_module('memcache')
+        self.memcache = self.memcache_module.Client(url.split(';'), **settings)
         self.expire = maybe_integer(expire)
         self.lockme = LockMeMemcached(url, **lock_settings)
 
@@ -316,7 +320,7 @@ class SaveMeMemcached(_SaveMe):
         return self.lockme.unlock(*args, **kwargs)
 
     def format_name(self, name):
-        return force_string(make_sha256(name))
+        return to_bytes(make_sha256(name))
 
     def __contains__(self, name):
         return self.memcache.get(self.format_name(name)) is not None
@@ -350,7 +354,7 @@ class api_cache_decorator(object):
     def __call__(self, wrapped):
         @wraps(wrapped)
         def wrapper(cls, *args, **kwargs):
-            key = ' '.join([cls.application_name, cls.__api_name__, 'decorator', wrapped.__name__])
+            key = string_join(' ', [cls.application_name, cls.__api_name__, 'decorator', wrapped.__name__])
             if kwargs.pop('expire_cache', False):
                 cls.config.cache.remove(key)
                 return True

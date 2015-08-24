@@ -2,6 +2,7 @@
 
 import datetime
 
+from six import string_types
 from sqlalchemy import Column
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
@@ -19,7 +20,11 @@ NOW = datetime.datetime.now
 
 
 class _Base(object):
+    __tablename__ = None
+    _decl_class_registry = None
+
     __table_alias__ = None
+    __parent__ = None
 
 
 class Base(_Base):
@@ -35,9 +40,9 @@ class Base(_Base):
 
     @declared_attr
     def parent_id(self):
-        if hasattr(self, '__parent__'):
+        if have_parent(self):
             nullable = False
-            if isinstance(self.__parent__, basestring):
+            if isinstance(self.__parent__, string_types):
                 if self.__parent__ == self.__tablename__:
                     self.__parent__ = self
                     nullable = True
@@ -54,6 +59,7 @@ class Base(_Base):
 
 class ActiveBase(Base):
     __core_type__ = 'active'
+    _active = None
 
     start_date = Column(DateTime)
     end_date = Column(DateTime)
@@ -83,3 +89,7 @@ class BranchBase(_Base):
 ActiveCore = sql_declarative_base('ines.core', cls=ActiveBase)
 BranchCore = sql_declarative_base('ines.core', cls=BranchBase)
 Core = sql_declarative_base('ines.core', cls=Base)
+
+
+def have_parent(table):
+    return bool(getattr(table, '__parent__', None) is not None)

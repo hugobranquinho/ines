@@ -10,23 +10,24 @@ from pyramid.interfaces import IRequestFactory
 from pyramid.renderers import render_to_response
 from pyramid.request import Request
 from pyramid.settings import asbool
+from six import u
 from webob.compat import parse_qsl_text
 from webob.multidict import MultiDict
 from webob.multidict import NoVars
 from webob.request import FakeCGIBody
 
 from ines import APPLICATIONS
-from ines.convert import force_unicode
+from ines.convert import to_unicode
 from ines.exceptions import Error
 from ines.i18n import translate_factory
 from ines.interfaces import IBaseSessionManager
-from ines.utils import InfiniteDict
+from ines.utils import infinitedict
 
 
-class inesRequest(Request):
+class InesRequest(Request):
     @reify
     def session_cache(self):
-        return InfiniteDict()
+        return infinitedict()
 
     @reify
     def cache(self):
@@ -79,9 +80,9 @@ class inesRequest(Request):
     def ip_address(self):
         value = self.environ.get('HTTP_X_FORWARDED_FOR') or self.environ.get('REMOTE_ADDR')
         if value:
-            return force_unicode(value)
+            return to_unicode(value)
 
-        message = u'Missing IP Address'
+        message = u('Missing IP Address')
         raise Error('ip_address', message)
 
     @reify
@@ -140,7 +141,7 @@ class ApplicationsConnector(object):
     def __getattr__(self, key):
         config = APPLICATIONS.get(key)
         if config is None:
-            raise AttributeError(u'Missing application %s' % key)
+            raise AttributeError('Missing application %s' % key)
 
         if self.request.application_name == key:
             attribute = self.request.api

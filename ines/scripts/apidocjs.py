@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import print_function
-
 import optparse
 import os
 from subprocess import Popen
@@ -9,6 +7,7 @@ import sys
 
 from pkg_resources import find_distributions
 from pkg_resources import resource_filename
+from six import print_
 
 
 def main(argv=sys.argv):
@@ -50,7 +49,7 @@ class APIDocJSCommand(object):
         options, args = self.parser.parse_args(argv[1:])
 
         if not args:
-            print('You must provide at least one project_name')
+            print_('You must provide at least one project_name')
             return 0
 
         HERE = os.getcwd()
@@ -62,7 +61,7 @@ class APIDocJSCommand(object):
                 if len(distribution) != 1:
                     raise ValueError('Package not found in %s' % maybe_path)
                 distribution = distribution[0]
-                print(dir(distribution))
+                print_(dir(distribution))
                 packages_names.add(distribution.project_name.replace('-', '_'))
             else:
                 packages_names.add(maybe_path)
@@ -95,7 +94,7 @@ class APIDocJSCommand(object):
                 cmds.append('-t')
                 cmds.append(options.template)
 
-            print('Creating apidoc for', package_name, 'from', input_path, 'to', output_path)
+            print_('Creating apidoc for', package_name, 'from', input_path, 'to', output_path)
             p = Popen(cmds)
             p.wait()
 

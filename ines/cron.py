@@ -6,7 +6,7 @@
 from calendar import monthrange
 import datetime
 
-from ines.convert import force_unicode
+from ines.convert import to_string
 from ines.convert import maybe_integer
 from ines.exceptions import NoMoreDates
 from ines.utils import add_months
@@ -168,21 +168,21 @@ def format_crontab_options(**kwargs):
 
         if not hasattr(values, '__iter__'):
             values = [values]
-        if u'*' in values:
+        if '*' in values:
             continue
 
         key_options = set()
         for value in set(values):
-            value = force_unicode(value)
+            value = to_string(value)
 
-            if key == 'day' and value.lower() == u'l':
+            if key == 'day' and value.lower() == 'l':
                 options['last_day_of_month'] = True
                 continue
 
             int_values = set()
             ignore_options_add = False
 
-            if key == 'weekday' and value.lower().endswith(u'l'):
+            if key == 'weekday' and value.lower().endswith('l'):
                 weekday = maybe_integer(value[0])
                 if weekday is None:
                     message = 'Invalid %s integer on "%s"' \
@@ -195,31 +195,30 @@ def format_crontab_options(**kwargs):
             elif value.isnumeric():
                 int_values.add(int(value))
 
-            elif value == u'?':
+            elif value == '?':
                 now = NOW_DATE()
                 if key == 'weekday':
                     int_values.add(now.weekday())
                 else:
                     int_values.add(getattr(now, key))
 
-            elif u'/' in value:
-                range_int, interval = value.split(u'/', 1)
+            elif '/' in value:
+                range_int, interval = value.split('/', 1)
 
                 interval = maybe_integer(interval)
                 if interval is None or interval < 1:
                     message = 'Invalid %s interval for "%s"' % (key, value)
                     raise ValueError(message)
 
-                if range_int == u'*':
+                if range_int == '*':
                     start = start_range
                     end = end_range
-                elif u'-' in range_int:
+                elif '-' in range_int:
                     start, end = range_int.split('-', 1)
                     start = maybe_integer(start)
                     end = maybe_integer(end)
                     if start is None or end is None:
-                        message = 'Invalid %s integer on "%s"' \
-                                  % (key, value)
+                        message = 'Invalid %s integer on "%s"' % (key, value)
                         raise ValueError(message)
                 else:
                     message = 'Invalid %s format "%s"' % (key, value)
@@ -227,7 +226,7 @@ def format_crontab_options(**kwargs):
 
                 int_values.update(range(start, end + 1, interval))
 
-            elif u',' in value:
+            elif ',' in value:
                 for int_value in value.split(','):
                     int_value = maybe_integer(int_value)
                     if int_value is None:
@@ -235,7 +234,7 @@ def format_crontab_options(**kwargs):
                         raise ValueError(message)
                     int_values.add(int_value)
 
-            elif u'-' in value:
+            elif '-' in value:
                 start, end = value.split('-', 1)
                 start = maybe_integer(start)
                 end = maybe_integer(end)
@@ -301,7 +300,7 @@ class Cron(object):
     def find_next(self, next_date=None):
         next_date = next_date or NOW_DATE().replace(microsecond=0)
         next_date += TIMEDELTA(seconds=1)
-        if not self.finders:
+        if not self.finders and not self.options.get('year'):
             # Every second
             return next_date
 

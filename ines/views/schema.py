@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from urllib2 import unquote
+from collections import defaultdict
 
 from colander import All
 from colander import Boolean as BaseBoolean
@@ -15,6 +15,9 @@ from colander import Sequence
 from colander import Tuple
 from pyramid.compat import is_nonstr_iter
 from pyramid.settings import asbool
+from six import print_
+from six import moves
+from six import u
 from translationstring import TranslationString
 from zope.interface import implementer
 
@@ -23,7 +26,7 @@ from ines import MARKER
 from ines.authorization import Everyone
 from ines.authorization import NotAuthenticated
 from ines.convert import camelcase
-from ines.convert import force_unicode
+from ines.convert import to_unicode
 from ines.convert import maybe_list
 from ines.interfaces import ISchemaView
 from ines.route import lookup_for_route_params
@@ -31,9 +34,12 @@ from ines.route import lookup_for_route_permissions
 from ines.views.fields import FilterByType
 from ines.views.fields import OneOfWithDescription
 from ines.utils import different_values
-from ines.utils import MissingDict
-from ines.utils import MissingList
-from ines.utils import MissingSet
+
+
+unquote = moves.urllib.parse.unquote
+EMPTY_STRING = u('')
+UNDERSCORE = u('_')
+SPACE = u(' ')
 
 
 @implementer(ISchemaView)
@@ -83,12 +89,12 @@ class SchemaView(object):
         schema_expire_cache = request.settings.get('schema_expire_cache', MARKER)
         nodes = request.cache.get(cache_key, MARKER, expire=schema_expire_cache)
         if nodes is MARKER:
-            nodes = MissingDict()
-            global_types = MissingList()
-            global_models = MissingList()
-            keep_types_keys = MissingSet()
-            keep_models_keys = MissingSet()
-            to_translate = MissingList()
+            nodes = defaultdict(dict)
+            global_types = defaultdict(list)
+            global_models = defaultdict(list)
+            keep_types_keys = defaultdict(set)
+            keep_models_keys = defaultdict(set)
+            to_translate = defaultdict(list)
 
             for route_name in self.get_route_names():
                 info = self.get_route_info(request, route_name)
@@ -102,8 +108,8 @@ class SchemaView(object):
 
                 for schema in schemas:
                     fields = []
-                    types = MissingList()
-                    models = MissingList()
+                    types = defaultdict(list)
+                    models = defaultdict(list)
 
                     if schema.schema:
                         details = self.construct_structure(
@@ -158,7 +164,7 @@ class SchemaView(object):
 
             if global_types:
                 if to_translate:
-                    to_translate['fieldTypes'] = MissingSet()
+                    to_translate['fieldTypes'] = defaultdict(set)
                 nodes['fieldTypes'] = lookup_common_fields(
                     global_types,
                     to_translate,
@@ -168,7 +174,7 @@ class SchemaView(object):
 
             if global_models:
                 if to_translate:
-                    to_translate['models'] = MissingSet()
+                    to_translate['models'] = defaultdict(set)
                 nodes['models'] = lookup_common_fields(global_models, to_translate, ignore_key='model')
                 nodes['keep_models_keys'] = keep_models_keys
 
@@ -243,7 +249,7 @@ class SchemaView(object):
                     text_value = value.get(key)
                     if text_value:
                         value[key] = translator(text_value)
-                        print text_value, value[key]
+                        print_(text_value, value[key])
 
         return nodes
 
@@ -266,7 +272,7 @@ class SchemaView(object):
                 'model': name,
                 'type': 'sequence',
                 'title': schema.title,
-                'description': schema.description or u''}
+                'description': schema.description or EMPTY_STRING}
             models[name].append(details)
 
             if isinstance(schema.title, TranslationString):
@@ -318,7 +324,7 @@ class SchemaView(object):
             details = {
                 'type': 'model',
                 'title': schema.title,
-                'description': schema.description or u'',
+                'description': schema.description or EMPTY_STRING,
                 'fields': fields,
                 'model': name}
             models[name].append(details)
@@ -335,7 +341,7 @@ class SchemaView(object):
             details = {
                 'fieldType': name,
                 'title': schema.title,
-                'description': schema.description or u''}
+                'description': schema.description or EMPTY_STRING}
 
             if isinstance(schema.title, TranslationString):
                 to_translate['title'].append(details)
@@ -393,7 +399,8 @@ class SchemaView(object):
                         for choice in validator.choices:
                             add_option({
                                 'value': choice,
-                                'text': force_unicode(choice).replace(u'_', u' ').title()})
+                                'text': to_unicode(choice).replace(UNDERSCORE, SPACE).title()})
+
                     else:
                         if isinstance(validator, Length):
                             validation_option = {}
@@ -446,7 +453,7 @@ def get_colander_type_name(node):
 
 
 def lookup_common_fields(values, to_translate, ignore_key=None, is_field_type=False):
-    result = MissingDict()
+    result = defaultdict(dict)
 
     dict_key = 'models'
     if is_field_type:

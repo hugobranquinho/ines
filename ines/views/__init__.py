@@ -11,11 +11,19 @@ def errors_json_view(context, request):
         status=values['status'])
 
 
-class DefaultAPIView(object):
+class DefaultView(object):
     def __init__(self, context, request):
         self.request = request
         self.context = context
         self.api = self.request.api
+
+
+class DefaultAPIView(DefaultView):
+    ignore_csv_keys = [
+        'csv_delimiter',
+        'csv_quote_char',
+        'csv_line_terminator',
+        'csv_encoding']
 
     def create_pagination(self, values_key, pagination, route_name, **params):
         result = {
@@ -77,12 +85,7 @@ class DefaultAPIView(object):
 
     def pop_csv_structure(self, structure):
         response = structure.copy()
-        if 'csv_delimiter' in response:
-            response.pop('csv_delimiter')
-        if 'csv_quote_char' in response:
-            response.pop('csv_quote_char')
-        if 'csv_line_terminator' in response:
-            response.pop('csv_line_terminator')
-        if 'csv_encoding' in response:
-            response.pop('csv_encoding')
+        for key in self.ignore_csv_keys:
+            if key in response:
+                response.pop(key)
         return response

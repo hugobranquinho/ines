@@ -6,6 +6,7 @@ from pyramid.url import _join_elements
 from pyramid.url import parse_url_overrides
 from zope.interface import implementer
 
+from ines.convert import string_join
 from ines.interfaces import IBaseSessionManager
 
 
@@ -53,7 +54,6 @@ class BaseSession(object):
 
         return attribute
 
-
     def __contains__(self, key):
         return (
             self.registry
@@ -88,9 +88,9 @@ class BaseSession(object):
             else:
                 app_url = self.request.host_url
                 if self.config.settings.get('app_url'):
-                    app_url = '/'.join(s.strip('/') for s in [app_url, self.config.settings['app_url']])
+                    app_url = string_join('/', (s.strip('/') for s in [app_url, self.config.settings['app_url']]))
 
-        path = route.generate(kw) # raises KeyError if generate fails
+        path = route.generate(kw)  # raises KeyError if generate fails
 
         if elements:
             suffix = _join_elements(elements)

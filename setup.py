@@ -30,6 +30,10 @@ from distutils.version import StrictVersion
 import os
 from setuptools import find_packages
 from setuptools import setup
+import sys
+
+
+PY3 = sys.version_info[0] == 3
 
 
 here = os.path.abspath(os.path.dirname(__file__))
@@ -58,16 +62,18 @@ requires = [
     'setuptools',
     'pyramid',
     'WebOb',
-    'Babel',
-    'lingua',
     'translationstring',
     'zope.interface',
     'Paste',
     'PasteDeploy',
     'colander >= 1.0',
     'SQLAlchemy >= 1.0.0',
-    'repoze.lru',
-    'venusian']
+    'venusian',
+    'six']
+
+if not PY3:
+    requires.append('repoze.lru')
+
 
 setupkw = dict(
     name='ines',
@@ -108,8 +114,8 @@ setupkw = dict(
         onthefly_url_map = ines.wsgi:onthefly_url_map_factory""")
 
 try:
-    import babel
-    babel = babel  # PyFlakes
+    __import__('babel')
+    babel = sys.modules['babel']  # PyFlakes
     setupkw['message_extractors'] = {'ines': [('**.py', 'lingua_python', None)]}
 except ImportError:
     pass
