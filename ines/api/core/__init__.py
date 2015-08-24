@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 
+from collections import defaultdict
 from copy import deepcopy
 import datetime
-from functools import wraps
 from os.path import normpath
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.settings import asbool
+from six import _import_module
+from six import string_types
+from six import u
 from sqlalchemy import and_
 from sqlalchemy import Boolean
 from sqlalchemy import Column
@@ -23,11 +26,11 @@ from sqlalchemy.sql.elements import BindParameter
 from sqlalchemy.sql.schema import Table
 from sqlalchemy.sql.selectable import Alias
 
-from ines import _
 from ines import MARKER
 from ines.api.core.database import ActiveBase
 from ines.api.core.database import Base
 from ines.api.core.database import BranchBase
+from ines.api.core.database import have_parent
 from ines.api.core.views import CorePagination
 from ines.api.core.views import QueryPagination
 from ines.api.database.sql import active_filter
@@ -41,20 +44,19 @@ from ines.api.database.sql import Pagination
 from ines.api.database.sql import resolve_database_value
 from ines.api.database.sql import SQL_DBS
 from ines.convert import convert_timezone
-from ines.convert import force_string
-from ines.convert import force_unicode
 from ines.convert import maybe_datetime
 from ines.convert import maybe_integer
 from ines.convert import maybe_list
 from ines.convert import maybe_unicode
+from ines.convert import to_string
+from ines.convert import to_unicode
+from ines.convert import unicode_join
 from ines.exceptions import Error
 from ines.exceptions import LockTimeout
+from ines.i18n import _
 from ines.views.fields import OrderBy
 from ines.utils import different_values
 from ines.utils import make_dir
-from ines.utils import MissingDict
-from ines.utils import MissingList
-from ines.utils import MissingSet
 from ines.utils import PaginationClass
 
 
@@ -86,16 +88,11 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
         super(BaseCoreIndexedSessionManager, self).__init__(config, session, api_name)
 
         if not WHOOSH:
-            from whoosh import fields
-            WHOOSH['fields'] = fields
-            from whoosh import index
-            WHOOSH['index'] = index
-            from whoosh import query
-            WHOOSH['query'] = query
-            from whoosh import qparser
-            WHOOSH['qparser'] = qparser
-            from whoosh import sorting
-            WHOOSH['sorting'] = sorting
+            WHOOSH['fields'] = _import_module('whoosh.fields')
+            WHOOSH['index'] = _import_module('whoosh.index')
+            WHOOSH['query'] = _import_module('whoosh.query')
+            WHOOSH['qparser'] = _import_module('whoosh.qparser')
+            WHOOSH['sorting'] = _import_module('whoosh.sorting')
 
         indexer_folder = self.settings['indexer.folder'] = normpath(self.settings['indexer.folder'])
 
@@ -129,7 +126,7 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
                 'base_fields': schema_fields.keys(),
                 'datetime_fields': datetime_fields,
                 'ignore_fields': set(ignore_fields),
-                'description_method': MissingDict(),
+                'description_method': defaultdict(dict),
                 'indexer': None}
         else:
             database_options = WHOOSH_DIRS[indexer_folder]
@@ -238,7 +235,7 @@ class ORMQuery(object):
     def query_relations(self, tables, relate_actives=False):
         active_tables = set()
         active_table_children = set()
-        outerjoins = MissingDict()
+        outerjoins = defaultdict(dict)
         queries = []
 
         table_alias = {}
@@ -253,7 +250,7 @@ class ORMQuery(object):
             self_children = False
             related_tables = set()
             foreign_keys = list(orm_table.__table__.foreign_keys)
-            if getattr(orm_table, '__parent__', None) is not None:
+            if have_parent(orm_table):
                 # Set parent as first on the line!
                 position = [i for i, f in enumerate(foreign_keys) if f.parent.name == 'parent_id']
                 if position:
@@ -305,13 +302,13 @@ class ORMQuery(object):
         done_orm_tables = set()
         for table in tables:
             if isinstance(table, Alias):
-                orm_table = self.options.orm_tables[table.original.name]
+                t_orm_table = self.options.orm_tables[table.original.name]
             else:
-                orm_table = self.options.orm_tables[table.name]
+                t_orm_table = self.options.orm_tables[table.name]
 
-            if orm_table not in done_orm_tables:
-                done_orm_tables.add(orm_table)
-                set_relations(orm_table)
+            if t_orm_table not in done_orm_tables:
+                done_orm_tables.add(t_orm_table)
+                set_relations(t_orm_table)
 
         active_query = None
         if relate_actives:
@@ -337,7 +334,7 @@ class ORMQuery(object):
         order_by = list(self.options.order_by)
 
         # Extend outerjoins
-        outerjoins = MissingDict()
+        outerjoins = defaultdict(dict)
         if self.options.outerjoin_tables:
             for key, values in self.options.outerjoin_tables.items():
                 for deep_key, value in values.items():
@@ -346,7 +343,7 @@ class ORMQuery(object):
         if self.options.secondary_children:
             for child_name in self.options.secondary_children.keys():
                 child_orm_table = self.options.orm_tables[child_name]
-                if hasattr(child_orm_table, '__parent__'):
+                if have_parent(child_orm_table):
                     child_parent_table = self.options.get_table(child_orm_table.__parent__)
                     if child_parent_table not in tables:
                         tables.add(child_parent_table)
@@ -466,7 +463,7 @@ class ORMQuery(object):
             new_namedtuple = new_lightweight_named_tuple(results[0], children_name)
 
             orm_table = self.options.orm_tables[children_name]
-            if hasattr(orm_table, '__parent__'):
+            if have_parent(orm_table):
                 parent_ids = set(getattr(r, attribute_name) for r in results)
                 if not parent_ids:
                     results[:] = [new_namedtuple(r + ([], )) for r in results]
@@ -481,7 +478,7 @@ class ORMQuery(object):
                 else:
                     new_attributes.update(deepcopy(attr))
 
-            references = MissingList()
+            references = defaultdict(list)
             for child in getattr(self.api_session, 'get_%s' % orm_table.__tablename__)(
                     parent_id=parent_ids,
                     attributes=new_attributes,
@@ -513,10 +510,10 @@ class ORMQuery(object):
                 references = dict(
                     (p.id, p)
                     for p in getattr(self.api_session, 'get_%s' % parent_table_name)(
-                            id=child_ids,
-                            attributes=new_attributes,
-                            order_by=self.options.secondary_children_order_by.get(parent_name),
-                            active=active))
+                        id=child_ids,
+                        attributes=new_attributes,
+                        order_by=self.options.secondary_children_order_by.get(parent_name),
+                        active=active))
 
                 results[:] = [
                     new_namedtuple(r + (references.get(getattr(r, attribute_name)), ))
@@ -618,7 +615,7 @@ class ORMQuery(object):
         if not core_type_values:
             return response
 
-        references = MissingList()
+        references = defaultdict(list)
         if not invert:
             for child, parent in core_type_values:
                 references[parent].append(child)
@@ -644,7 +641,7 @@ class ORMQuery(object):
                         response.add(reference)
                         construct_tree(reference, drill_counter)
                     else:
-                        message = u'Loop on %s ID:%s' % (core_type, ob)
+                        message = u('Loop on %s ID:%s') % (core_type, ob)
                         self.api_session.logging.log_critical('%s_loop' % core_type, message)
 
         construct_tree(first)
@@ -684,7 +681,9 @@ class ORMQuery(object):
             return False
 
         # Convert to string keys dict
-        values = dict((k if isinstance(k, basestring) else k.name, v) for k, v in values.items())
+        values = dict(
+            (k if isinstance(k, string_types) else k.name, v)
+            for k, v in values.items())
 
         # Convert time zones
         if 'start_date' in values:
@@ -699,7 +698,7 @@ class ORMQuery(object):
         if check_parent_loop:
             core_type_values = self.query({column.table: ['id', 'parent_id']}).all(active=None)
 
-        update_ids = MissingSet()
+        update_ids = defaultdict(set)
         references = {}
         for orm_response in response:
             references[orm_response.id] = orm_response
@@ -713,7 +712,7 @@ class ORMQuery(object):
 
                 # Prevent parents loop
                 if int(values['parent_id']) in child_ids:
-                    message = _(u'Cannot update to this parent. Loop found.')
+                    message = _('Cannot update to this parent. Loop found.')
                     raise Error('parent_id', message)
 
             update_keys = []
@@ -730,7 +729,7 @@ class ORMQuery(object):
                     start_date = values.get('start_date', orm_response.start_date)
                     end_date = values.get('end_date', orm_response.end_date)
                     if start_date and end_date and start_date < end_date:
-                        message = u'Start date must be lower than end date'
+                        message = u('Start date must be lower than end date')
                         raise Error('start_date', message)
 
         if not update_ids:
@@ -758,8 +757,6 @@ class ORMQuery(object):
                 self.api_session.session.flush()
 
                 for type_id in ids:
-                    context_id = parent_ids.get(type_id)
-
                     r_value = references[type_id]
                     data = dict((k, resolve_database_value(getattr(r_value, k))) for k in column_names)
 
@@ -805,10 +802,14 @@ class ORMQuery(object):
 
 
 def default_message_method(action, type, type_id, context_id, **data):
-    type_name = u' '.join(type.split()).title()
-    message = u'%s (%s) %s' % (type_name, type_id, action.lower())
+    message = u('%s (%s) %s') % (
+        unicode_join(' ', type.split()).title(),
+        to_unicode(type_id),
+        to_unicode(action.lower()))
+
     if context_id:
-        message += u' from %s' % context_id
+        message += u(' from %s') % to_unicode(context_id)
+
     return message
 
 
@@ -848,7 +849,9 @@ class BaseCoreSession(BaseSQLSession):
         message = message or default_message_method(action, type, type_id, context_id, **(data or {}))
 
         # Set to logging
-        extra = dict(('extra_%s' % k, v) for k, v in (data or {}).items())
+        extra = dict(
+            ('extra_%s' % k, v)
+            for k, v in (data or {}).items())
         extra.update({
             'action': action,
             'action_type': type,
@@ -889,7 +892,7 @@ class BaseCoreSession(BaseSQLSession):
                 value.start_date = convert_timezone(value.start_date, self.application_time_zone)
                 value.end_date = convert_timezone(value.end_date, self.application_time_zone)
                 if value.start_date and value.end_date and value.end_date < value.start_date:
-                    message = u'Start date must be lower than end date'
+                    message = u('Start date must be lower than end date')
                     raise Error('start_date', message)
 
         self.session.add_all(orm_objects)
@@ -934,10 +937,10 @@ class BaseCoreIndexedSession(BaseCoreSession):
 
     def make_indexed_unique_id(self, type_name, type_id):
         orm_table = self.indexer_orm_tables[type_name]
-        return force_unicode(u'%s-%s' % (orm_table.__tablename__, type_id))
+        return to_unicode(u('%s-%s') % (orm_table.__tablename__, type_id))
 
     def break_indexed_unique_id(self, unique_id):
-        type_name, type_id = unique_id.rsplit(u'-', 1)
+        type_name, type_id = unique_id.rsplit(u('-'), 1)
         return type_name, int(type_id)
 
     def add_to_index(self, type_name, type_id, data):
@@ -961,12 +964,12 @@ class BaseCoreIndexedSession(BaseCoreSession):
             wQuery = WHOOSH['query']
             delete_query = wQuery.And([
                 wQuery.Term('id', unique_id),
-                wQuery.Term('application_name', force_unicode(self.application_name))])
+                wQuery.Term('application_name', to_unicode(self.application_name))])
         else:
             delete_query = None
             my_data = {
                 'id': unique_id,
-                'application_name': force_unicode(self.application_name)}
+                'application_name': to_unicode(self.application_name)}
 
         for key, value in data.items():
             if key in ('id', 'application_name', 'indexer_description'):
@@ -1018,7 +1021,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
         wQuery = WHOOSH['query']
         query = wQuery.And([
             wQuery.Term('id', unique_id),
-            wQuery.Term('application_name', force_unicode(self.application_name))])
+            wQuery.Term('application_name', to_unicode(self.application_name))])
 
         with self.api_session_manager.indexer.writer() as writer:
             writer.delete_by_query(query)
@@ -1027,7 +1030,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
         wQuery = WHOOSH['query']
         query = wQuery.And([
             wQuery.Term('id', unique_id),
-            wQuery.Term('application_name', force_unicode(self.application_name))])
+            wQuery.Term('application_name', to_unicode(self.application_name))])
 
         with self.api_session_manager.indexer.searcher() as searcher:
             for response in searcher.search(query, limit=1):
@@ -1049,7 +1052,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
         wParser = WHOOSH['qparser']
         options = self.api_session_manager.indexer_options
 
-        query_string = u'*%s*' % force_unicode(query_string).replace(u' ', u'*')
+        query_string = u('*%s*') % to_unicode(query_string).replace(u(' '), u('*'))
         query_terms = clear_whoosh_fields(
             query_string,
             options,
@@ -1060,7 +1063,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
 
         if application_names:
             application_terms = wQuery.And([
-                wQuery.Term('application_name', force_unicode(n))
+                wQuery.Term('application_name', to_unicode(n))
                 for n in application_names])
             query = wQuery.And([query, application_terms])
 
@@ -1111,7 +1114,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
     def sync_indexer(self):
         options = self.api_session_manager.indexer_options
 
-        tables = MissingList()
+        tables = defaultdict(list)
         for database_name in options['database_names']:
             orm_tables = get_orm_tables(database_name)
             for table_name, table in SQL_DBS[database_name]['metadata'].tables.items():
@@ -1123,16 +1126,16 @@ class BaseCoreIndexedSession(BaseCoreSession):
                         table_name = orm_table.__tablename__
                     tables[table_name].append(orm_table)
         if not tables:
-            return u'Nothing to sync'
+            return u('Nothing to sync')
 
-        lock_key = u'sync indexer %s' % self.settings['indexer.folder']
+        lock_key = u('sync indexer %s') % self.settings['indexer.folder']
         try:
             self.cache.lock(lock_key, timeout=0.5)
         except LockTimeout:
-            raise Error('sync', u'Processing sync...')
+            raise Error('sync', u('Processing sync...'))
 
         try:
-            whoosh_results = MissingSet()
+            whoosh_results = defaultdict(set)
             with options['indexer'].searcher() as searcher:
                 for r in searcher.all_stored_fields():
                     type_name, type_id = self.break_indexed_unique_id(r.get('id'))
@@ -1161,7 +1164,7 @@ class BaseCoreIndexedSession(BaseCoreSession):
         finally:
             self.cache.unlock(lock_key)
 
-        return u'Indexer synchronized'
+        return u('Indexer synchronized')
 
 
 def clear_whoosh_fields(query_string, options, query):
@@ -1186,14 +1189,14 @@ class QueryLookup(object):
         self.queries = []
         self.group_by = []
         self.order_by = []
-        self.outerjoin_tables = MissingDict()
-        self.secondary_parents = MissingList()
+        self.outerjoin_tables = defaultdict(dict)
+        self.secondary_parents = defaultdict(list)
         self.secondary_parent_attributes = {}
-        self.secondary_children = MissingList()
-        self.secondary_children_order_by = MissingList()
+        self.secondary_children = defaultdict(list)
+        self.secondary_children_order_by = defaultdict(list)
         self.page = None
         self.limit_per_page = None
-        self.slice = None
+        self.slice = ()
 
     def join(self, attribute_lookup):
         self.tables.update(attribute_lookup.tables)
@@ -1241,7 +1244,7 @@ class QueryLookup(object):
             return self.orm_tables[maybe_name].__table__
 
         else:
-            raise AttributeError('Invalid table: %s' % force_string(maybe_name))
+            raise AttributeError('Invalid table: %s' % to_string(maybe_name))
 
     def lookup_table(self, value):
         tables = set()
@@ -1281,14 +1284,14 @@ class QueryLookup(object):
 
         elif table_or_name is not None:
             table = self.get_table(table_or_name)
-            if not isinstance(table_or_name, basestring):
+            if not isinstance(table_or_name, string_types):
                 table_or_name = table.name
 
             if attribute is None:
                 options.tables.add(table)
                 options.attributes.extend(table.c)
 
-            elif isinstance(attribute, basestring):
+            elif isinstance(attribute, string_types):
                 if '.' in attribute:
                     child_table_or_name, attribute = attribute.split('.', 1)
                     if table_or_name == child_table_or_name:
@@ -1314,7 +1317,7 @@ class QueryLookup(object):
                             options.secondary_parents[maybe_attribute].append(attributes)
                             options.secondary_parent_attributes[maybe_attribute] = (table.c.parent_id, table)
 
-                        elif parent_orm_table and force_unicode(maybe_attribute).startswith('parent_'):
+                        elif parent_orm_table and to_unicode(maybe_attribute).startswith('parent_'):
                             parent_table = aliased(table, name='parent')
                             options.tables.add(parent_table)
                             column_name = maybe_attribute.split('parent_', 1)[1]
@@ -1339,13 +1342,15 @@ class QueryLookup(object):
 
                                 pos_table = self.get_table(maybe_attribute)
                                 relation_name = maybe_attribute
-                                if not isinstance(relation_name, basestring):
+                                if not isinstance(relation_name, string_types):
                                     relation_name = pos_table.name
 
                                 for foreign in table.foreign_keys:
                                     if foreign.column.table is pos_table:
                                         options.secondary_parents[relation_name].append(attributes)
-                                        options.secondary_parent_attributes[relation_name] = (foreign.parent, foreign.column.table)
+                                        options.secondary_parent_attributes[relation_name] = (
+                                            foreign.parent,
+                                            foreign.column.table)
                                         break
                                 else:
                                     options.secondary_children[relation_name].append(attributes)
@@ -1359,7 +1364,7 @@ class QueryLookup(object):
                 options.attributes.append(attribute)
                 options.tables.update(self.lookup_table(attribute))
 
-        elif isinstance(attribute, basestring):
+        elif isinstance(attribute, string_types):
             if '.' in attribute:
                 table_or_name, attribute = attribute.split('.', 1)
                 options.join(self.lookup_attribute(attribute, table_or_name, all_in_one))
@@ -1383,7 +1388,7 @@ class QueryLookup(object):
     def add_filter(self, value):
         if isinstance(value, dict):
             for key, values in value.items():
-                if isinstance(key, basestring):
+                if isinstance(key, string_types):
                     if '.' in key:
                         table_name, attribute_name = key.split('.', 1)
                         table = self.get_table(table_name)
@@ -1397,7 +1402,7 @@ class QueryLookup(object):
                             self.add_filter({getattr(table.c, table_key): attribute_value})
 
                     else:
-                        raise AttributeError('Invalid filter column: %s' % force_string(key))
+                        raise AttributeError('Invalid filter column: %s' % to_string(key))
 
                 elif isinstance(key, InstrumentedAttribute):
                     self.tables.add(key.table)
@@ -1408,17 +1413,17 @@ class QueryLookup(object):
                         for attribute, attribute_value in values.items():
                             self.add_filter({getattr(table, attribute): attribute_value})
                     else:
-                        raise AttributeError('Invalid filter values: %s' % force_string(values))
+                        raise AttributeError('Invalid filter values: %s' % to_string(values))
 
                 elif isinstance(key, Table):
                     if isinstance(values, dict):
                         for attribute, attribute_value in values.items():
                             self.add_filter({getattr(table.c, attribute): attribute_value})
                     else:
-                        raise AttributeError('Invalid filter values: %s' % force_string(values))
+                        raise AttributeError('Invalid filter values: %s' % to_string(values))
 
                 else:
-                    raise AttributeError('Invalid filter column: %s' % force_string(key))
+                    raise AttributeError('Invalid filter column: %s' % to_string(key))
 
         elif isinstance(value, (tuple, list)):
             for deep_value in value:
@@ -1444,7 +1449,7 @@ class QueryLookup(object):
 
         elif table_or_name is not None:
             table = self.get_table(table_or_name)
-            if not isinstance(table_or_name, basestring):
+            if not isinstance(table_or_name, string_types):
                 table_or_name = table.name
 
             if attribute is None:
@@ -1454,7 +1459,7 @@ class QueryLookup(object):
             elif isinstance(attribute, OrderBy):
                 options.join(self.lookup_order_by(attribute.column_name, table, attribute.descendant))
 
-            elif isinstance(attribute, basestring):
+            elif isinstance(attribute, string_types):
                 if '.' in attribute:
                     child_table_or_name, attribute = attribute.split('.', 1)
                     if child_table_or_name == table_or_name:
@@ -1503,7 +1508,7 @@ class QueryLookup(object):
         elif isinstance(attribute, OrderBy):
             options.join(self.lookup_order_by(None, attribute.column_name, attribute.descendant))
 
-        elif isinstance(attribute, basestring):
+        elif isinstance(attribute, string_types):
             if '.' in attribute:
                 table_or_name, attribute = attribute.split('.', 1)
                 options.join(self.lookup_order_by(attribute, table_or_name, descendant))
@@ -1562,7 +1567,7 @@ class OrderByLookup(object):
     def __init__(self, default_descendant=False):
         self.tables = set()
         self.attributes = []
-        self.outerjoin_tables = MissingDict()
+        self.outerjoin_tables = defaultdict(dict)
         self.default_descendant = default_descendant
 
     def join(self, value):
