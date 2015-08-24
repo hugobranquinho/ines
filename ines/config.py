@@ -28,6 +28,7 @@ from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.api.jobs import BaseJobsManager
 from ines.api.jobs import BaseJobsSession
+from ines.api.logs import BaseLogSession
 from ines.api.mailer import BaseMailerSession
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
@@ -246,15 +247,16 @@ class Configurator(PyramidConfigurator):
                     found_settings[method_name][setting_key] = value
 
         for method_name, settings in found_settings.items():
-            method = getattr(self, method_name)
-            method_settings = dict(
-                (argument, settings[argument])
-                for argument in getargspec(method).args
-                if argument in settings)
-            method(**method_settings)
+            method = getattr(self, method_name, None)
+            if method is not None:
+                method_settings = dict(
+                    (argument, settings[argument])
+                    for argument in getargspec(method).args
+                    if argument in settings)
+                method(**method_settings)
 
-    def install_middleware(self, name, middleware):
-        self.middlewares.append((name, middleware))
+    def install_middleware(self, name, middleware, settings=None):
+        self.middlewares.append((name, middleware, settings or {}))
 
     def make_wsgi_app(self, install_middlewares=True):
         # Find for possible configuration extensions
@@ -289,7 +291,8 @@ class Configurator(PyramidConfigurator):
                     for extension_middleware in extension.__middlewares__:
                         self.install_middleware(
                             extension_middleware.name,
-                            extension_middleware)
+                            extension_middleware,
+                            settings={'api_manager': extension})
 
             # Define middleware settings
             middlewares_settings = defaultdict(dict)
@@ -309,15 +312,16 @@ class Configurator(PyramidConfigurator):
             # Install middlewares with reversed order. Lower position first
             if self.middlewares:
                 middlewares = []
-                for name, middleware in self.middlewares:
-                    settings = middlewares_settings[name]
-                    default_position = (
-                        getattr(middleware, 'position', DEFAULT_MIDDLEWARE_POSITION.get(name)))
+                for name, middleware, settings in self.middlewares:
+                    middlewares_settings[name].update(settings)
+
+                    default_position = getattr(middleware, 'position', DEFAULT_MIDDLEWARE_POSITION.get(name))
                     position = settings.get('position', default_position) or 0
-                    middlewares.append((position, name, middleware, settings))
+                    middlewares.append((position, name, middleware))
                 middlewares.sort(reverse=True)
-                for position, name, middleware, settings in middlewares:
-                    app = middleware(self, app, **settings)
+
+                for position, name, middleware in middlewares:
+                    app = middleware(self, app, **middlewares_settings[name])
                     app.name = name
 
         return app

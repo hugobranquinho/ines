@@ -35,7 +35,9 @@ class InesRequest(Request):
 
     @reify
     def api(self):
-        return self.registry.queryUtility(IBaseSessionManager, name='api')(self)
+        api_session = self.registry.queryUtility(IBaseSessionManager, name='api')
+        if api_session is not None:
+            return api_session(self)
 
     @reify
     def settings(self):
