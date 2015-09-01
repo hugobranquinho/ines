@@ -19,7 +19,7 @@ class BaseSessionManager(object):
         self.config = config
         self.session = session
 
-        pattern = '%s.' % self.__api_name__
+        pattern = 'api.%s.' % self.__api_name__
         self.settings = dict(
             (key.replace(pattern, '', 1), value)
             for key, value in config.settings.items()
@@ -87,8 +87,9 @@ class BaseSession(object):
                 app_url = self._partial_application_url(scheme, host, port)
             else:
                 app_url = self.request.host_url
-                if self.config.settings.get('app_url'):
-                    app_url = string_join('/', (s.strip('/') for s in [app_url, self.config.settings['app_url']]))
+                application_path_url = (self.config.settings.get('application_path_url') or '').strip('/')
+                if application_path_url:
+                    app_url = string_join('/', (app_url.strip('/'), application_path_url))
 
         path = route.generate(kw)  # raises KeyError if generate fails
 

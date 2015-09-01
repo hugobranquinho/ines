@@ -63,7 +63,7 @@ class BaseStorageSessionManager(BaseSQLSessionManager):
 
     def __init__(self, *args, **kwargs):
         super(BaseStorageSessionManager, self).__init__(*args, **kwargs)
-        make_dir(self.settings['path'])
+        make_dir(self.settings['folder_path'])
 
         if issubclass(self.session, BaseStorageWithImageSession):
             self.image_cls = _import_module('PIL.Image')

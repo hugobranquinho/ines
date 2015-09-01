@@ -27,8 +27,6 @@ from colander.compat import is_nonstr_iter
 from six import string_types
 from six import u
 
-from ines import FALSES
-from ines import TRUES
 from ines.convert import to_string
 from ines.convert import to_unicode
 from ines.convert import uncamelcase
@@ -180,9 +178,9 @@ class DateTime(BaseDateTime):
 class Boolean(BaseBoolean):
     def __init__(self, **kwargs):
         if 'true_choices' not in kwargs:
-            kwargs['true_choices'] = TRUES
+            kwargs['true_choices'] = frozenset(('t', 'true', 'y', 'yes', 'on', '1'))
         if 'false_choices' not in kwargs:
-            kwargs['false_choices'] = FALSES
+            kwargs['false_choices'] = frozenset(('f', 'false', 'f', 'no', 'off', '0'))
         super(Boolean, self).__init__(**kwargs)
 
     def deserialize(self, node, cstruct):

@@ -7,6 +7,7 @@ from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.settings import asbool
 from six import u
+from six import _import_module
 from sqlalchemy import and_
 from sqlalchemy import Column
 from sqlalchemy import create_engine
@@ -53,12 +54,19 @@ class BaseSQLSessionManager(BaseSessionManager):
     def __init__(self, *args, **kwargs):
         super(BaseSQLSessionManager, self).__init__(*args, **kwargs)
 
-        import transaction
-        self.transaction = transaction
+        self.transaction = _import_module('transaction')
+
+        session_extension = self.settings.get('session_extension')
+        if session_extension is not None:
+            session_extension = get_object_on_path(session_extension)
 
         self.db_session = initialize_sql(
             self.__database_name__,
-            **get_sql_settings_from_config(self.config))
+            self.settings['sql_path'],
+            encoding=self.settings.get('encoding', 'utf8'),
+            mysql_engine=self.settings.get('mysql_engine') or 'InnoDB',
+            session_extension=session_extension,
+            debug=asbool(self.settings.get('debug', False)))
 
 
 class BaseSQLSession(BaseSession):
@@ -109,28 +117,6 @@ class BaseSQLSession(BaseSession):
             .update(query)
             .values(values)
             .execute(autocommit=True))
-
-
-def get_sql_settings_from_config(config):
-    sql_path = config.settings['sql.path']
-    kwargs = {
-        'sql_path': sql_path,
-        'encoding': config.settings.get('sql.encoding', 'utf8')}
-
-    if sql_path.startswith('mysql://'):
-        kwargs['mysql_engine'] = config.settings.get(
-            'sql.mysql_engine',
-            'InnoDB')
-
-    if 'sql.debug' in config.settings:
-        kwargs['debug'] = asbool(config.settings['sql.debug'])
-    else:
-        kwargs['debug'] = config.debug
-
-    if 'sql.session_extension' in config.settings:
-        kwargs['session_extension'] = get_object_on_path(config.settings['sql.session_extension'])
-
-    return kwargs
 
 
 def initialize_sql(

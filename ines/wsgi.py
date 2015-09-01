@@ -22,6 +22,11 @@ class NotFoundApplication(object):
         self.settings = settings
 
     def __call__(self, environ, start_response):
+        return HTTPNotFound()(environ, start_response)
+
+
+class NotFoundAPI(NotFoundApplication):
+    def __call__(self, environ, start_response):
         not_found = HTTPNotFound()
 
         accept = environ.get('HTTP_ACCEPT', '')
@@ -34,14 +39,20 @@ class NotFoundApplication(object):
 
 def onthefly_url_map_factory(loader, global_settings, **settings):
     ini_path = global_settings['__file__']
-    return OnTheFlyAPI(ini_path)
+    return OnTheFly(ini_path)
 
 
-class OnTheFlyAPI(URLMap):
-    def __init__(self, config_path):
+def onthefly_api_url_map_factory(loader, global_settings, **settings):
+    ini_path = global_settings['__file__']
+    return OnTheFly(ini_path, default_not_found=NotFoundAPI)
+
+
+class OnTheFly(URLMap):
+    def __init__(self, config_path, default_not_found=NotFoundApplication):
         self.config_path = config_path
         self.applications = []
         self.validate_config_seconds = 15
+        self.default_not_found = default_not_found
 
         self.start_applications()
 
@@ -69,7 +80,7 @@ class OnTheFlyAPI(URLMap):
         if not_found_application:
             not_found_application = loadapp(not_found_application, global_conf=settings.global_conf)
         else:
-            not_found_application = NotFoundApplication(settings.global_conf, **settings.local_conf)
+            not_found_application = self.default_not_found(settings.global_conf, **settings.local_conf)
         self.not_found_application = not_found_application
 
         self.validate_config_seconds = maybe_integer(

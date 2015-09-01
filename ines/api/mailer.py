@@ -68,7 +68,6 @@ class BaseMailerSessionManager(BaseSessionManager):
 
             sendmail_queue = _import_module('repoze.sendmail.queue')
             self.queue_processor = sendmail_queue.QueueProcessor
-            self.repoze_sendmail_version = get_distribution('repoze.sendmail').version
 
             self.transaction = _import_module('transaction')
             self.__dict__.setdefault('__middlewares__', []).append(RepozeTMMiddleware)
@@ -160,31 +159,24 @@ class BaseMailerSession(BaseSession):
     def mailer_queue_send(self):
         queue_path = self.settings.get('queue_path')
         if queue_path:
-            # See: https://github.com/repoze/repoze.sendmail/pull/34
-            if self.api_session_manager.repoze_sendmail_version > (4, 2):
+            subdir_new = join_paths(queue_path, 'new')
+            subdir_cur = join_paths(queue_path, 'cur')
+
+            while True:
+                for f in get_dir_filenames(subdir_new):
+                    if not f.startswith('.'):
+                        break
+                else:
+                    for f in get_dir_filenames(subdir_cur):
+                        if not f.startswith('.'):
+                            break
+                    else:
+                        break  # Break while
+
                 qp = self.api_session_manager.queue_processor(
                     self.api_session_manager.mailer.smtp_mailer,
                     self.settings['queue_path'])
                 qp.send_messages()
-            else:
-                subdir_new = join_paths(queue_path, 'new')
-                subdir_cur = join_paths(queue_path, 'cur')
-
-                while True:
-                    for f in get_dir_filenames(subdir_new):
-                        if not f.startswith('.'):
-                            break
-                    else:
-                        for f in get_dir_filenames(subdir_cur):
-                            if not f.startswith('.'):
-                                break
-                        else:
-                            break  # Break while
-
-                    qp = self.api_session_manager.queue_processor(
-                        self.api_session_manager.mailer.smtp_mailer,
-                        self.settings['queue_path'])
-                    qp.send_messages()
 
     def send_to_queue(self, *args, **kwargs):
         if not self.settings.get('queue_path'):

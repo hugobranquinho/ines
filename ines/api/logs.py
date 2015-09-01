@@ -13,7 +13,7 @@ from ines.convert import to_unicode
 from ines.middlewares.logs import LoggingMiddleware
 
 
-NOW_DATE = datetime.datetime.now
+NOW = datetime.datetime.now
 
 
 class BaseLogSessionManager(BaseSessionManager):
@@ -34,7 +34,7 @@ class BaseLogSession(BaseSession):
             ('Code', code),
             ('URL', self.request.url),
             ('Method', self.request.method),
-            ('Date', NOW_DATE()),
+            ('Date', NOW()),
             ('Language', self.request.locale_name),
             ('IP address', self.request.ip_address)]
 

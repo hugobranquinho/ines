@@ -28,7 +28,6 @@ from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.api.jobs import BaseJobsManager
 from ines.api.jobs import BaseJobsSession
-from ines.api.logs import BaseLogSession
 from ines.api.mailer import BaseMailerSession
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import INES_POLICY
@@ -133,8 +132,8 @@ class Configurator(PyramidConfigurator):
         bases = APIWarningDict('Duplicated name "{key}" for API Class')
         sessions = APIWarningDict('Duplicated name "{key}" for API Session')
         for key, value in self.settings.items():
-            if key.startswith('api.extension.'):
-                options = key.split('.', 3)[2:]
+            if key.startswith('api.'):
+                options = key.split('.', 2)[1:]
                 if len(options) == 1:
                     name, option = options[0], 'session_path'
                 else:
@@ -475,7 +474,7 @@ class APIConfigurator(Configurator):
                 context=Invalid,
                 permission=NO_PERMISSION_REQUIRED)
 
-    @configuration_extensions('policy.token')
+    @configuration_extensions('api.policy.token')
     def set_token_policy(
             self,
             application_name,

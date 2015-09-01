@@ -111,7 +111,8 @@ setupkw = dict(
         not_found_api_application = ines.wsgi:not_found_api_application
 
         [paste.composite_factory]
-        onthefly_url_map = ines.wsgi:onthefly_url_map_factory""")
+        onthefly_url_map = ines.wsgi:onthefly_url_map_factory
+        onthefly_api_url_map = ines.wsgi:onthefly_api_url_map_factory""")
 
 try:
     __import__('babel')

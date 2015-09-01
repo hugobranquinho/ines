@@ -40,7 +40,7 @@ class BasePolicySessionManager(BaseSessionManager):
                 'reference')
 
         # Jobs settings
-        authorization = self.config.settings.get('policy.authorization')
+        authorization = self.settings.get('authorization_session')
         if authorization:
             self.authorization_session = get_object_on_path(authorization)
         else:

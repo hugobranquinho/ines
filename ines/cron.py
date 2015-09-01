@@ -13,7 +13,7 @@ from ines.utils import add_months
 from ines.utils import last_day_of_month_for_weekday
 
 
-NOW_DATE = datetime.datetime.now
+NOW = datetime.datetime.now
 MINYEAR = datetime.MINYEAR
 MAXYEAR = datetime.MAXYEAR
 TIMEDELTA = datetime.timedelta
@@ -196,7 +196,7 @@ def format_crontab_options(**kwargs):
                 int_values.add(int(value))
 
             elif value == '?':
-                now = NOW_DATE()
+                now = NOW()
                 if key == 'weekday':
                     int_values.add(now.weekday())
                 else:
@@ -298,7 +298,7 @@ class Cron(object):
             self.finders.append(find_months(months))
 
     def find_next(self, next_date=None):
-        next_date = next_date or NOW_DATE().replace(microsecond=0)
+        next_date = next_date or NOW().replace(microsecond=0)
         next_date += TIMEDELTA(seconds=1)
         if not self.finders and not self.options.get('year'):
             # Every second
