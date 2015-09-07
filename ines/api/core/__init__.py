@@ -109,11 +109,11 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
                 'created_date': wFields.DATETIME(stored=True),
                 'start_date': wFields.DATETIME(stored=True),
                 'end_date': wFields.DATETIME(stored=True)}
-            datetime_fields = schema_fields.keys()
+            datetime_fields = list(schema_fields.keys())
             schema_fields.update({
                 'key': wFields.TEXT(stored=True),
                 'indexer_description': wFields.TEXT(stored=True)})
-            search_fields = schema_fields.keys()
+            search_fields = list(schema_fields.keys())
             schema_fields['id'] = wFields.ID(unique=True, stored=True)
             schema_fields['application_name'] = wFields.ID(stored=True)
 
@@ -123,7 +123,7 @@ class BaseCoreIndexedSessionManager(BaseCoreSessionManager):
                 'fields': schema_fields,
                 'search_fields': search_fields,
                 'boolean_fields': [],
-                'base_fields': schema_fields.keys(),
+                'base_fields': list(schema_fields.keys()),
                 'datetime_fields': datetime_fields,
                 'ignore_fields': set(ignore_fields),
                 'description_method': defaultdict(dict),
@@ -552,17 +552,25 @@ class ORMQuery(object):
 
     def count(self, active=True):
         query = self.construct_query(active=active)
-        entities = set(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
+        entities = list(set(d['expr'] for d in query.column_descriptions if d.get('expr') is not None))
         return (
             query
-            .with_entities(func.count(1), *entities)
+            .with_entities(func.count(entities[0]), *entities)
             .order_by(None)  # Ignore defined orders
             .all())
 
     def simple_count(self, active=True):
-        result = self.count(active=active)
-        if result:
-            return result[0][0]
+        query = self.construct_query(active=active)
+        entities = list(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
+        response = (
+            query
+            .with_entities(func.count(entities[0]))
+            .group_by(entities[0])
+            .order_by(None)  # Ignore defined orders
+            .first())
+
+        if response:
+            return response[0]
         else:
             return 0
 
@@ -589,7 +597,7 @@ class ORMQuery(object):
                 .delete(synchronize_session=synchronize_session))
             self.api_session.session.flush()
 
-            type_name = column.table.name
+            type_name = str(column.table.name)
             column_names = [k for k in column.table.c.keys() if k not in ('updated_date', 'created_date')]
             for type_id, table in response:
                 context_id = getattr(table, 'parent_id', None)
@@ -597,7 +605,7 @@ class ORMQuery(object):
                 self.api_session.add_activity(
                     orm_table,
                     action=activity_action,
-                    type=type_name,
+                    type_name=type_name,
                     type_id=type_id,
                     context_id=context_id,
                     data=data)
@@ -736,7 +744,7 @@ class ORMQuery(object):
             return False
 
         parent_ids = {}
-        type_name = column.table.name
+        type_name = str(column.table.name)
         if 'parent_id' in column.table.c:
             parent_ids = dict((r.id, r.parent_id) for r in response)
 
@@ -768,7 +776,7 @@ class ORMQuery(object):
                     self.api_session.add_activity(
                         orm_table,
                         action=activity_action,
-                        type=type_name,
+                        type_name=type_name,
                         type_id=type_id,
                         context_id=parent_ids.get(type_id),
                         data=data)
@@ -899,7 +907,7 @@ class BaseCoreSession(BaseSQLSession):
         self.session.flush()
 
         orm_table = orm_objects[0]
-        type_name = orm_objects[0].__table__.name
+        type_name = str(orm_objects[0].__table__.name)
         column_names = [k for k in orm_objects[0].__table__.c.keys() if k not in ('updated_date', 'created_date')]
         for value in orm_objects:
             context_id = getattr(value, 'parent_id', None)
@@ -907,7 +915,7 @@ class BaseCoreSession(BaseSQLSession):
             self.add_activity(
                 orm_table,
                 action=activity_action,
-                type=type_name,
+                type_name=type_name,
                 type_id=value.id,
                 context_id=context_id,
                 data=data)

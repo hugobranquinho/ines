@@ -49,7 +49,7 @@ class ApplicationHeaderAuthenticationPolicy(object):
     def __init__(
             self,
             application_name,
-            header_key='Authorization',
+            header_key=None,
             cookie_key=None):
 
         self.application_name = application_name
@@ -92,9 +92,15 @@ class ApplicationHeaderAuthenticationPolicy(object):
         return self.get_authenticated_session(request)
 
     def unauthenticated_userid(self, request):
-        userid = request.headers.get(self.header_key)
-        if userid:
-            return userid
+        if self.header_key:
+            userid = request.headers.get(self.header_key)
+            if userid:
+                return userid
+
+        if self.cookie_key:
+            userid = request.cookies.get(self.cookie_key)
+            if userid:
+                return userid
 
     def effective_principals(self, request):
         authenticated = self.get_authenticated_session(request)
