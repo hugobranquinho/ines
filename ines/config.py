@@ -10,13 +10,19 @@ from inspect import getargspec
 
 from colander import Invalid
 from pkg_resources import get_distribution
+from pkg_resources import resource_filename
 from pyramid.config import Configurator as PyramidConfigurator
 from pyramid.decorator import reify
+from pyramid.exceptions import Forbidden
+from pyramid.exceptions import NotFound
 from pyramid.httpexceptions import HTTPClientError
+from pyramid.i18n import get_localizer
 from pyramid.path import caller_package
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
 from pyramid.static import static_view
+from pyramid.threadlocal import get_current_request
+from six import _import_module
 from six import string_types
 
 from ines import API_CONFIGURATION_EXTENSIONS
@@ -325,6 +331,55 @@ class Configurator(PyramidConfigurator):
 
         return app
 
+    @configuration_extensions('api.policy.token')
+    def set_token_policy(
+            self,
+            application_name,
+            header_key=None,
+            cookie_key=None):
+
+        # Authentication Policy
+        authentication_policy = ApplicationHeaderAuthenticationPolicy(
+            application_name,
+            header_key=header_key,
+            cookie_key=cookie_key)
+        self.set_authentication_policy(authentication_policy)
+
+        authorization_policy = TokenAuthorizationPolicy(application_name)
+        self.set_authorization_policy(authorization_policy)
+
+    @configuration_extensions('errors.interface')
+    def add_errors_interface(self, not_found=None, forbidden=None, global_error=None):
+        if not_found:
+            self.add_view(
+                view=not_found,
+                context=NotFound,
+                permission=NO_PERMISSION_REQUIRED)
+        if forbidden:
+            self.add_view(
+                view=forbidden,
+                context=Forbidden,
+                permission=NO_PERMISSION_REQUIRED)
+        if global_error:
+            self.add_view(
+                view=global_error,
+                context=Exception,
+                permission=NO_PERMISSION_REQUIRED)
+
+    @configuration_extensions('deform')
+    def set_deform_translation(self, path):
+        def translator(term):
+            return get_localizer(get_current_request()).translate(term)
+
+        deform = _import_module('deform')
+        deform_template_dir = resource_filename(*path.split(':', 1))
+        zpt_renderer = deform.ZPTRendererFactory(
+            [deform_template_dir],
+            translator=translator)
+        deform.Form.set_default_renderer(zpt_renderer)
+
+        self.add_translation_dirs('deform:locale')
+        self.add_static_view('deform', 'deform:static')
 
 class APIConfigurator(Configurator):
     @configuration_extensions('apidocjs')
@@ -456,37 +511,20 @@ class APIConfigurator(Configurator):
         return super(APIConfigurator, self).add_view(*args, **kwargs)
 
     @configuration_extensions('apierrors.interface')
-    def add_api_errors_interface(self, only_http=False):
+    def add_api_errors_interface(self, only_http_errors=False):
         # Set JSON handler
         self.add_view(
             view='ines.views.errors_json_view',
             context=HTTPClientError,
             permission=NO_PERMISSION_REQUIRED)
 
-        if not asbool(only_http):
+        if not asbool(only_http_errors):
             self.add_view(
                 view='ines.views.errors_json_view',
                 context=Error,
                 permission=NO_PERMISSION_REQUIRED)
-        if not asbool(only_http):
+        if not asbool(only_http_errors):
             self.add_view(
                 view='ines.views.errors_json_view',
                 context=Invalid,
                 permission=NO_PERMISSION_REQUIRED)
-
-    @configuration_extensions('api.policy.token')
-    def set_token_policy(
-            self,
-            application_name,
-            header_key='Authorization',
-            cookie_key=None):
-
-        # Authentication Policy
-        authentication_policy = ApplicationHeaderAuthenticationPolicy(
-            application_name,
-            header_key=header_key,
-            cookie_key=cookie_key)
-        self.set_authentication_policy(authentication_policy)
-
-        authorization_policy = TokenAuthorizationPolicy(application_name)
-        self.set_authorization_policy(authorization_policy)
