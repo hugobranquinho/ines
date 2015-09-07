@@ -4,12 +4,14 @@ from cgi import FieldStorage
 from io import BufferedReader
 
 from pyramid.decorator import reify
+from pyramid.httpexceptions import HTTPFound
 from pyramid.interfaces import IAuthenticationPolicy
 from pyramid.interfaces import IAuthorizationPolicy
 from pyramid.interfaces import IRequestFactory
 from pyramid.renderers import render_to_response
 from pyramid.request import Request
 from pyramid.settings import asbool
+from six import moves
 from six import u
 from webob.compat import parse_qsl_text
 from webob.multidict import MultiDict
@@ -17,11 +19,15 @@ from webob.multidict import NoVars
 from webob.request import FakeCGIBody
 
 from ines import APPLICATIONS
+from ines.convert import to_string
 from ines.convert import to_unicode
 from ines.exceptions import Error
 from ines.i18n import translate_factory
 from ines.interfaces import IBaseSessionManager
 from ines.utils import infinitedict
+
+
+unquote = moves.urllib.parse.unquote
 
 
 class InesRequest(Request):
@@ -134,6 +140,19 @@ class InesRequest(Request):
         else:
             data = parse_qsl_text(self.environ.get('QUERY_STRING', ''))
             return MultiDict(data)
+
+    def redirect_to_url(self, url):
+        url = unquote(to_string(url))
+        return HTTPFound(location=url)
+
+    def redirect_to_self(self, *elements, **kw):
+        kw.update(self.context)
+        url = self.route_url(self.matched_route.name, *elements, **kw)
+        return self.redirect_to_url(url)
+
+    def redirect_to_route(self, route_name, *elements, **kw):
+        url = self.route_url(route_name, *elements, **kw)
+        return self.redirect_to_url(url)
 
 
 class ApplicationsConnector(object):

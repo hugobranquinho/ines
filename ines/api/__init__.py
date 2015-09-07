@@ -102,6 +102,10 @@ class BaseSession(object):
 
         return app_url + path + suffix + qs + anchor
 
+    def redirect_to_route(self, route_name, *elements, **kw):
+        url = self.route_url(route_name, *elements, **kw)
+        return self.request.redirect_to_url(url)
+
 
 class BaseAPISession(BaseSession):
     __api_name__ = 'api'
