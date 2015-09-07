@@ -3,10 +3,10 @@
 from email.utils import formataddr
 from email.utils import formatdate
 from email.utils import make_msgid
+from os import linesep
 from os.path import basename
 from smtplib import SMTPRecipientsRefused
 
-from pkg_resources import get_distribution
 from six import _import_module
 from six import string_types
 from six import u
@@ -27,7 +27,7 @@ from ines.utils import make_dir
 from ines.utils import make_unique_hash
 
 
-NEW_LINE = u('\n')
+NEW_LINE = u(linesep)
 HTML_NEW_LINE = u('<br>')
 
 

@@ -2,6 +2,7 @@
 
 from json import dumps
 from json import loads
+from os import linesep
 from os.path import isfile
 from os.path import normpath
 from time import time as NOW_TIME
@@ -166,7 +167,7 @@ class BaseTokenPolicySession(BaseSession):
 
         # Save reference
         reference_path = self.get_reference_file_path(session_key_256)
-        put_binary_on_file(reference_path, token_256 + '\n', mode='ab')
+        put_binary_on_file(reference_path, token_256 + linesep, mode='ab')
 
         return token
 

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+from os import linesep
 import sys
 from traceback import format_exception
 
@@ -59,7 +60,7 @@ class BaseLogSession(BaseSession):
         print_()
         try:
             message = to_unicode(message)
-            for line in message.split('\n'):
+            for line in message.split(linesep):
                 print_('  %s' % line)
         except UnicodeEncodeError:
             pass

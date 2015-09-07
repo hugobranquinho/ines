@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from os import linesep
 from os.path import isfile
 from pickle import dumps as pickle_dumps
 from pickle import loads as pickle_loads
@@ -30,6 +31,9 @@ from ines.utils import put_binary_on_file
 from ines.utils import remove_file_quietly
 
 
+b_linesep = to_bytes(linesep)
+
+
 class _SaveMe(object):
     def get_binary(self, name, expire=MARKER):
         pass
@@ -49,17 +53,13 @@ class _SaveMe(object):
         except KeyError:
             return []
         else:
-            result = binary.split('\n')
-            if not result[-1]:
-                result.pop(-1)
-            return result
+            return binary.splitlines()
 
     def extend_values(self, name, values, expire=MARKER):
         if not values:
             raise ValueError('Define some values')
 
-        binary = (to_bytes(v) for v in values)
-        binary += '\n'
+        binary = b_linesep.join(to_bytes(v) for v in values) + b_linesep
         self.put_binary(name, binary, mode='append', expire=expire)
 
     def append_value(self, name, value, expire=MARKER):
@@ -70,11 +70,11 @@ class _SaveMe(object):
             self.remove(name)
         else:
             values = maybe_list(values)
-            values.append('\n')
+            values.append(b_linesep)
 
             self.put_binary(
                 name,
-                binary=bytes_join('\n', values),
+                binary=bytes_join(b_linesep, values),
                 expire=expire)
 
     def __getitem__(self, name):
@@ -173,7 +173,7 @@ class SaveMe(_SaveMe):
                 self._delete_path(path)
                 return None
 
-        return get_file_binary(path, retries=self.retries, retry_errno=self.retry_errno)
+        return get_file_binary(path, mode='rb', retries=self.retries, retry_errno=self.retry_errno)
 
     def get_binary(self, name, expire=MARKER):
         binary = self._get_binary(self.get_file_path(name), expire)
@@ -229,7 +229,7 @@ class SaveMeWithReference(SaveMe):
         if name not in self.get_references(name):
             put_binary_on_file(
                 self.get_reference_path(name),
-                name + '\n',
+                bytes_join(b_linesep, [name, '']),
                 mode='ab',
                 retries=self.retries,
                 retry_errno=self.retry_errno)
@@ -255,11 +255,11 @@ class SaveMeWithReference(SaveMe):
 
             if references:
                 references = maybe_list(references)
-                references.append('\n')
+                references.append(b_linesep)
 
                 put_binary_on_file(
                     file_path,
-                    binary=bytes_join('\n', references),
+                    binary=bytes_join(b_linesep, references),
                     mode='ab',
                     retries=self.retries,
                     retry_errno=self.retry_errno)

@@ -2,6 +2,7 @@
 
 import errno
 from os import getpgid
+from os import linesep
 from os import walk as walk_on_path
 from os.path import isfile
 from time import sleep
@@ -34,6 +35,9 @@ from ines.utils import make_uuid_hash
 from ines.utils import put_binary_on_file
 from ines.utils import remove_file
 from ines.utils import remove_file_quietly
+
+
+b_linesep = to_bytes(linesep)
 
 
 class LockMe(object):
@@ -71,7 +75,7 @@ class LockMe(object):
         path = self.get_file_path(name)
         lock_code = make_uuid_hash()
         lock_name = '%s %s %s' % (DOMAIN_NAME, PROCESS_ID, lock_code)
-        lock_name_to_file = to_bytes(lock_name + '\n')
+        lock_name_to_file = to_bytes(lock_name) + b_linesep
         compare_lock_code = to_bytes(lock_code)
 
         position = None
@@ -213,7 +217,7 @@ class LockMe(object):
                                     remove_file_quietly(file_path)
                                 else:
                                     with open(file_path, 'wb') as f:
-                                        f.write(bytes_join('\n', keep_codes))
+                                        f.write(bytes_join(b_linesep, keep_codes))
 
     def clean_junk_locks_as_daemon(self):
         if not thread_is_running('clean_junk_locks'):
