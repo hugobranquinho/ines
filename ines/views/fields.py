@@ -51,6 +51,7 @@ SchemaNode.clone = clone_sequenceschema_fix
 def update_node_attributes_on_clone(self, **kw):
     cloned = clone_sequenceschema_fix(self)
     cloned.__dict__.update(kw)
+    cloned._order = next(self._counter)
     return cloned
 update_node_attributes_on_clone.__name__ = 'clone'
 SchemaNode.clone = update_node_attributes_on_clone
