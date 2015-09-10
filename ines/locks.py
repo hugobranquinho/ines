@@ -6,22 +6,22 @@ from os import linesep
 from os import walk as walk_on_path
 from os.path import isfile
 from time import sleep
-from time import time as NOW_TIME
 
 from six import _import_module
-from six import b
 from six import u
 
 from ines import DEFAULT_RETRY_ERRNO
 from ines import DOMAIN_NAME
 from ines import lru_cache
 from ines import MARKER
+from ines import NOW_TIME
 from ines import PROCESS_ID
-from ines.convert import bytes_join
 from ines.convert import make_sha256
 from ines.convert import maybe_integer
 from ines.convert import maybe_set
+from ines.convert import string_join
 from ines.convert import to_bytes
+from ines.convert import to_string
 from ines.convert import to_unicode
 from ines.exceptions import LockTimeout
 from ines.path import join_paths
@@ -35,9 +35,6 @@ from ines.utils import make_uuid_hash
 from ines.utils import put_binary_on_file
 from ines.utils import remove_file
 from ines.utils import remove_file_quietly
-
-
-b_linesep = to_bytes(linesep)
 
 
 class LockMe(object):
@@ -75,16 +72,16 @@ class LockMe(object):
         path = self.get_file_path(name)
         lock_code = make_uuid_hash()
         lock_name = '%s %s %s' % (DOMAIN_NAME, PROCESS_ID, lock_code)
-        lock_name_to_file = to_bytes(lock_name) + b_linesep
-        compare_lock_code = to_bytes(lock_code)
+        lock_name_to_file = to_string(lock_name) + linesep
+        compare_lock_code = to_string(lock_code)
 
         position = None
         while position is None:
             # Enter on wait list
-            put_binary_on_file(path, lock_name_to_file, mode='ab', retries=self.retries, retry_errno=self.retry_errno)
+            put_binary_on_file(path, lock_name_to_file, mode='a', retries=self.retries, retry_errno=self.retry_errno)
 
             # Find my wait position
-            binary = get_file_binary(path, retries=self.retries, retry_errno=self.retry_errno)
+            binary = get_file_binary(path, mode='r', retries=self.retries, retry_errno=self.retry_errno)
             if binary:
                 for i, code in enumerate(binary.splitlines()):
                     if code.split()[-1] == compare_lock_code:
@@ -93,7 +90,7 @@ class LockMe(object):
 
         if position is 0:
             # Me first! Thank you!
-            return None
+            return
 
         # Define expire time
         expire_time = None
@@ -178,7 +175,7 @@ class LockMe(object):
                 file_path = join_paths(path, filename)
                 if '.' in filename:
                     # Delete inactive positions locks
-                    binary = get_file_binary(file_path)
+                    binary = get_file_binary(file_path, mode='r')
                     if binary:
                         info = binary.split()
                         if len(info) >= 2 and info[0] == DOMAIN_NAME and maybe_integer(info[1]):
@@ -196,7 +193,7 @@ class LockMe(object):
                     # Get last modified time, to check if file as been updated in the process
                     modified_time = file_modified_time(file_path)
                     if modified_time:
-                        binary = get_file_binary(file_path)
+                        binary = get_file_binary(file_path, mode='r')
                         if binary:
                             # Find alive locks
                             keep_codes = binary.splitlines()
@@ -208,7 +205,7 @@ class LockMe(object):
                                     except OSError as error:
                                         if error.errno is errno.ESRCH:
                                             # Add empty line to keep position number
-                                            keep_codes[i] = b('')
+                                            keep_codes[i] = ''
 
                             # Check if file as been updated in the process
                             last_modified_time = file_modified_time(file_path)
@@ -216,8 +213,8 @@ class LockMe(object):
                                 if not any(keep_codes):
                                     remove_file_quietly(file_path)
                                 else:
-                                    with open(file_path, 'wb') as f:
-                                        f.write(bytes_join(b_linesep, keep_codes))
+                                    with open(file_path, 'w') as f:
+                                        f.write(string_join(linesep, keep_codes))
 
     def clean_junk_locks_as_daemon(self):
         if not thread_is_running('clean_junk_locks'):

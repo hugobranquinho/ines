@@ -29,6 +29,7 @@ from six import u
 
 from ines import DOMAIN_NAME
 from ines import DEFAULT_RETRY_ERRNO
+from ines import NOW
 from ines import OPEN_BLOCK_SIZE
 from ines.cleaner import clean_phone_number
 from ines.cleaner import normalize_full_name
@@ -43,7 +44,6 @@ from ines.i18n import translate_factory
 from ines.url import open_json_url
 
 
-NOW = datetime.datetime.now
 DATE = datetime.date
 TIMEDELTA = datetime.timedelta
 PROCESS_ID = getpid()
@@ -405,7 +405,7 @@ def get_file_binary(path, mode='rb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO)
             # Try again, or not!
             retries -= 1
             if retries:
-                return get_file_binary(path, retries=retries, retry_errno=retry_errno)
+                return get_file_binary(path, mode=mode, retries=retries, retry_errno=retry_errno)
 
         # Something goes wrong
         raise

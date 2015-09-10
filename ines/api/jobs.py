@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import datetime
 import errno
 from os import getpgid
 from os.path import isfile
@@ -14,6 +13,7 @@ from six import u
 import venusian
 
 from ines import DOMAIN_NAME
+from ines import NOW
 from ines import PROCESS_ID
 from ines import SYSTEM_VERSION
 from ines.api import BaseSession
@@ -27,8 +27,6 @@ from ines.path import join_paths
 from ines.request import make_request
 from ines.system import start_system_thread
 
-
-NOW = datetime.datetime.now
 
 JOBS = []
 RUNNING_JOBS = []

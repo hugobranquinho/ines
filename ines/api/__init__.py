@@ -103,8 +103,9 @@ class BaseSession(object):
         return app_url + path + suffix + qs + anchor
 
     def redirect_to_route(self, route_name, *elements, **kw):
+        headers = kw.pop('headers', None)
         url = self.route_url(route_name, *elements, **kw)
-        return self.request.redirect_to_url(url)
+        return self.request.redirect_to_url(url, headers)
 
 
 class BaseAPISession(BaseSession):

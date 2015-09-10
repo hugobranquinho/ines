@@ -2,6 +2,7 @@
 
 from pyramid.decorator import reify
 from pyramid.interfaces import IAuthenticationPolicy
+from webob.cookies import CookieProfile
 from zope.interface import implementer
 
 from ines.authorization import APIKey
@@ -9,6 +10,8 @@ from ines.authorization import Authenticated
 from ines.authorization import Everyone
 from ines.authorization import NotAuthenticated
 from ines.authorization import User
+from ines.convert import to_bytes
+from ines.convert import to_unicode
 
 
 class AuthenticatedSession(object):
@@ -54,7 +57,13 @@ class ApplicationHeaderAuthenticationPolicy(object):
 
         self.application_name = application_name
         self.header_key = header_key
+
         self.cookie_key = cookie_key
+        if self.cookie_key:
+            self.cookie_profile = CookieProfile(
+                cookie_name=self.cookie_key,
+                path='/',
+                serializer=SimpleSerializer())
 
         if not self.header_key and not self.cookie_key:
             raise ValueError('Please define a key for authentication validation. `header_key` or `cookie_key`')
@@ -99,8 +108,8 @@ class ApplicationHeaderAuthenticationPolicy(object):
 
         if self.cookie_key:
             userid = request.cookies.get(self.cookie_key)
-            if userid:
-                return userid
+            if userid and userid.startswith('Token'):
+                return userid.replace('Token', 'Token ', 1)
 
     def effective_principals(self, request):
         authenticated = self.get_authenticated_session(request)
@@ -109,8 +118,22 @@ class ApplicationHeaderAuthenticationPolicy(object):
         else:
             return authenticated.get_principals()
 
-    def remember(self, request, userid, **kw):
-        return []
+    def remember(self, request, token):
+        if self.cookie_key:
+            return self.cookie_profile.get_headers('Token%s' % token)
+        else:
+            return []
 
     def forget(self, request):
-        return []
+        if self.cookie_key:
+            return self.cookie_profile.get_headers(None)
+        else:
+            return []
+
+
+class SimpleSerializer(object):
+    def loads(self, bstruct):
+        return to_unicode(bstruct)
+
+    def dumps(self, appstruct):
+        return to_bytes(appstruct)

@@ -28,7 +28,7 @@ from ines.utils import make_unique_hash
 
 
 NEW_LINE = u(linesep)
-HTML_NEW_LINE = u('<br>')
+HTML_NEW_LINE = u('<br/>')
 
 
 def format_email(email, encoding=None):

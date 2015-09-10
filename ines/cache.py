@@ -4,7 +4,6 @@ from os import linesep
 from os.path import isfile
 from pickle import dumps as pickle_dumps
 from pickle import loads as pickle_loads
-from time import time
 
 from six import _import_module
 from six import wraps
@@ -12,6 +11,7 @@ from six import wraps
 from ines import DEFAULT_RETRY_ERRNO
 from ines import lru_cache
 from ines import MARKER
+from ines import NOW_TIME
 from ines.convert import bytes_join
 from ines.convert import make_sha256
 from ines.convert import maybe_integer
@@ -153,7 +153,7 @@ class SaveMe(_SaveMe):
             if not modified_time:
                 return False
 
-            if (modified_time + self.expire) < time():
+            if (modified_time + self.expire) < NOW_TIME():
                 self._delete_path(path)
                 return False
 
@@ -169,7 +169,7 @@ class SaveMe(_SaveMe):
             modified_time = file_modified_time(path)
             if not modified_time:
                 return None
-            elif (modified_time + expire) < time():
+            elif (modified_time + expire) < NOW_TIME():
                 self._delete_path(path)
                 return None
 

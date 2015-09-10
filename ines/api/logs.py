@@ -1,20 +1,17 @@
 # -*- coding: utf-8 -*-
 
-import datetime
 from os import linesep
 import sys
 from traceback import format_exception
 
 from six import print_
 
+from ines import NOW
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.convert import string_join
 from ines.convert import to_unicode
 from ines.middlewares.logs import LoggingMiddleware
-
-
-NOW = datetime.datetime.now
 
 
 class BaseLogSessionManager(BaseSessionManager):

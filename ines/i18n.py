@@ -45,22 +45,37 @@ MONTHS = {1: _('January'),
           11: _('November'),
           12: _('December')}
 
-# Points: year, month, day, weekday. When 1 means is requested
+# Points: year, month, day, hour, weekday. When 1, means is in use
 DATE_POINTS = {
-    1111: _('${week}, ${day} ${month}, ${year}'),
-    1110: _('${day} ${month}, ${year}'),
-    1100: _('${month} ${year}'),
-    1000: _('${year}'),
-    1101: _('${week}, ${month} ${year}'),
-    1011: _('${week}, ${day} of ${year}'),
-    1010: _('${day} of ${year}'),
-    1001: _('${week}, ${year}'),
-    111: _('${week}, ${day} ${month}'),
-    110: _('${day} ${month}'),
-    101: _('${week}, ${month}'),
-    100: _('${month}'),
-    11: _('${week}, ${day}'),
-    10: _('${day}'),
+    11111: _('${week}, ${day} ${month} ${year} ${hour}'),
+    11101: _('${week}, ${day} ${month} ${year}'),
+    11110: _('${day} ${month} ${year} ${hour}'),
+    11100: _('${day} ${month} ${year}'),
+    11010: _('${month} ${year} ${hour}'),
+    11000: _('${month} ${year}'),
+    10010: _('${year} ${hour}'),
+    10000: _('${year}'),
+    11011: _('${week}, ${month} ${year} ${hour}'),
+    11001: _('${week}, ${month} ${year}'),
+    10111: _('${week}, ${day} ${year} ${hour}'),
+    10101: _('${week}, ${day} ${year}'),
+    10110: _('${day} ${year} ${hour}'),
+    10100: _('${day} ${year}'),
+    10011: _('${week}, ${year} ${hour}'),
+    10001: _('${week}, ${year}'),
+    1111: _('${week}, ${day} ${month} ${hour}'),
+    1101: _('${week}, ${day} ${month}'),
+    1110: _('${day} ${month} ${hour}'),
+    1100: _('${day} ${month}'),
+    1011: _('${week}, ${month} ${hour}'),
+    1001: _('${week}, ${month}'),
+    1010: _('${month} ${hour}'),
+    1000: _('${month}'),
+    111: _('${week}, ${day} ${hour}'),
+    101: _('${week}, ${day}'),
+    110: _('${day} ${hour}'),
+    100: _('${day}'),
+    11: _('${week} ${hour}'),
     1: _('${week}'),
     0: _('No data')}
 
@@ -126,20 +141,23 @@ def translate(request, tstring, locale_name=None):
     return translate_factory(request, locale_name)(tstring)
 
 
-def translate_date(request, year=None, month=None, day=None, weekday=None):
+def translate_date(request, year=None, month=None, day=None, hour=None, minute=None, weekday=None):
     translator = request.translator
 
     points = 0
     mapping = {}
     if year:
-        points += 1000
+        points += 10000
         mapping['year'] = year
     if month:
-        points += 100
+        points += 1000
         mapping['month'] = translator(MONTHS[month])
     if day:
-        points += 10
+        points += 100
         mapping['day'] = day
+    if hour or minute:
+        points += 10
+        mapping['hour'] = '%s:%s' % (hour, minute)
     if weekday:
         points += 1
         mapping['week'] = translator(WEEKDAYS[weekday])
@@ -152,8 +170,11 @@ def translate_date(request, year=None, month=None, day=None, weekday=None):
 
 
 def translate_datetime(request, date):
-    return translate_date(request, year=date.year, month=date.month,
-                          day=date.day, weekday=date.weekday())
+    return translate_date(
+        request,
+        year=date.year, month=date.month, day=date.day,
+        hour=date.hour, minute=date.minute,
+        weekday=date.weekday())
 
 
 def translate_month_factory(request):

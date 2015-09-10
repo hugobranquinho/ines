@@ -5,10 +5,10 @@ from json import loads
 from os import linesep
 from os.path import isfile
 from os.path import normpath
-from time import time as NOW_TIME
 
 from pyramid.decorator import reify
 
+from ines import NOW_TIME
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.authentication import AuthenticatedSession
@@ -17,6 +17,7 @@ from ines.convert import date_to_timestamp
 from ines.convert import to_unicode
 from ines.convert import make_sha256
 from ines.convert import maybe_integer
+from ines.convert import to_string
 from ines.exceptions import HTTPTokenExpired
 from ines.exceptions import HTTPUnauthorized
 from ines.path import get_object_on_path
@@ -51,13 +52,14 @@ class BasePolicySessionManager(BaseSessionManager):
 class BaseTokenPolicySession(BaseSession):
     __api_name__ = 'policy'
 
-    def get_authorization(self, session_type, authorization):
+    def get_authorization(self, session_type, authorization, **kwargs):
         if session_type == 'apikey':
             session_id = self.get_apikey_authorization(authorization)
             if session_id:
                 return self.api_session_manager.authorization_session(
                     'apikey',
-                    session_id)
+                    session_id,
+                    **kwargs)
 
         elif session_type == 'token':
             session_id = self.get_token_authorization(authorization)
@@ -65,9 +67,11 @@ class BaseTokenPolicySession(BaseSession):
                 return self.api_session_manager.authorization_session(
                     'user',
                     session_id,
-                    token=authorization)
+                    token=authorization,
+                    **kwargs)
 
     def get_token_file_path(self, token_256):
+        token_256 = to_string(token_256)
         return normpath(
             join_paths(
                 self.settings['token.path'],
@@ -75,12 +79,14 @@ class BaseTokenPolicySession(BaseSession):
                 token_256))
 
     def get_token_folder_path(self, token_256):
+        token_256 = to_string(token_256)
         return normpath(
             join_paths(
                 self.settings['token.path'],
                 token_256[0]))
 
     def get_reference_file_path(self, session_key_256):
+        session_key_256 = to_string(session_key_256)
         return normpath(
             join_paths(
                 self.settings['token.session_reference_path'],
@@ -88,7 +94,7 @@ class BaseTokenPolicySession(BaseSession):
 
     def get_token_info(self, token_256):
         file_path = self.get_token_file_path(token_256)
-        binary = get_file_binary(file_path)
+        binary = get_file_binary(file_path, mode='r')
         if binary:
             return loads(binary)
         else:
@@ -100,7 +106,7 @@ class BaseTokenPolicySession(BaseSession):
             temporary_file_path = self.get_reference_file_path(session_key_256 + '.tmp')
             move_file(file_path, temporary_file_path)
 
-            binary = get_file_binary(temporary_file_path)
+            binary = get_file_binary(temporary_file_path, mode='r')
             if binary:
                 tokens_to_delete = binary.splitlines()
                 if tokens_to_delete:
@@ -133,7 +139,8 @@ class BaseTokenPolicySession(BaseSession):
             info = self.get_token_info(token_256)
             if info:
                 now = NOW_TIME()
-                expire = last_read_time + self.token_expire_seconds
+                token_expire_seconds = info.get('token_expire_seconds') or self.token_expire_seconds
+                expire = last_read_time + token_expire_seconds
                 end_date = info.get('end_date')
                 if expire > now and (not end_date or end_date > now):
                     if info['lock_key'] == make_token_lock(self.request, token, info['session_id']):
@@ -145,21 +152,24 @@ class BaseTokenPolicySession(BaseSession):
     def create_new_session_key_token(self, session_id, session_key_256):
         return self.create_token(session_id, session_key_256)
 
-    def create_token(self, session_id, session_key_256, end_date=None):
+    def create_token(self, session_id, session_key_256, end_date=None, token_expire_seconds=None):
         # Delete all active tokens
         self.delete_session_key_tokens(session_key_256)
 
         token = make_unique_hash(length=70)
         token_256 = make_sha256(token)
 
-        if end_date:
-            end_date = date_to_timestamp(end_date)
-
-        info = dumps({
+        data = {
             'lock_key': make_token_lock(self.request, token, session_id),
             'session_id': session_id,
-            'session_key': session_key_256,
-            'end_date': end_date})
+            'session_key': session_key_256}
+
+        if end_date:
+            data['end_date'] = date_to_timestamp(end_date)
+        if token_expire_seconds:
+            data['token_expire_seconds'] = int(token_expire_seconds)
+
+        info = dumps(data)
 
         # Save token
         file_path = self.get_token_file_path(token_256)
@@ -178,10 +188,11 @@ class BaseTokenPolicySession(BaseSession):
             self.delete_session_key_tokens(token_info['session_key'])
             return token_info
 
-    def create_authorization(self, session_id):
+    def create_authorization(self, session_id, token_expire_seconds=None):
         session_key = make_unique_hash(length=70)
         session_key_256 = make_sha256(session_key)
-        return session_key, self.policy.create_token(session_id, session_key_256)
+        token = self.create_token(session_id, session_key_256, token_expire_seconds=token_expire_seconds)
+        return session_key, token
 
     def session_is_alive(self, session_key_256):
         reference_path = self.get_reference_file_path(session_key_256)

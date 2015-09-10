@@ -17,6 +17,7 @@ from pyramid.exceptions import Forbidden
 from pyramid.exceptions import NotFound
 from pyramid.httpexceptions import HTTPClientError
 from pyramid.i18n import get_localizer
+from pyramid.interfaces import IExceptionResponse
 from pyramid.path import caller_package
 from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
@@ -361,9 +362,10 @@ class Configurator(PyramidConfigurator):
                 context=Forbidden,
                 permission=NO_PERMISSION_REQUIRED)
         if global_error:
+            self.settings['errors.interface.global_error_view'] = error_view = self.maybe_dotted(global_error)
             self.add_view(
-                view=global_error,
-                context=Exception,
+                view=error_view,
+                context=IExceptionResponse,
                 permission=NO_PERMISSION_REQUIRED)
 
     @configuration_extensions('deform')
@@ -380,24 +382,6 @@ class Configurator(PyramidConfigurator):
 
         self.add_translation_dirs('deform:locale')
         self.add_static_view('deform', 'deform:static')
-
-class APIConfigurator(Configurator):
-    @configuration_extensions('apidocjs')
-    def add_apidocjs_view(
-            self, pattern='documentation', cache_max_age=86400,
-            resource_name='apidocjs'):
-
-        static_func = static_view(
-            '%s:%s/' % (self.package_name, resource_name),
-            package_name=self.package_name,
-            use_subpath=True,
-            cache_max_age=int(cache_max_age))
-
-        self.add_route(resource_name, pattern='%s*subpath' % pattern)
-        self.add_view(
-            route_name=resource_name,
-            view=static_func,
-            permission=INES_POLICY)
 
     def register_input_schema(self, view, route_name, request_method):
         for req_method in maybe_list(request_method) or ['']:
@@ -438,6 +422,24 @@ class APIConfigurator(Configurator):
             if view is not None:
                 schemas.append(view)
         return schemas
+
+class APIConfigurator(Configurator):
+    @configuration_extensions('apidocjs')
+    def add_apidocjs_view(
+            self, pattern='documentation', cache_max_age=86400,
+            resource_name='apidocjs'):
+
+        static_func = static_view(
+            '%s:%s/' % (self.package_name, resource_name),
+            package_name=self.package_name,
+            use_subpath=True,
+            cache_max_age=int(cache_max_age))
+
+        self.add_route(resource_name, pattern='%s*subpath' % pattern)
+        self.add_view(
+            route_name=resource_name,
+            view=static_func,
+            permission=INES_POLICY)
 
     def add_schema_manager(self, view, route_name, pattern, **view_kwargs):
         self.registry.registerUtility(

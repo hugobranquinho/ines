@@ -6,6 +6,7 @@
 from calendar import monthrange
 import datetime
 
+from ines import NOW
 from ines.convert import to_string
 from ines.convert import maybe_integer
 from ines.exceptions import NoMoreDates
@@ -13,7 +14,6 @@ from ines.utils import add_months
 from ines.utils import last_day_of_month_for_weekday
 
 
-NOW = datetime.datetime.now
 MINYEAR = datetime.MINYEAR
 MAXYEAR = datetime.MAXYEAR
 TIMEDELTA = datetime.timedelta
@@ -298,7 +298,7 @@ class Cron(object):
             self.finders.append(find_months(months))
 
     def find_next(self, next_date=None):
-        next_date = next_date or NOW().replace(microsecond=0)
+        next_date = next_date or NOW()
         next_date += TIMEDELTA(seconds=1)
         if not self.finders and not self.options.get('year'):
             # Every second

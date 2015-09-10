@@ -27,6 +27,7 @@ from sqlalchemy.sql.schema import Table
 from sqlalchemy.sql.selectable import Alias
 
 from ines import MARKER
+from ines import NOW
 from ines.api.core.database import ActiveBase
 from ines.api.core.database import Base
 from ines.api.core.database import BranchBase
@@ -61,21 +62,10 @@ from ines.utils import PaginationClass
 
 
 DATETIME = datetime.datetime
-NOW = DATETIME.now
 TIMEDELTA = datetime.timedelta
-ACTIVE_MARKER = object()
 
 WHOOSH = {}
 WHOOSH_DIRS = {}
-
-DEFAULT_ACTIVITY_ACTION_MESSAGES = {}
-
-
-def register_activity_message(action):
-    def decorator(func):
-        DEFAULT_ACTIVITY_ACTION_MESSAGES[action] = func
-        return func
-    return decorator
 
 
 class BaseCoreSessionManager(BaseSQLSessionManager):
@@ -360,20 +350,14 @@ class ORMQuery(object):
                 if parent_label not in attributes:
                     attributes.append(parent_label)
 
-        active_in_attributes = False
-        for attribute in attributes:
-            if attribute is ACTIVE_MARKER:
-                active_in_attributes = True
-                break
-        active_in_order_by = False
-        if order_by:
-            for ob in order_by:
-                if ob is ACTIVE_MARKER:
-                    active_in_order_by = True
-                    break
+        active_in_attributes = active_in_list(attributes)
+        active_in_order_by = bool(order_by and active_in_list(order_by))
 
         # Check if we need to check active tables
-        relate_actives = bool(active is not None or active_in_attributes or active_in_order_by)
+        relate_actives = bool(
+            active is not None
+            or active_in_attributes
+            or active_in_order_by)
 
         related_outerjoins, related_queries, active_query = self.query_relations(tables, relate_actives)
         for t, fts in related_outerjoins.items():
@@ -381,7 +365,7 @@ class ORMQuery(object):
         queries.extend(related_queries)
 
         # Add active column
-        if active_in_attributes:
+        if active_in_attributes or active_in_order_by:
             if active is None:
                 if active_query is not None:
                     active_attribute = active_query
@@ -391,10 +375,12 @@ class ORMQuery(object):
                 active_attribute = true()
             else:
                 active_attribute = false()
+            active_attribute = active_attribute.label('active')
 
+        if active_in_attributes:
             # Replace active attributes
             for i, attribute in enumerate(attributes):
-                if attribute is ACTIVE_MARKER:
+                if is_active_attribute(attribute):
                     attributes[i] = active_attribute.label('active')
 
         # Create session query
@@ -425,14 +411,14 @@ class ORMQuery(object):
 
         if order_by:
             if active_in_order_by:
-                if active_query is not None:
-                    for i, ob in reversed(list(enumerate(order_by))):
-                        if ob is ACTIVE_MARKER:
-                            order_by.pop(i)
+                if active_query is None:
+                    order_by = [ob for ob in order_by if not is_active_attribute(ob)]
                 else:
                     for i, ob in enumerate(order_by):
-                        if ob is ACTIVE_MARKER:
-                            order_by[i] = active_query
+                        if ob is DESC_ACTIVE:
+                            order_by[i] = active_attribute.desc()
+                        else:
+                            order_by[i] = active_attribute
 
             query = query.order_by(*order_by)
 
@@ -532,13 +518,14 @@ class ORMQuery(object):
         if response is not None:
             return self.parse_results([response], active=active)[0]
 
-    def all(self, active=True):
+    def all(self, active=True, count_column=None):
         query = self.construct_query(active=active)
         if self.options.page:
             response = Pagination(
                 query,
                 page=self.options.page,
-                limit_per_page=self.options.limit_per_page)
+                limit_per_page=self.options.limit_per_page,
+                count_column=count_column)
         else:
             response = query.all()
 
@@ -556,7 +543,7 @@ class ORMQuery(object):
         return (
             query
             .with_entities(func.count(entities[0]), *entities)
-            .order_by(None)  # Ignore defined orders
+            .order_by(None)  # Ignore defined orders for speed
             .all())
 
     def simple_count(self, active=True):
@@ -566,7 +553,7 @@ class ORMQuery(object):
             query
             .with_entities(func.count(entities[0]))
             .group_by(entities[0])
-            .order_by(None)  # Ignore defined orders
+            .order_by(None)  # Ignore defined orders for speed
             .first())
 
         if response:
@@ -574,7 +561,7 @@ class ORMQuery(object):
         else:
             return 0
 
-    def delete(self, active=None, synchronize_session=False, activity_action='delete'):
+    def delete(self, active=None, synchronize_session=False, activity_action=None):
         if len(self.options.attributes) != 1:
             raise AttributeError('Define only the column you want to delete')
 
@@ -604,7 +591,7 @@ class ORMQuery(object):
                 data = dict((c, resolve_database_value(getattr(table, c))) for c in column_names)
                 self.api_session.add_activity(
                     orm_table,
-                    action=activity_action,
+                    action=activity_action or 'delete',
                     type_name=type_name,
                     type_id=type_id,
                     context_id=context_id,
@@ -674,7 +661,7 @@ class ORMQuery(object):
             drill_down_limit=0)
         return parent_core_id in child_ids
 
-    def update(self, values, active=None, synchronize_session=False, activity_action='update'):
+    def update(self, values, active=None, synchronize_session=False, activity_action=None):
         if len(self.options.attributes) != 1:
             raise AttributeError('Define only the column you want to update')
         elif not values:
@@ -765,17 +752,17 @@ class ORMQuery(object):
                 self.api_session.session.flush()
 
                 for type_id in ids:
-                    r_value = references[type_id]
-                    data = dict((k, resolve_database_value(getattr(r_value, k))) for k in column_names)
-
                     update_items = dict(
                         (k, resolve_database_value(v))
                         for k, v in update_values.items() if k not in ignore_columns)
+
+                    r_value = references[type_id]
+                    data = dict((k, resolve_database_value(getattr(r_value, k))) for k in column_names)
                     data.update(update_items)
 
                     self.api_session.add_activity(
                         orm_table,
-                        action=activity_action,
+                        action=activity_action or 'update',
                         type_name=type_name,
                         type_id=type_id,
                         context_id=parent_ids.get(type_id),
@@ -785,8 +772,11 @@ class ORMQuery(object):
 
         return updated
 
-    def disable(self, active=True):
-        return self.update({'end_date': func.now()}, active=active)
+    def disable(self, active=True, activity_action=None):
+        return self.update(
+            {'end_date': func.now()},
+            active=active,
+            activity_action=activity_action or 'disable')
 
     def group_by(self, *arguments):
         self.options.add_group_by(*arguments)
@@ -809,18 +799,6 @@ class ORMQuery(object):
         return self
 
 
-def default_message_method(action, type, type_id, context_id, **data):
-    message = u('%s (%s) %s') % (
-        unicode_join(' ', type.split()).title(),
-        to_unicode(type_id),
-        to_unicode(action.lower()))
-
-    if context_id:
-        message += u(' from %s') % to_unicode(context_id)
-
-    return message
-
-
 class BaseCoreSession(BaseSQLSession):
     __api_name__ = 'core'
 
@@ -833,28 +811,32 @@ class BaseCoreSession(BaseSQLSession):
                 hours=int(time_zone_hours or 0),
                 minutes=int(time_zone_minutes or 0))
 
-    def get_activity_message(self, table, action, type_id, context_id=None, data=None):
-        if hasattr(table, 'get_activity_message'):
-            message = table.get_activity_message(
-                self.request,
-                action=action,
-                type_id=type_id,
-                context_id=context_id,
-                data=data)
+    def get_activity_message(self, table, action, type_name, type_id, context_id=None, data=None):
+        action_messages = getattr(table, '__action_messages__', None)
+        if action_messages:
+            message = action_messages.get(action)
             if message:
                 return message
 
-        method = DEFAULT_ACTIVITY_ACTION_MESSAGES.get(action)
-        if method:
-            return method(
-                self.request,
-                type_id=type_id,
-                context_id=context_id,
-                data=data)
+        table_method = getattr(table, 'get_activity_message', None)
+        if table_method:
+            message = table_method(self.request, action=action, type_id=type_id, context_id=context_id, data=data)
+            if message:
+                return message
 
-    def add_activity(self, table, action, type, type_id, context_id=None, data=None):
-        message = self.get_activity_message(table, action, type_id, context_id=context_id, data=data)
-        message = message or default_message_method(action, type, type_id, context_id, **(data or {}))
+        print('Missing activity message for action "%s" of "%s"' % (action, type_name))
+
+        # Default message
+        message = u('%s (%s) %s') % (
+            unicode_join(' ', type_name.split()).title(),
+            to_unicode(type_id),
+            to_unicode(action.lower()))
+        if context_id:
+            message += u(' from %s') % to_unicode(context_id)
+        return message
+
+    def add_activity(self, table, action, type_name, type_id, context_id=None, data=None):
+        message = self.get_activity_message(table, action, type_name, type_id, context_id=context_id, data=data)
 
         # Set to logging
         extra = dict(
@@ -862,10 +844,10 @@ class BaseCoreSession(BaseSQLSession):
             for k, v in (data or {}).items())
         extra.update({
             'action': action,
-            'action_type': type,
+            'action_type': type_name,
             'action_type_id': type_id,
             'context_id': context_id})
-        self.logging.log('%s_%s' % (type, action), message, extra=extra)
+        self.logging.log('%s_%s' % (type_name, action), message, extra=extra)
 
     def add_to_index(self, type_name, type_id, data):
         pass
@@ -879,10 +861,10 @@ class BaseCoreSession(BaseSQLSession):
     def query(self, *attributes, **kw_attributes):
         return ORMQuery(self, *attributes, **kw_attributes)
 
-    def add(self, orm_object, activity_action='add'):
+    def add(self, orm_object, activity_action=None):
         self.add_all([orm_object], activity_action=activity_action)
 
-    def add_all(self, orm_objects, activity_action='add'):
+    def add_all(self, orm_objects, activity_action=None):
         if not orm_objects:
             return False
 
@@ -910,11 +892,11 @@ class BaseCoreSession(BaseSQLSession):
         type_name = str(orm_objects[0].__table__.name)
         column_names = [k for k in orm_objects[0].__table__.c.keys() if k not in ('updated_date', 'created_date')]
         for value in orm_objects:
-            context_id = getattr(value, 'parent_id', None)
             data = dict((c, resolve_database_value(getattr(value, c))) for c in column_names)
+            context_id = getattr(value, 'parent_id', None)
             self.add_activity(
                 orm_table,
-                action=activity_action,
+                action=activity_action or 'add',
                 type_name=type_name,
                 type_id=value.id,
                 context_id=context_id,
@@ -1252,7 +1234,7 @@ class QueryLookup(object):
             return self.orm_tables[maybe_name].__table__
 
         else:
-            raise AttributeError('Invalid table: %s' % to_string(maybe_name))
+            raise InvalidLookup('Invalid table: %s' % to_string(maybe_name))
 
     def lookup_table(self, value):
         tables = set()
@@ -1316,7 +1298,7 @@ class QueryLookup(object):
                         options.attributes.append(table.c[maybe_attribute])
                     elif maybe_attribute == 'active':
                         options.tables.add(table)
-                        options.attributes.append(ACTIVE_MARKER)
+                        options.attributes.append(ACTIVE)
                     else:
                         orm_table = self.orm_tables[table.name]
                         parent_orm_table = getattr(orm_table, '__parent__', None)
@@ -1346,7 +1328,7 @@ class QueryLookup(object):
 
                             if add_for_pos_queries:
                                 if not maybe_attribute:
-                                    raise AttributeError('Need to define a table for children / parent queries')
+                                    raise InvalidLookup('Need to define a table for children / parent queries')
 
                                 pos_table = self.get_table(maybe_attribute)
                                 relation_name = maybe_attribute
@@ -1468,7 +1450,10 @@ class QueryLookup(object):
                 options.join(self.lookup_order_by(attribute.column_name, table, attribute.descendant))
 
             elif isinstance(attribute, string_types):
-                if '.' in attribute:
+                if attribute == 'active':
+                    options.tables.add(table)
+                    options.add_attribute(ACTIVE)
+                elif '.' in attribute:
                     child_table_or_name, attribute = attribute.split('.', 1)
                     if child_table_or_name == table_or_name:
                         options.join(self.lookup_order_by(attribute, child_table_or_name, descendant))
@@ -1484,7 +1469,7 @@ class QueryLookup(object):
                         options.add_attribute(table.c[maybe_attribute])
                     elif maybe_attribute == 'active':
                         options.tables.add(table)
-                        options.add_attribute(ACTIVE_MARKER)
+                        options.add_attribute(ACTIVE)
                     else:
                         add_for_pos_queries = True
                         if not attributes:
@@ -1501,7 +1486,7 @@ class QueryLookup(object):
 
                         if add_for_pos_queries:
                             if not maybe_attribute:
-                                raise AttributeError('Need to define a table for children / parent queries')
+                                raise InvalidLookup('Need to define a table for children / parent queries')
                             options.join(self.lookup_order_by(attributes, maybe_attribute, descendant))
 
             elif is_nonstr_iter(attribute):
@@ -1543,11 +1528,15 @@ class QueryLookup(object):
         descendant = kwargs.pop('descendant', False)
 
         for maybe_column in arguments:
-            options = self.lookup_order_by(maybe_column, descendant=descendant)
-            self.tables.update(options.tables)
-            self.order_by.extend(options.attributes)
-            for orm_table, orm_branches in options.outerjoin_tables.items():
-                self.outerjoin_tables[orm_table].update(orm_branches)
+            try:
+                options = self.lookup_order_by(maybe_column, descendant=descendant)
+            except InvalidLookup as error:
+                pass
+            else:
+                self.tables.update(options.tables)
+                self.order_by.extend(options.attributes)
+                for orm_table, orm_branches in options.outerjoin_tables.items():
+                    self.outerjoin_tables[orm_table].update(orm_branches)
 
     def add_secondary_order_by(self, **kwargs):
         for secondary_name, values in kwargs.items():
@@ -1593,3 +1582,31 @@ class OrderByLookup(object):
 
     def add_outerjoin(self, orm_table, orm_branch):
         self.outerjoin_tables[orm_table][orm_branch] = (orm_table.id == orm_branch.id)
+
+
+class InvalidLookup(AttributeError):
+    pass
+
+
+class _active_marker(object):
+    def desc(self):
+        return DESC_ACTIVE
+
+class _desc_active_marker(_active_marker):
+    def desc(self):
+        return ACTIVE
+
+
+ACTIVE = _active_marker()
+DESC_ACTIVE = _desc_active_marker()
+
+
+def is_active_attribute(value):
+    return value is ACTIVE or value is DESC_ACTIVE
+
+
+def active_in_list(values):
+    for value in values:
+        if is_active_attribute(value):
+            return True
+    return False

@@ -6,11 +6,14 @@ from ines.convert.codes import (inject_junk,
                                 make_sha256,
                                 make_sha256_no_cache)
 
-from ines.convert.dates import (convert_timezone,
+from ines.convert.dates import (calculate_age,
+                                convert_timezone,
                                 date_to_timestamp,
                                 guess_datetime,
                                 maybe_date,
-                                maybe_datetime)
+                                maybe_datetime,
+                                total_seconds,
+                                total_time_seconds)
 
 from ines.convert.strings import (bytes_join,
                                   camelcase,

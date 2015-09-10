@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 
+import datetime
 import errno
 from os import getpid
 from os import uname
 from os.path import join as os_join
 from tempfile import gettempdir
+from time import time as _now_time
 
 from six import PY3
 from six import u
@@ -32,3 +34,9 @@ DEFAULT_CACHE_DIRPATH = os_join(gettempdir(), 'ines-cache')
 DEFAULT_RETRY_ERRNO = set([errno.ESTALE])
 DEFAULT_RETRY_ERRNO.add(116)  # Stale NFS file handle
 OPEN_BLOCK_SIZE = 2**18
+
+# datetime now without microseconds
+_now = datetime.datetime.now
+NOW = lambda: _now().replace(microsecond=0)
+# timestamp without microseconds
+NOW_TIME = lambda: int(_now_time())

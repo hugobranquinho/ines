@@ -2,7 +2,6 @@
 
 from collections import defaultdict
 import datetime
-from time import time as NOW_TIME
 from uuid import uuid4
 
 from colander import Boolean
@@ -23,6 +22,8 @@ from six import moves
 from six import u
 
 from ines import DEFAULT_METHODS
+from ines import NOW
+from ines import NOW_TIME
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import NotAuthenticated
 from ines.convert import camelcase
@@ -38,7 +39,6 @@ quote = moves.urllib.parse.quote
 unquote = moves.urllib.parse.unquote
 
 TODAY_DATE = datetime.date.today
-NOW_DATE = datetime.datetime.now
 
 GET_STRING = u('GET')
 SCHEMA_TITLE = u('SCHEMA: %s')
@@ -49,7 +49,7 @@ class PostmanCollection(object):
         self.title = title
         self.description = description
         self.collection_id = self.new_unique_id()
-        self.collection_time = int(NOW_TIME())
+        self.collection_time = NOW_TIME()
 
     def new_unique_id(self):
         return str(uuid4())
@@ -295,7 +295,7 @@ class PostmanCollection(object):
                     elif isinstance(schema.typ, Date):
                         default = TODAY_DATE()
                     elif isinstance(schema.typ, DateTime):
-                        default = NOW_DATE()
+                        default = NOW()
                 else:
                     validators = schema.validator
                     if not is_nonstr_iter(validators):

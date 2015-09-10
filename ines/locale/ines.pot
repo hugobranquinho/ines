@@ -1,4 +1,4 @@
-# 
+#
 # SOME DESCRIPTIVE TITLE
 # This file is distributed under the same license as the PACKAGE package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2015.
@@ -6,209 +6,165 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-07-08 01:33+0100\n"
+"POT-Creation-Date: 2015-09-09 22:06+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Lingua 3.10\n"
+"Language: \n"
+"Generated-By: Lingua 3.11\n"
 
-#: ./ines/i18n.py:12
+#: ./ines/i18n.py:27
 msgid "Monday"
 msgstr ""
 
-#: ./ines/i18n.py:13
+#: ./ines/i18n.py:28
 msgid "Tuesday"
 msgstr ""
 
-#: ./ines/i18n.py:14
+#: ./ines/i18n.py:29
 msgid "Wednesday"
 msgstr ""
 
-#: ./ines/i18n.py:15
+#: ./ines/i18n.py:30
 msgid "Thursday"
 msgstr ""
 
-#: ./ines/i18n.py:16
+#: ./ines/i18n.py:31
 msgid "Friday"
 msgstr ""
 
-#: ./ines/i18n.py:17
+#: ./ines/i18n.py:32
 msgid "Saturday"
 msgstr ""
 
-#: ./ines/i18n.py:18
+#: ./ines/i18n.py:33
 msgid "Sunday"
 msgstr ""
 
-#: ./ines/i18n.py:20
+#: ./ines/i18n.py:35
 msgid "January"
 msgstr ""
 
-#: ./ines/i18n.py:21
+#: ./ines/i18n.py:36
 msgid "February"
 msgstr ""
 
-#: ./ines/i18n.py:22
+#: ./ines/i18n.py:37
 msgid "March"
 msgstr ""
 
-#: ./ines/i18n.py:23
+#: ./ines/i18n.py:38
 msgid "April"
 msgstr ""
 
-#: ./ines/i18n.py:24
+#: ./ines/i18n.py:39
 msgid "May"
 msgstr ""
 
-#: ./ines/i18n.py:25
+#: ./ines/i18n.py:40
 msgid "June"
 msgstr ""
 
-#: ./ines/i18n.py:26
+#: ./ines/i18n.py:41
 msgid "July"
 msgstr ""
 
-#: ./ines/i18n.py:27
+#: ./ines/i18n.py:42
 msgid "August"
 msgstr ""
 
-#: ./ines/i18n.py:28
+#: ./ines/i18n.py:43
 msgid "September"
 msgstr ""
 
-#: ./ines/i18n.py:29
+#: ./ines/i18n.py:44
 msgid "October"
 msgstr ""
 
-#: ./ines/i18n.py:30
+#: ./ines/i18n.py:45
 msgid "November"
 msgstr ""
 
-#: ./ines/i18n.py:31
+#: ./ines/i18n.py:46
 msgid "December"
 msgstr ""
 
-#: ./ines/i18n.py:33
-msgid "yoctometre"
-msgstr ""
-
-#: ./ines/i18n.py:34
-msgid "zeptometre"
-msgstr ""
-
-#: ./ines/i18n.py:35
-msgid "attometre"
-msgstr ""
-
-#: ./ines/i18n.py:36
-msgid "femtometre"
-msgstr ""
-
-#: ./ines/i18n.py:37
-msgid "picometre"
-msgstr ""
-
-#: ./ines/i18n.py:38
-msgid "nanometre"
-msgstr ""
-
-#: ./ines/i18n.py:39
-msgid "micrometre"
-msgstr ""
-
-#: ./ines/i18n.py:40
-msgid "millimetre"
-msgstr ""
-
-#: ./ines/i18n.py:41
-msgid "centimetre"
-msgstr ""
-
-#: ./ines/i18n.py:42
-msgid "decimetre"
-msgstr ""
-
-#: ./ines/i18n.py:43
-msgid "metre"
-msgstr ""
-
-#: ./ines/i18n.py:44
-msgid "decametre"
-msgstr ""
-
-#: ./ines/i18n.py:45
-msgid "hectometre"
-msgstr ""
-
-#: ./ines/i18n.py:46
-msgid "kilometre"
-msgstr ""
-
-#: ./ines/i18n.py:47
-msgid "megametre"
-msgstr ""
-
-#: ./ines/i18n.py:48
-msgid "gigametre"
-msgstr ""
-
-#: ./ines/i18n.py:49
-msgid "terametre"
-msgstr ""
-
 #: ./ines/i18n.py:50
-msgid "petametre"
+#, python-format
+msgid "${week}, ${day} ${month} ${year} ${hour}"
 msgstr ""
 
 #: ./ines/i18n.py:51
-msgid "exametre"
+#, python-format
+msgid "${week}, ${day} ${month} ${year}"
 msgstr ""
 
 #: ./ines/i18n.py:52
-msgid "zettametre"
+#, python-format
+msgid "${day} ${month} ${year} ${hour}"
 msgstr ""
 
 #: ./ines/i18n.py:53
-msgid "yottametre"
-msgstr ""
-
-#: ./ines/i18n.py:58
 #, python-format
-msgid "${week}, ${day} ${month}, ${year}"
+msgid "${day} ${month} ${year}"
 msgstr ""
 
-#: ./ines/i18n.py:59
+#: ./ines/i18n.py:54
 #, python-format
-msgid "${day} ${month}, ${year}"
+msgid "${month} ${year} ${hour}"
 msgstr ""
 
-#: ./ines/i18n.py:60
+#: ./ines/i18n.py:55
 #, python-format
 msgid "${month} ${year}"
 msgstr ""
 
-#: ./ines/i18n.py:61
+#: ./ines/i18n.py:56
+#, python-format
+msgid "${year} ${hour}"
+msgstr ""
+
+#: ./ines/i18n.py:57
 #, python-format
 msgid "${year}"
 msgstr ""
 
-#: ./ines/i18n.py:62
+#: ./ines/i18n.py:58
+#, python-format
+msgid "${week}, ${month} ${year} ${hour}"
+msgstr ""
+
+#: ./ines/i18n.py:59
 #, python-format
 msgid "${week}, ${month} ${year}"
 msgstr ""
 
+#: ./ines/i18n.py:60
+#, python-format
+msgid "${week}, ${day} ${year} ${hour}"
+msgstr ""
+
+#: ./ines/i18n.py:61
+#, python-format
+msgid "${week}, ${day} ${year}"
+msgstr ""
+
+#: ./ines/i18n.py:62
+#, python-format
+msgid "${day} ${year} ${hour}"
+msgstr ""
+
 #: ./ines/i18n.py:63
 #, python-format
-msgid "${week}, ${day} of ${year}"
+msgid "${day} ${year}"
 msgstr ""
 
 #: ./ines/i18n.py:64
 #, python-format
-msgid "${day} of ${year}"
+msgid "${week}, ${year} ${hour}"
 msgstr ""
 
 #: ./ines/i18n.py:65
@@ -218,80 +174,199 @@ msgstr ""
 
 #: ./ines/i18n.py:66
 #, python-format
-msgid "${week}, ${day} ${month}"
+msgid "${week}, ${day} ${month} ${hour}"
 msgstr ""
 
 #: ./ines/i18n.py:67
 #, python-format
-msgid "${day} ${month}"
+msgid "${week}, ${day} ${month}"
 msgstr ""
 
 #: ./ines/i18n.py:68
 #, python-format
-msgid "${week}, ${month}"
+msgid "${day} ${month} ${hour}"
 msgstr ""
 
 #: ./ines/i18n.py:69
 #, python-format
-msgid "${month}"
+msgid "${day} ${month}"
 msgstr ""
 
 #: ./ines/i18n.py:70
 #, python-format
-msgid "${week}, ${day}"
+msgid "${week}, ${month} ${hour}"
 msgstr ""
 
 #: ./ines/i18n.py:71
 #, python-format
-msgid "${day}"
+msgid "${week}, ${month}"
 msgstr ""
 
 #: ./ines/i18n.py:72
 #, python-format
-msgid "${week}"
+msgid "${month} ${hour}"
 msgstr ""
 
 #: ./ines/i18n.py:73
+#, python-format
+msgid "${month}"
+msgstr ""
+
+#: ./ines/i18n.py:74
+#, python-format
+msgid "${week}, ${day} ${hour}"
+msgstr ""
+
+#: ./ines/i18n.py:75
+#, python-format
+msgid "${week}, ${day}"
+msgstr ""
+
+#: ./ines/i18n.py:76
+#, python-format
+msgid "${day} ${hour}"
+msgstr ""
+
+#: ./ines/i18n.py:77
+#, python-format
+msgid "${day}"
+msgstr ""
+
+#: ./ines/i18n.py:78
+#, python-format
+msgid "${week} ${hour}"
+msgstr ""
+
+#: ./ines/i18n.py:79
+#, python-format
+msgid "${week}"
+msgstr ""
+
+#: ./ines/i18n.py:80
 msgid "No data"
 msgstr ""
 
-#: ./ines/renderers.py:119
+#: ./ines/i18n.py:85
+msgid "yoctometre"
+msgstr ""
+
+#: ./ines/i18n.py:86
+msgid "zeptometre"
+msgstr ""
+
+#: ./ines/i18n.py:87
+msgid "attometre"
+msgstr ""
+
+#: ./ines/i18n.py:88
+msgid "femtometre"
+msgstr ""
+
+#: ./ines/i18n.py:89
+msgid "picometre"
+msgstr ""
+
+#: ./ines/i18n.py:90
+msgid "nanometre"
+msgstr ""
+
+#: ./ines/i18n.py:91
+msgid "micrometre"
+msgstr ""
+
+#: ./ines/i18n.py:92
+msgid "millimetre"
+msgstr ""
+
+#: ./ines/i18n.py:93
+msgid "centimetre"
+msgstr ""
+
+#: ./ines/i18n.py:94
+msgid "decimetre"
+msgstr ""
+
+#: ./ines/i18n.py:95
+msgid "metre"
+msgstr ""
+
+#: ./ines/i18n.py:96
+msgid "decametre"
+msgstr ""
+
+#: ./ines/i18n.py:97
+msgid "hectometre"
+msgstr ""
+
+#: ./ines/i18n.py:98
+msgid "kilometre"
+msgstr ""
+
+#: ./ines/i18n.py:99
+msgid "megametre"
+msgstr ""
+
+#: ./ines/i18n.py:100
+msgid "gigametre"
+msgstr ""
+
+#: ./ines/i18n.py:101
+msgid "terametre"
+msgstr ""
+
+#: ./ines/i18n.py:102
+msgid "petametre"
+msgstr ""
+
+#: ./ines/i18n.py:103
+msgid "exametre"
+msgstr ""
+
+#: ./ines/i18n.py:104
+msgid "zettametre"
+msgstr ""
+
+#: ./ines/i18n.py:105
+msgid "yottametre"
+msgstr ""
+
+#: ./ines/renderers.py:130
 msgid "Yes"
 msgstr ""
 
-#: ./ines/renderers.py:120
+#: ./ines/renderers.py:131
 msgid "No"
 msgstr ""
 
-#: ./ines/renderers.py:112
+#: ./ines/renderers.py:123
 msgid "Invalid CSV encoding"
 msgstr ""
 
-#: ./ines/validator.py:65 ./ines/validator.py:100 ./ines/validator.py:42
+#: ./ines/validator.py:67 ./ines/validator.py:102 ./ines/validator.py:44
 msgid "Invalid number"
 msgstr ""
 
-#: ./ines/validator.py:105 ./ines/validator.py:109
+#: ./ines/validator.py:107 ./ines/validator.py:111
 msgid "Invalid postal address"
 msgstr ""
 
-#: ./ines/validator.py:113
+#: ./ines/validator.py:115
 msgid "First number must be between 1000 and 9999"
 msgstr ""
 
-#: ./ines/validator.py:75
+#: ./ines/validator.py:77
 msgid "Invalid \"skype\" username"
 msgstr ""
 
-#: ./ines/validator.py:115
+#: ./ines/validator.py:117
 msgid "Second number must have 3 digits"
 msgstr ""
 
-#: ./ines/api/mailer.py:165
+#: ./ines/api/mailer.py:158
 msgid "Send queue emails"
 msgstr ""
 
-#: ./ines/api/storage.py:532
+#: ./ines/api/storage.py:551
 msgid "Create images"
 msgstr ""
 
@@ -299,114 +374,122 @@ msgstr ""
 msgid "Too many tries. Try again later"
 msgstr ""
 
-#: ./ines/views/fields.py:400
+#: ./ines/api/core/__init__.py:710
+msgid "Cannot update to this parent. Loop found."
+msgstr ""
+
+#: ./ines/views/fields.py:423
 msgid "Comma (,)"
 msgstr ""
 
-#: ./ines/views/fields.py:401
+#: ./ines/views/fields.py:424
 msgid "Semicolon (;)"
 msgstr ""
 
-#: ./ines/views/fields.py:402
+#: ./ines/views/fields.py:425
 msgid "TAB (\\t)"
 msgstr ""
 
-#: ./ines/views/fields.py:405
+#: ./ines/views/fields.py:428
 msgid "Double quote"
 msgstr ""
 
-#: ./ines/views/fields.py:406
+#: ./ines/views/fields.py:429
 msgid "Single quote"
 msgstr ""
 
-#: ./ines/views/fields.py:409
+#: ./ines/views/fields.py:432
 msgid "Windows (CR+LF)"
 msgstr ""
 
-#: ./ines/views/fields.py:410
+#: ./ines/views/fields.py:433
 msgid "Linux and MacOS (LF)"
 msgstr ""
 
-#: ./ines/views/fields.py:411
+#: ./ines/views/fields.py:434
 msgid "Old MacOS (CR)"
 msgstr ""
 
-#: ./ines/views/fields.py:412
+#: ./ines/views/fields.py:435
 msgid "Other (LF+CR)"
 msgstr ""
 
-#: ./ines/views/fields.py:415
+#: ./ines/views/fields.py:438
 msgid "All languages"
 msgstr ""
 
-#: ./ines/views/fields.py:416
+#: ./ines/views/fields.py:439
 msgid "West Europe"
 msgstr ""
 
-#: ./ines/views/fields.py:380
+#: ./ines/views/fields.py:400
 msgid "Page"
 msgstr ""
 
-#: ./ines/views/fields.py:381
+#: ./ines/views/fields.py:401
 msgid "Results per page"
 msgstr ""
 
-#: ./ines/views/fields.py:382
+#: ./ines/views/fields.py:402
 msgid "Order by"
 msgstr ""
 
-#: ./ines/views/fields.py:383
+#: ./ines/views/fields.py:403
 msgid "Number of results"
 msgstr ""
 
-#: ./ines/views/fields.py:384
+#: ./ines/views/fields.py:404
 msgid "Number of page results"
 msgstr ""
 
-#: ./ines/views/fields.py:385
+#: ./ines/views/fields.py:405
 msgid "Last page"
 msgstr ""
 
-#: ./ines/views/fields.py:386
+#: ./ines/views/fields.py:406
 msgid "Next page url"
 msgstr ""
 
-#: ./ines/views/fields.py:387
+#: ./ines/views/fields.py:407
 msgid "Previous page url"
 msgstr ""
 
-#: ./ines/views/fields.py:388
+#: ./ines/views/fields.py:408
 msgid "First page url"
 msgstr ""
 
-#: ./ines/views/fields.py:389
+#: ./ines/views/fields.py:409
 msgid "Last page url"
 msgstr ""
 
-#: ./ines/views/fields.py:422
+#: ./ines/views/fields.py:445
 msgid "CSV content delimiter"
 msgstr ""
 
-#: ./ines/views/fields.py:427
+#: ./ines/views/fields.py:450
 msgid "CSV content quote"
 msgstr ""
 
-#: ./ines/views/fields.py:432
+#: ./ines/views/fields.py:455
 msgid "CSV line terminator"
 msgstr ""
 
-#: ./ines/views/fields.py:437
+#: ./ines/views/fields.py:460
 msgid "CSV encoding"
 msgstr ""
 
-#: ./ines/views/fields.py:455
+#: ./ines/views/fields.py:478
 msgid "Deleted"
 msgstr ""
 
-#: ./ines/views/fields.py:327
+#: ./ines/views/fields.py:337
 msgid "Show fields"
 msgstr ""
 
-#: ./ines/views/fields.py:328
+#: ./ines/views/fields.py:338
 msgid "Exclude fields"
+msgstr ""
+
+#: ./ines/views/fields.py:223
+msgid "Invalid file."
 msgstr ""

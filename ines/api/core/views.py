@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import datetime
 from math import ceil
 
 from sqlalchemy import func
-
-
-NOW = datetime.datetime.now
 
 
 def define_pagination(query, page, limit_per_page):

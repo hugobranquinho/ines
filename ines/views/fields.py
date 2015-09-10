@@ -51,10 +51,23 @@ SchemaNode.clone = clone_sequenceschema_fix
 def update_node_attributes_on_clone(self, **kw):
     cloned = clone_sequenceschema_fix(self)
     cloned.__dict__.update(kw)
-    cloned._order = next(self._counter)
     return cloned
 update_node_attributes_on_clone.__name__ = 'clone'
 SchemaNode.clone = update_node_attributes_on_clone
+
+
+def update_node_order_on_clone(self, **kw):
+    cloned = update_node_attributes_on_clone(self)
+    cloned._order = next(self._counter)
+    return cloned
+update_node_order_on_clone.__name__ = 'clone'
+SchemaNode.clone = update_node_order_on_clone
+
+
+def schema_extend(self, **nodes):
+    self.children.extend(nodes)
+schema_extend.__name__ = 'extend'
+SchemaNode.extend = schema_extend
 
 
 def my_deserialize(self, cstruct=null):

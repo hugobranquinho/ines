@@ -54,7 +54,10 @@ class api_config(pyramid_view_config):
 
             route_name = settings.get('route_name') or view_defaults_settings.get('route_name')
             request_method = settings.get('request_method') or view_defaults_settings.get('request_method')
-            renderer = settings.get('renderer') or view_defaults_settings.get('renderer') or 'json'
+            renderer = settings['renderer'] = (
+                settings.get('renderer')
+                or view_defaults_settings.get('renderer')
+                or 'json')
 
             # Register input schema
             if input_option or use_fields:

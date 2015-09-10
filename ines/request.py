@@ -2,15 +2,22 @@
 
 from cgi import FieldStorage
 from io import BufferedReader
+from os.path import isabs
 
+from pyramid.compat import url_quote
+from pyramid.compat import WIN
 from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPFound
 from pyramid.interfaces import IAuthenticationPolicy
 from pyramid.interfaces import IAuthorizationPolicy
 from pyramid.interfaces import IRequestFactory
+from pyramid.interfaces import IStaticURLInfo
+from pyramid.path import caller_package
 from pyramid.renderers import render_to_response
 from pyramid.request import Request
 from pyramid.settings import asbool
+from pyramid.threadlocal import get_current_registry
+from pyramid.url import parse_url_overrides
 from six import moves
 from six import u
 from webob.compat import parse_qsl_text
@@ -28,6 +35,9 @@ from ines.utils import infinitedict
 
 
 unquote = moves.urllib.parse.unquote
+urlparse = moves.urllib.parse.urlparse
+urlunparse = moves.urllib.parse.urlunparse
+urljoin = moves.urllib.parse.urljoin
 
 
 class InesRequest(Request):
@@ -71,8 +81,15 @@ class InesRequest(Request):
 
     def render_to_response(self, renderer, values=None, status=None):
         if status is not None:
-            self.response.status = int(status)
-        return render_to_response(renderer, values or {}, self)
+            self.response.status_code = int(status)
+
+        response = render_to_response(
+            renderer_name=renderer,
+            value=values or {},
+            request=self,
+            package=self.registry.config.package,
+            response=self.response)
+        return response
 
     @reify
     def translator(self):
@@ -141,18 +158,72 @@ class InesRequest(Request):
             data = parse_qsl_text(self.environ.get('QUERY_STRING', ''))
             return MultiDict(data)
 
-    def redirect_to_url(self, url):
+    def redirect_to_url(self, url, headers=None):
         url = unquote(to_string(url))
-        return HTTPFound(location=url)
+        return HTTPFound(location=url, headers=headers)
 
     def redirect_to_self(self, *elements, **kw):
+        headers = kw.pop('headers', None)
         kw.update(self.context)
-        url = self.route_url(self.matched_route.name, *elements, **kw)
-        return self.redirect_to_url(url)
+        url = self.self_route_url(*elements, **kw)
+        return self.redirect_to_url(url, headers)
 
     def redirect_to_route(self, route_name, *elements, **kw):
+        headers = kw.pop('headers', None)
         url = self.route_url(route_name, *elements, **kw)
-        return self.redirect_to_url(url)
+        return self.redirect_to_url(url, headers)
+
+    @reify
+    def referer_path_url(self):
+        if self.referer:
+            url = urlparse(self.referer)._replace(query=None).geturl()
+            return to_unicode(url)
+
+    def static_url(self, path, **kw):
+        if not isabs(path) and ':' not in path:
+            package = caller_package()
+            package_name = package.__name__
+            path = '%s:%s' % (package_name, path)
+        else:
+            package_name = path.split(':', 1)[0]
+
+        if package_name == self.package_name:
+            registry = self.registry
+        else:
+            for application_name, config in APPLICATIONS.items():
+                if config.package_name == package_name:
+                    registry = config.registry
+                    break
+            else:
+                registry = get_current_registry() # b/c
+
+        info = registry.queryUtility(IStaticURLInfo)
+        if info is None:
+            raise ValueError('No static URL definition matching %s' % path)
+
+        registrations = info._get_registrations(registry)
+        api_route_url = getattr(self.applications, registry.application_name).route_url
+
+        for (url, spec, route_name, cachebust) in registrations:
+            if path.startswith(spec):
+                subpath = path[len(spec):]
+                if WIN: # pragma: no cover
+                    subpath = subpath.replace('\\', '/') # windows
+                if cachebust:
+                    subpath, kw = cachebust(subpath, kw)
+                if url is None:
+                    kw['subpath'] = subpath
+                    return api_route_url(route_name, **kw)
+                else:
+                    app_url, scheme, host, port, qs, anchor = parse_url_overrides(kw)
+                    parsed = urlparse(url)
+                    if not parsed.scheme:
+                        url = urlunparse(parsed._replace(scheme=self.environ['wsgi.url_scheme']))
+                    subpath = url_quote(subpath)
+                    result = urljoin(url, subpath)
+                    return result + qs + anchor
+
+        raise ValueError('No static URL definition matching %s' % path)
 
 
 class ApplicationsConnector(object):

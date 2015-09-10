@@ -85,7 +85,14 @@ class CSV(object):
                     request.matched_route.name,
                     request_method=request.method)
                 if output:
-                    value = self.lookup_rows(output[0].schema.children[0], value)
+                    output_schema = output[0].schema
+                    value = self.lookup_rows(output_schema.children[0], value)
+
+                    output_filename = getattr(output_schema, 'filename', None)
+                    if output_filename:
+                        if callable(output_filename):
+                            output_filename = output_filename()
+                        response.content_disposition = 'attachment; filename="%s"' % output_filename
 
                 csv_delimiter = request.params.get(camelcase('csv_delimiter'))
                 if csv_delimiter:

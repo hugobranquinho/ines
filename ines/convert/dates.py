@@ -7,6 +7,7 @@ from ines.convert.strings import to_string
 
 
 DATE = datetime.date
+TODAY = DATE.today
 DATETIME = datetime.datetime
 STRING_TO_DATETIME = datetime.datetime.strptime
 COMBINE_DATETIME = datetime.datetime.combine
@@ -71,3 +72,16 @@ def guess_datetime(value):
                 pass
             else:
                 return datetime_value
+
+
+def total_seconds(value):
+    return int(value.seconds + value.days * 24 * 3600)
+
+
+def total_time_seconds(value):
+    return (((value.hour * 60) + value.minute) * 60) + value.second
+
+
+def calculate_age(born):
+    today = TODAY()
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))

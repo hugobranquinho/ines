@@ -50,12 +50,27 @@ class LoggingMiddleware(Middleware):
             if print_message:
                 print_(string_join('', format_exception(*sys.exc_info())))
 
-            internal_server_error = HTTPInternalServerError()
+            return_default = False
             if isinstance(request.registry.config, APIConfigurator):
                 headers = [('Content-type', 'application/json')]
+                internal_server_error = HTTPInternalServerError()
                 start_response(internal_server_error.status, headers)
                 response = format_error_response_to_json(internal_server_error, request=request)
                 yield response
             else:
+                error_view = self.config.settings.get('errors.interface.global_error_view')
+                if error_view is None:
+                    return_default = True
+                else:
+                    try:
+                        response = error_view(error, request)
+                    except Exception:
+                        return_default = True
+                    else:
+                        start_response(response.status, response.headerlist)
+                        yield response.body
+
+            if return_default:
+                internal_server_error = HTTPInternalServerError()
                 for response in internal_server_error(environ, start_response):
                     yield response

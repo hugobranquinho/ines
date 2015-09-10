@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import datetime
-
 from six import string_types
 from sqlalchemy import Column
 from sqlalchemy import DateTime
@@ -11,12 +9,10 @@ from sqlalchemy import Integer
 from sqlalchemy import Unicode
 from sqlalchemy.ext.declarative import declared_attr
 
+from ines import NOW
 from ines.api.database.sql import get_tables_on_registry
 from ines.api.database.sql import sql_declarative_base
 from ines.utils import make_unique_hash
-
-
-NOW = datetime.datetime.now
 
 
 class _Base(object):

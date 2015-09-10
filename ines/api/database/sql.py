@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 from collections import defaultdict
-import datetime
 
 from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
@@ -26,6 +25,7 @@ from sqlalchemy.sql.expression import false
 from sqlalchemy.sql.expression import true
 from sqlalchemy.util._collections import lightweight_named_tuple
 
+from ines import NOW
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.convert import maybe_set
@@ -40,7 +40,6 @@ from ines.utils import PaginationClass
 
 SQL_DBS = defaultdict(dict)
 SQLALCHEMY_NOW_TYPE = type(func.now())
-NOW = datetime.datetime.now
 
 
 class BaseSQLSessionManager(BaseSessionManager):
@@ -287,17 +286,20 @@ def create_rlike_filter(column, value):
 
 
 class Pagination(PaginationClass):
-    def __init__(self, query, page=1, limit_per_page=20):
+    def __init__(self, query, page=1, limit_per_page=20, count_column=None):
         if query is None:
             super(Pagination, self).__init__(page=1, limit_per_page=limit_per_page)
         else:
             super(Pagination, self).__init__(page=page, limit_per_page=limit_per_page)
 
-            # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
-            entities = set(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
+            entities = set()
+            if not count_column:
+                # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
+                entities.update(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
+
             self.set_number_of_results(
                 query
-                .with_entities(func.count(1), *entities)
+                .with_entities(func.count(count_column or 1), *entities)
                 .order_by(None)
                 .first()[0])
 
