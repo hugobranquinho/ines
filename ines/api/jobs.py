@@ -10,6 +10,7 @@ from pyramid.settings import asbool
 from six import _import_module
 from six import print_
 from six import u
+from sqlalchemy.util._collections import lightweight_named_tuple
 import venusian
 
 from ines import DOMAIN_NAME
@@ -19,13 +20,16 @@ from ines import SYSTEM_VERSION
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.convert import maybe_list
+from ines.convert import to_unicode
 from ines.cron import Cron
+from ines.cron import DATES_RANGES
 from ines.exceptions import LockTimeout
 from ines.exceptions import NoMoreDates
 from ines.interfaces import IBaseSessionManager
 from ines.path import join_paths
 from ines.request import make_request
 from ines.system import start_system_thread
+from ines.utils import sort_with_none
 
 
 JOBS = []
@@ -126,7 +130,9 @@ class BaseJobsManager(BaseSessionManager):
         try:
             self.validate_daemons()
 
-            immediate_jobs = set(self.config.cache.get_values(JOBS_IMMEDIATE_KEY, expire=None))
+            immediate_jobs = set(
+                to_unicode(k)
+                for k in self.config.cache.get_values(JOBS_IMMEDIATE_KEY, expire=None))
             for apijob in JOBS:
                 run_job = False
                 if apijob.name in immediate_jobs:
@@ -169,7 +175,7 @@ class BaseJobsManager(BaseSessionManager):
 
             self.config.cache.put(JOBS_REPORT_KEY, info, expire=None)
 
-    def get_active_jobs(self, application_names=None):
+    def get_active_jobs(self, application_names=None, attributes=None, order_by=None):
         jobs = {}
         application_names = maybe_list(application_names)
         for domain_name in self.domain_names:
@@ -180,27 +186,55 @@ class BaseJobsManager(BaseSessionManager):
             for name, info in domain_info.items():
                 application_name = get_job_application_name(name)
                 if not application_names or application_name in application_names:
-                    if name in jobs:
-                        info_next = info['next']
-                        added_info_next = jobs[name]['next']
-                        if info_next:
-                            if not added_info_next or added_info_next > info_next:
-                                jobs[name]['next'] = info_next
-
-                        if info['start'] < jobs[name]['start']:
-                            jobs[name]['start'] = info['start']
-                        if info['active']:
-                            jobs[name]['active'] = True
-                        if info['called']:
-                            jobs[name].setdefault('called', []).extend(info['called'])
-                            jobs[name]['called'].sort()
-                    else:
-                        jobs[name] = info
-
+                    job_info = jobs.get(name)
+                    if not job_info:
+                        jobs[name] = job_info = {}
                         apijob = get_job(name)
-                        jobs[name]['title'] = apijob.title if apijob else None
+                        if not apijob:
+                            continue
 
-        return jobs
+                        job_info['key'] = apijob.name
+                        job_info['application_name'] = application_name
+                        job_info['description'] = apijob.title
+
+                    info_next = info['next']
+                    if info_next:
+                        added_info_next = job_info.get('next_date')
+                        if not added_info_next or added_info_next > info_next:
+                            job_info['next_date'] = info_next
+
+                    if not job_info.get('start_date') or info['start'] < job_info['start_date']:
+                        job_info['start_date'] = info['start']
+
+                    called = job_info.setdefault('called', [])
+                    if info.get('called'):
+                        called.extend(info['called'])
+                        called.sort()
+                    job_info['called_length'] = len(called)
+
+                    if called:
+                        last_date = job_info.get('last_date')
+                        if not last_date:
+                            job_info['last_date'] = called[-1]
+                        elif called[-1] > last_date:
+                            job_info['last_date'] = called[-1]
+
+                    if not job_info.get('active'):
+                        job_info['active'] = info['active']
+
+        # Give SQLAlchemy like response
+        response = []
+        attributes = tuple(maybe_list(attributes) or ('application_name', ))
+        for info in jobs.values():
+            response.append(
+                lightweight_named_tuple('result', attributes)
+                (tuple(info.get(key) for key in attributes)))
+
+        if order_by:
+            column = order_by.column_name
+            sort_with_none(response, key=column, reverse=order_by.descendant)
+
+        return response
 
     def validate_daemons(self):
         if RUNNING_JOBS:
@@ -261,10 +295,14 @@ class APIJob(object):
         self.updating = False
         self.last_called_date = None
 
-        self.domain_name = settings.pop('domain_name', None)
-        self.title = settings.pop('title', None)
+        self.domain_name = settings.get('domain_name', None)
+        self.title = settings.get('title', None)
 
-        self.cron = Cron(**settings)
+        cron_settings = {}
+        for key in DATES_RANGES.keys():
+            if key in settings:
+                cron_settings[key] = settings[key]
+        self.cron = Cron(**cron_settings)
 
         self.enable()
 
