@@ -3,6 +3,7 @@
 import mimetypes
 
 from ines.convert import maybe_string
+from ines.convert import to_bytes
 from ines.utils import is_file_type
 
 
@@ -26,6 +27,7 @@ class GuessTypeWithData(object):
             self.min_header_size = first_size
 
     def add_startswith(self, key, mimetype):
+        key = to_bytes(key)
         size = len(key)
         for i, (s, k, m) in enumerate(self.startswith_func):
             if s < size:
@@ -39,6 +41,7 @@ class GuessTypeWithData(object):
             self.min_header_size = first_size
 
     def __call__(self, data):
+        data = to_bytes(data)
         for size, func in self.special_func:
             mimetype = func(data[:size])
             if mimetype:
