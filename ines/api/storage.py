@@ -163,7 +163,7 @@ class BaseStorageSession(BaseSQLSession):
 
     @reify
     def storage_path(self):
-        return self.settings['path']
+        return self.settings['folder_path']
 
     @reify
     def max_blocks_per_folder(self):
@@ -247,9 +247,8 @@ class BaseStorageSession(BaseSQLSession):
 
                     # Lets flush the session to prevent waiting in a possible locked block
                     block_size = len(block_binary)
-                    block_id = (
-                        self.direct_insert(BlockPath(path=path, size=block_size, code=block_hash))
-                        .lastrowid)
+                    block_response = self.direct_insert(BlockPath(path=path, size=block_size, code=block_hash))
+                    block_id = block_response.inserted_primary_key[0]
 
                     response.append((block_id, block_size))
                     existing_blocks[block_hash] = (block_id, block_size)
@@ -340,7 +339,9 @@ class BaseStorageSession(BaseSQLSession):
             parent_id=MARKER,
             parent_key=None,
             attributes=None,
-            only_one=False):
+            only_one=False,
+            order_by=None,
+            **kwargs):
 
         attributes = set(attributes or ['id'])
         return_open_file = 'open_file' in attributes
@@ -358,11 +359,15 @@ class BaseStorageSession(BaseSQLSession):
                 relate_with_path = True
         query = self.session.query(*columns or [File.id])
 
+        if file_id:
+            query = query.filter(FilePath.id.in_(maybe_set(file_id)))
+            relate_with_path = True
+
         if relate_with_path:
             query = query.filter(File.file_id == FilePath.id)
 
-        if id:
-            query = query.filter(File.id.in_(maybe_set(file_id)))
+        if 'id' in kwargs:
+            query = query.filter(File.id.in_(maybe_set(kwargs['id'])))
         if key:
             query = query.filter(File.key.in_(maybe_set(key)))
 
@@ -389,6 +394,9 @@ class BaseStorageSession(BaseSQLSession):
         if parent_key:
             parent = aliased(File)
             query = query.filter(File.parent_id == parent.id).filter(parent.key == to_unicode(parent_key))
+
+        if order_by is not None:
+            query = query.order_by(order_by)
 
         if only_one:
             response = query.first()
@@ -457,11 +465,11 @@ class BaseStorageWithImageSession(BaseStorageSession):
             self.flush()
             return self.get_files(
                 parent_key=key,
-                type_key=u('resize-%s') % resize_name,
+                type_key='resize-%s' % resize_name,
                 only_one=True,
                 attributes=attributes)
 
-    def resize_image(self, file_id, application_code, resize_name):
+    def resize_image(self, fid, application_code, resize_name):
         if application_code not in self.api_session_manager.resizes:
             raise Error('application_code', u('Invalid application code: %s') % application_code)
 
@@ -471,14 +479,14 @@ class BaseStorageWithImageSession(BaseStorageSession):
         resize_width = maybe_integer(resize.get('width'))
         resize_height = maybe_integer(resize.get('height'))
         if not resize_width and not resize_height:
-            raise Error('resize', u('Invalid resize options'))
+            raise Error('resize', 'Invalid resize options')
 
         file_info = self.get_file(
-            id=file_id,
+            id=fid,
             application_code=application_code,
             attributes=['open_file', 'key', 'filename', 'title', 'code_key'])
         if not file_info:
-            raise Error('file', u('File ID not found'))
+            raise Error('file', 'File ID not found')
 
         temporary_path = None
         type_key = u('resize-%s') % resize_name
@@ -486,13 +494,13 @@ class BaseStorageWithImageSession(BaseStorageSession):
         if file_info.filename:
             filename = u('%s-%s') % (resize_name, file_info.filename)
 
-        lock_key = 'create image resize %s %s' % (file_id, resize_name)
+        lock_key = 'create image resize %s %s' % (fid, resize_name)
         self.cache.lock(lock_key)
         try:
             existing = (
                 self.session
                 .query(File)
-                .filter(File.parent_id == file_id)
+                .filter(File.parent_id == fid)
                 .filter(File.application_code == application_code)
                 .filter(File.type_key == type_key)
                 .first())
@@ -537,7 +545,7 @@ class BaseStorageWithImageSession(BaseStorageSession):
                     type_key=type_key,
                     filename=filename,
                     title=file_info.title,
-                    parent_id=file_id)
+                    parent_id=fid)
 
         finally:
             self.cache.unlock(lock_key)
