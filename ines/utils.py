@@ -575,3 +575,10 @@ def is_file_type(value):
         return isinstance(value, IOBase)
     else:
         return isinstance(value, file)
+
+
+def sort_with_none(iterable, key, reverse=False):
+    def sort_key(item):
+        value = getattr(item, key)
+        return (value is None, value)
+    iterable.sort(key=sort_key, reverse=reverse)

@@ -56,14 +56,6 @@ update_node_attributes_on_clone.__name__ = 'clone'
 SchemaNode.clone = update_node_attributes_on_clone
 
 
-def update_node_order_on_clone(self, **kw):
-    cloned = update_node_attributes_on_clone(self)
-    cloned._order = next(self._counter)
-    return cloned
-update_node_order_on_clone.__name__ = 'clone'
-SchemaNode.clone = update_node_order_on_clone
-
-
 def schema_extend(self, **nodes):
     self.children.extend(nodes)
 schema_extend.__name__ = 'extend'
@@ -90,6 +82,15 @@ def my_deserialize(self, cstruct=null):
     return appstruct
 my_deserialize.__name__ = 'deserialize'
 SchemaNode.deserialize = my_deserialize
+
+
+_original_SchemaMeta__init__ = _SchemaMeta.__init__
+def _order_schemaMeta_nodes(cls, name, bases, clsattrs):
+    _original_SchemaMeta__init__(cls, name, bases, clsattrs)
+    if cls.__all_schema_nodes__:
+        cls.__all_schema_nodes__.sort(lambda n: n._order)
+_order_schemaMeta_nodes.__name__ = '__init__'
+_SchemaMeta.__init__ = _order_schemaMeta_nodes
 
 
 def my_init(self, *arg, **kw):
@@ -150,30 +151,6 @@ def my_range_call(self, node, value):
             raise Invalid(node, max_err)
 my_range_call.__name__ = '__call__'
 Range.__call__ = my_range_call
-
-
-# Propose this!
-# If a diferent name is defined, should we clone? and set a new name?
-def my_schemameta(cls, name, bases, clsattrs):
-    nodes = []
-    for name, value in clsattrs.items():
-        if isinstance(value, _SchemaNode):
-            delattr(cls, name)
-            # If a diferent name is defined, should we clone? and set a new name?
-            if value.name:
-                value = value.clone()
-            value.name = name
-            if value.raw_title is _marker:
-                value.title = name.replace('_', ' ').title()
-            nodes.append((value._order, value))
-    nodes.sort()
-    cls.__class_schema_nodes__ = [n[1] for n in nodes]
-    cls.__all_schema_nodes__ = []
-    for c in reversed(cls.__mro__):
-        csn = getattr(c, '__class_schema_nodes__', [])
-        cls.__all_schema_nodes__.extend(csn)
-my_schemameta.__name__ = '__init__'
-_SchemaMeta.__init__ = my_schemameta
 
 
 class OneOfWithDescription(OneOf):
