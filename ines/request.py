@@ -158,6 +158,9 @@ class InesRequest(Request):
             data = parse_qsl_text(self.environ.get('QUERY_STRING', ''))
             return MultiDict(data)
 
+    def self_route_url(self, *elements, **kw):
+        return self.route_url(self.matched_route.name, *elements, **kw)
+
     def redirect_to_url(self, url, headers=None):
         url = unquote(to_string(url))
         return HTTPFound(location=url, headers=headers)
