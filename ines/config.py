@@ -350,7 +350,7 @@ class Configurator(PyramidConfigurator):
         self.set_authorization_policy(authorization_policy)
 
     @configuration_extensions('errors.interface')
-    def add_errors_interface(self, not_found=None, forbidden=None, global_error=None):
+    def add_errors_interface(self, not_found=None, forbidden=None, global_error=None, error=None):
         if not_found:
             self.add_view(
                 view=not_found,
@@ -362,10 +362,16 @@ class Configurator(PyramidConfigurator):
                 context=Forbidden,
                 permission=NO_PERMISSION_REQUIRED)
         if global_error:
-            self.settings['errors.interface.global_error_view'] = error_view = self.maybe_dotted(global_error)
+            self.settings['errors.interface.global_error_view'] = global_error_view = self.maybe_dotted(global_error)
+            self.add_view(
+                view=global_error_view,
+                context=IExceptionResponse,
+                permission=NO_PERMISSION_REQUIRED)
+        if error:
+            self.settings['errors.interface.error_view'] = error_view = self.maybe_dotted(error)
             self.add_view(
                 view=error_view,
-                context=IExceptionResponse,
+                context=Error,
                 permission=NO_PERMISSION_REQUIRED)
 
     @configuration_extensions('deform')
