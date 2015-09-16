@@ -97,6 +97,8 @@ class BaseMailerSession(BaseSession):
 
         if html:
             html = to_unicode(html, encoding=content_charset)
+            if not html.lower().startswith('<html'):
+                html = '<html><body></body></html>'
 
         options = {}
         # FROM sender
