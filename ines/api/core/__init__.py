@@ -673,7 +673,7 @@ class ORMQuery(object):
             .join_options(self.options)
             .all(active=active))
         if not response:
-            return False
+            return MISSING
 
         # Convert to string keys dict
         values = dict(
@@ -1610,3 +1610,19 @@ def active_in_list(values):
         if is_active_attribute(value):
             return True
     return False
+
+
+class _update_missing(object):
+    def __nonzero__(self):
+        return False
+
+    # py3 compat
+    __bool__ = __nonzero__
+
+    def __repr__(self):
+        return 'No item on update'
+
+    def __reduce__(self):
+        return 'false'
+
+MISSING = _update_missing()
