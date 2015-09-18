@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 
 from cgi import FieldStorage
+from json import dumps
 from json import loads
 from os.path import basename
 
 from colander import _ as COLANDER_I18N
 from colander import _SchemaMeta
-from colander import _SchemaNode
-from colander import _marker
 from colander import Boolean as BaseBoolean
 from colander import drop
 from colander import Date
@@ -24,7 +23,7 @@ from colander import Sequence
 from colander import SequenceSchema
 from colander import String
 from colander.compat import is_nonstr_iter
-from six import string_types
+from deform.widget import DateInputWidget
 from six import u
 
 from ines.convert import to_string
@@ -32,6 +31,26 @@ from ines.convert import to_unicode
 from ines.convert import uncamelcase
 from ines.i18n import _
 from ines.utils import is_file_type
+
+
+def datetinput_serialize(self, field, cstruct, **kw):
+    if cstruct in (null, None):
+        cstruct = ''
+    readonly = kw.get('readonly', self.readonly)
+    template = readonly and self.readonly_template or self.template
+    options = dict(
+        kw.get('options') or self.options or self.default_options
+        )
+    options['submitFormat'] = 'yyyy-mm-dd'
+
+    if callable(options.get('max')):
+        options['max'] = options['max']()
+
+    kw.setdefault('options_json', dumps(options))
+    values = self.get_template_values(field, cstruct, kw)
+    return field.renderer(template, **values)
+datetinput_serialize.__name__ = 'serialize'
+DateInputWidget.serialize = datetinput_serialize
 
 
 # See https://github.com/Pylons/colander/pull/212
@@ -570,3 +589,21 @@ def set_node_with_filter_by(node):
         return node.clone(typ=FilterByDateTime())
     else:
         return node
+
+
+class ActiveBoolean(Boolean):
+    def serialize(self, node, appstruct):
+        if appstruct is null or appstruct == '':
+            return null
+        elif appstruct is None:
+            return 'all'
+        else:
+            return appstruct and self.true_val or self.false_val
+
+    def deserialize(self, node, cstruct):
+        if cstruct is null or cstruct == '':
+            return null
+        elif str(cstruct).lower() == 'all':
+            return None
+        else:
+            return Boolean.deserialize(self, node, cstruct)

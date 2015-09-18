@@ -373,6 +373,10 @@ class Configurator(PyramidConfigurator):
                 view=error_view,
                 context=Error,
                 permission=NO_PERMISSION_REQUIRED)
+            self.add_view(
+                view=error_view,
+                context=Invalid,
+                permission=NO_PERMISSION_REQUIRED)
 
     @configuration_extensions('deform')
     def set_deform_translation(self, path):

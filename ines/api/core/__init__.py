@@ -513,13 +513,17 @@ class ORMQuery(object):
         response = self.construct_query(active=active).one()
         return self.parse_results([response], active=active)[0]
 
-    def first(self, active=True):
-        response = self.construct_query(active=active).first()
+    def build_first(self, query, active=True):
+        response = query.first()
         if response is not None:
             return self.parse_results([response], active=active)[0]
 
-    def all(self, active=True, count_column=None):
-        query = self.construct_query(active=active)
+    def first(self, active=True):
+        return self.build_first(
+            self.construct_query(active=active),
+            active=active)
+
+    def build_all(self, query, active=True, count_column=None):
         if self.options.page:
             response = Pagination(
                 query,
@@ -536,6 +540,10 @@ class ORMQuery(object):
             return response
         else:
             return parsed_response
+
+    def all(self, active=True, count_column=None):
+        query = self.construct_query(active=active)
+        return self.build_all(query, active=active, count_column=count_column)
 
     def count(self, active=True):
         query = self.construct_query(active=active)
@@ -588,14 +596,14 @@ class ORMQuery(object):
             column_names = [k for k in column.table.c.keys() if k not in ('updated_date', 'created_date')]
             for type_id, table in response:
                 context_id = getattr(table, 'parent_id', None)
-                data = dict((c, resolve_database_value(getattr(table, c))) for c in column_names)
+                previous_data = dict((c, resolve_database_value(getattr(table, c))) for c in column_names)
                 self.api_session.add_activity(
                     orm_table,
                     action=activity_action or 'delete',
                     type_name=type_name,
                     type_id=type_id,
                     context_id=context_id,
-                    data=data)
+                    previous_data=previous_data)
 
                 self.api_session.delete_from_index(type_name, type_id)
 
@@ -677,7 +685,7 @@ class ORMQuery(object):
 
         # Convert to string keys dict
         values = dict(
-            (k if isinstance(k, string_types) else k.name, v)
+            (isinstance(k, string_types) and k or k.name, v)
             for k, v in values.items())
 
         # Convert time zones
@@ -757,7 +765,8 @@ class ORMQuery(object):
                         for k, v in update_values.items() if k not in ignore_columns)
 
                     r_value = references[type_id]
-                    data = dict((k, resolve_database_value(getattr(r_value, k))) for k in column_names)
+                    previous_data = dict((k, resolve_database_value(getattr(r_value, k))) for k in column_names)
+                    data = previous_data.copy()
                     data.update(update_items)
 
                     self.api_session.add_activity(
@@ -766,6 +775,7 @@ class ORMQuery(object):
                         type_name=type_name,
                         type_id=type_id,
                         context_id=parent_ids.get(type_id),
+                        previous_data=previous_data,
                         data=data)
 
                     self.api_session.update_on_index(type_name, type_id, update_items)
@@ -811,16 +821,52 @@ class BaseCoreSession(BaseSQLSession):
                 hours=int(time_zone_hours or 0),
                 minutes=int(time_zone_minutes or 0))
 
-    def get_activity_message(self, table, action, type_name, type_id, context_id=None, data=None):
+    def get_activity_message(
+            self,
+            table,
+            action,
+            type_name,
+            type_id,
+            context_id=None,
+            previous_data=None,
+            data=None):
+
         action_messages = getattr(table, '__action_messages__', None)
         if action_messages:
             message = action_messages.get(action)
             if message:
                 return message
 
+        if action == 'update':
+            update_action_messages = getattr(table, '__update_action_messages__', None)
+            if update_action_messages:
+                changes = []
+                for key, options in update_action_messages.items():
+                    previous_value = previous_data and previous_data[key] or None
+                    new_value = data and data[key] or None
+                    if different_values(previous_value, new_value):
+                        if not new_value:
+                            method_key = 'on_delete'
+                        else:
+                            method_key = 'default'
+
+                        method = options.get(method_key) or options['default']
+                        changes.append(method(self.request, previous_value, new_value))
+
+                if not changes:
+                    return self.request.translate(_('Nothing updated'))
+                else:
+                    return '. '.join(changes)
+
         table_method = getattr(table, 'get_activity_message', None)
         if table_method:
-            message = table_method(self.request, action=action, type_id=type_id, context_id=context_id, data=data)
+            message = table_method(
+                self.request,
+                action=action,
+                type_id=type_id,
+                context_id=context_id,
+                previous_data=previous_data,
+                data=data)
             if message:
                 return message
 
@@ -835,8 +881,24 @@ class BaseCoreSession(BaseSQLSession):
             message += u(' from %s') % to_unicode(context_id)
         return message
 
-    def add_activity(self, table, action, type_name, type_id, context_id=None, data=None):
-        message = self.get_activity_message(table, action, type_name, type_id, context_id=context_id, data=data)
+    def add_activity(
+            self,
+            table,
+            action,
+            type_name,
+            type_id,
+            context_id=None,
+            previous_data=None,
+            data=None):
+
+        message = self.get_activity_message(
+            table,
+            action=action,
+            type_name=type_name,
+            type_id=type_id,
+            context_id=context_id,
+            previous_data=previous_data,
+            data=data)
 
         # Set to logging
         extra = dict(
