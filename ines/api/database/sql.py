@@ -89,13 +89,13 @@ class BaseSQLSession(BaseSession):
     def direct_insert(self, obj):
         values = {}
         for column in obj.__table__.c:
-            name = column.name
-            value = getattr(obj, name, None)
+            key = column.key
+            value = getattr(obj, key, None)
             if value is None and column.default:
                 value = column.default.execute()
 
             if value is not None:
-                values[name] = value
+                values[key] = value
 
         return (
             obj.__table__
@@ -111,9 +111,9 @@ class BaseSQLSession(BaseSession):
 
     def direct_update(self, obj, query, values):
         for column in obj.__table__.c:
-            name = column.name
-            if name not in values and column.onupdate:
-                values[name] = column.onupdate.execute()
+            key = column.key
+            if key not in values and column.onupdate:
+                values[key] = column.onupdate.execute()
 
         return (
             obj.__table__
@@ -192,7 +192,7 @@ class BaseSQLSession(BaseSession):
                         relate_with.add(name)
 
                         for column in external_columns:
-                            column_idx, label_name = name_attributes[column.name]
+                            column_idx, label_name = name_attributes[column.key]
                             columns[column_idx] = column.label(label_name)
 
         return LookupAtributes(columns, relate_with)
@@ -314,7 +314,7 @@ class BaseSQLSession(BaseSession):
                     relate_with.add(name)
 
                     for column in external_columns:
-                        column_idx, label_name, as_desc = name_attributes[column.name]
+                        column_idx, label_name, as_desc = name_attributes[column.key]
                         column = column.label(label_name)
 
                         if as_desc:
@@ -396,7 +396,7 @@ def initialize_sql(
             if table.indexes:
                 for index in table.indexes:
                     for column in getattr(index.columns, '_all_columns'):
-                        indexed_columns[table.name].add(column.name)
+                        indexed_columns[table.name].add(column.key)
 
                     try:
                         index.create()

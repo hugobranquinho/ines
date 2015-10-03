@@ -158,7 +158,7 @@ class CSV(object):
                     elif isinstance(item, (DATE, DATETIME)):
                         item = to_string(item.isoformat())
                     else:
-                        item = to_string(json_dumps(item) or '')
+                        item = to_string(item or '')
                     row.append(item)
                 csvfile.writerow(row)
 
