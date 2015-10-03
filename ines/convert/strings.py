@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import datetime
 from json import dumps
 from re import compile as regex_compile
 
@@ -15,6 +16,7 @@ from ines import CAMELCASE_UPPER_WORDS
 from ines import lru_cache
 
 
+DATE = datetime.date
 REPLACE_CAMELCASE_REGEX = regex_compile(u('[^A-Z0-9_.]')).sub
 CLEAR_SPACES_REGEX = regex_compile(' +').sub
 
@@ -228,6 +230,8 @@ def prepare_for_json(value):
         return prepare_dict_for_json(value)
     elif is_nonstr_iter(value):
         return prepare_iter_for_json(value)
+    elif isinstance(value, DATE):
+        return value.isoformat()
     else:
         return to_unicode(value)
 

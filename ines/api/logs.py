@@ -51,8 +51,10 @@ class BaseLogSession(BaseSession):
             print_(key, ' ' * (bigger - len(key)), ':', to_unicode(value))
 
         if level == 'CRITICAL':
-            print_()
-            print_(string_join('', format_exception(*sys.exc_info())))
+            sys_exc_info = sys.exc_info()  # type, value, traceback
+            if sys_exc_info[2] is not None:
+                print_()
+                print_(string_join('', format_exception(*sys_exc_info)))
 
         print_()
         try:

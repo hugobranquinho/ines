@@ -6,6 +6,8 @@
 from calendar import monthrange
 import datetime
 
+from pyramid.compat import is_nonstr_iter
+
 from ines import NOW
 from ines.convert import to_string
 from ines.convert import maybe_integer
@@ -166,7 +168,7 @@ def format_crontab_options(**kwargs):
         if values is None:
             continue
 
-        if not hasattr(values, '__iter__'):
+        if not is_nonstr_iter(values):
             values = [values]
         if '*' in values:
             continue

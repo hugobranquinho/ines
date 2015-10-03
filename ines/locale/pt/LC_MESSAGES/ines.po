@@ -359,7 +359,7 @@ msgstr "Vírgula (,)"
 
 #: ines/views/fields.py:424
 msgid "Semicolon (;)"
-msgstr "Ponto e vírgula (,)"
+msgstr "Ponto e vírgula (;)"
 
 #: ines/views/fields.py:425
 msgid "TAB (\\t)"

@@ -8,8 +8,10 @@ from os.path import basename
 
 from colander import Mapping
 from colander import Sequence
+from six import binary_type
 from six import integer_types
 from six import moves
+from six import PY3
 from six import string_types
 from six import u
 
@@ -72,8 +74,7 @@ class CSV(object):
             quote_char = '"'
             line_terminator = '\r\n'
             quoting = QUOTE_MINIMAL
-            encode_string = to_string
-            decode_string = to_unicode
+            encoder = None
 
             if request is not None:
                 response = request.response
@@ -94,19 +95,22 @@ class CSV(object):
                             output_filename = output_filename()
                         response.content_disposition = 'attachment; filename="%s"' % output_filename
 
-                csv_delimiter = request.params.get(camelcase('csv_delimiter'))
+                _get_param = request.params.get
+                get_param = lambda k: _get_param(k) or _get_param(camelcase(k))
+
+                csv_delimiter = get_param('csv_delimiter')
                 if csv_delimiter:
-                    delimiter = encode_string(csv_delimiter)
+                    delimiter = to_string(csv_delimiter)
                     if delimiter == '\\t':
                         delimiter = '\t'
                     else:
                         delimiter = delimiter[0]
 
-                csv_quote_char = request.params.get(camelcase('csv_quote_char'))
+                csv_quote_char = get_param('csv_quote_char')
                 if csv_quote_char:
-                    quote_char = encode_string(csv_quote_char)
+                    quote_char = to_string(csv_quote_char)
 
-                csv_line_terminator = request.params.get(camelcase('csv_line_terminator'))
+                csv_line_terminator = get_param('csv_line_terminator')
                 if csv_line_terminator:
                     if csv_line_terminator == u('\\n\\r'):
                         line_terminator = '\n\r'
@@ -115,7 +119,7 @@ class CSV(object):
                     elif csv_line_terminator == u('\\r'):
                         line_terminator = '\r'
 
-                csv_encoding = request.params.get(camelcase('csv_encoding'))
+                csv_encoding = get_param('csv_encoding')
                 if csv_encoding:
                     try:
                         encoder = codecs.lookup(csv_encoding)
@@ -123,18 +127,16 @@ class CSV(object):
                         raise Error('csv_encoding', _('Invalid CSV encoding'))
                     else:
                         if encoder.name != 'utf-8':
-                            encode_string = lambda v: encoder.encode(v)[0]
-                            decode_string = lambda v: encoder.decode(v)[0]
                             request.response.charset = encoder.name
 
-                yes_text = encode_string(request.translate(_('Yes')))
-                no_text = encode_string(request.translate(_('No')))
+                yes_text = to_string(request.translate(_('Yes')))
+                no_text = to_string(request.translate(_('No')))
             else:
-                yes_text = u('Yes')
-                no_text = u('No')
+                yes_text = to_string('Yes')
+                no_text = to_string('No')
 
             if not value:
-                return u('')
+                return ''
 
             f = StringIO()
             csvfile = csv_writer(
@@ -148,21 +150,30 @@ class CSV(object):
                 row = []
                 for item in value_items:
                     if item is None:
-                        item = u('')
+                        item = ''
                     elif isinstance(item, bool):
                         item = item and yes_text or no_text
                     elif isinstance(item, (string_types, integer_types)):
-                        item = encode_string(u(item))
+                        item = to_string(item)
                     elif isinstance(item, (DATE, DATETIME)):
-                        item = encode_string(item.isoformat())
+                        item = to_string(item.isoformat())
                     else:
-                        item = encode_string(json_dumps(item) or u(''))
+                        item = to_string(json_dumps(item) or '')
                     row.append(item)
                 csvfile.writerow(row)
 
             f.seek(0)
-            response = decode_string(f.read())
+            response = f.read()
             f.close()
+
+            if encoder:
+                if PY3:
+                    response = encoder.decode(encoder.encode(response)[0])[0]
+                else:
+                    response = encoder.decode(response)[0]
+            else:
+                response = to_unicode(response)
+
             return response
 
         return _render
@@ -199,3 +210,19 @@ class File(object):
 
 file_renderer_factory = File()  # bw compat
 DEFAULT_RENDERERS['file'] = file_renderer_factory
+
+
+def html_renderer_factory(info):
+    def _render(value, system):
+        value = to_unicode(value)
+        request = system.get('request')
+        if request is not None:
+            response = request.response
+            ct = response.content_type
+            if ct == response.default_content_type:
+                response.content_type = 'text/html'
+        return value
+    return _render
+
+
+DEFAULT_RENDERERS['html'] = html_renderer_factory

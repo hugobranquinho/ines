@@ -250,7 +250,10 @@ class ApplicationsConnector(object):
         return attribute
 
     def asdict(self):
-        return dict((k, getattr(self, k)) for k in APPLICATIONS.keys())
+        return dict((k, getattr(self, k)) for k in self.names())
+
+    def names(self):
+        return list(APPLICATIONS.keys())
 
 
 def make_request(config, environ=None):

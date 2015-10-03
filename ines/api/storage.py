@@ -556,7 +556,8 @@ class BaseStorageWithImageSession(BaseStorageSession):
         return True
 
     @job(second=0, minute=[0, 30],
-         title=_('Create images'))
+         title=_('Create images'),
+         unique_name='ines:create_image_resizes')
     def create_image_resizes(self):
         if not asbool(self.settings.get('thumb.create_on_add')) or not self.api_session_manager.resizes:
             return None
@@ -739,5 +740,13 @@ class StorageFile(object):
 def save_temporary_image(im, default_format='JPEG'):
     temporary_path = join_paths(FILES_TEMPORARY_DIR, make_unique_hash(64))
     open_file = get_open_file(temporary_path, mode='wb')
-    im.save(open_file, format=im.format or default_format)
+
+    try:
+        im.save(open_file, format=im.format or default_format)
+    except IOError as error:
+        if error.args[0] == 'cannot write mode P as JPEG':
+            im.convert('RGB').save(open_file, format=im.format or default_format)
+        else:
+            raise
+
     return temporary_path

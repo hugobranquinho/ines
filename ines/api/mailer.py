@@ -98,7 +98,7 @@ class BaseMailerSession(BaseSession):
         if html:
             html = to_unicode(html, encoding=content_charset)
             if not html.lower().startswith('<html'):
-                html = '<html><body></body></html>'
+                html = '<html><body>%s</body></html>' % html
 
         options = {}
         # FROM sender
@@ -156,8 +156,9 @@ class BaseMailerSession(BaseSession):
             extra_headers=extra_headers,
             **options)
 
-    @job(second=0, minute=[0, 15, 30, 45],
-         title=_('Send queue emails'))
+    @job(second=0, minute='*/5',
+         title=_('Send queue emails'),
+         unique_name='ines:mailer_queue_send')
     def mailer_queue_send(self):
         queue_path = self.settings.get('queue_path')
         if queue_path:

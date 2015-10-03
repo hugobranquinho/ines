@@ -24,6 +24,9 @@ from colander import SequenceSchema
 from colander import String
 from colander.compat import is_nonstr_iter
 from deform.widget import DateInputWidget
+from deform.widget import DateTimeInputWidget
+from deform.widget import SelectWidget
+from six import string_types
 from six import u
 
 from ines.convert import to_string
@@ -53,6 +56,26 @@ datetinput_serialize.__name__ = 'serialize'
 DateInputWidget.serialize = datetinput_serialize
 
 
+def datetimeinput_deserialize(self, field, pstruct):
+    if pstruct is null:
+        return null
+    else:
+        # seriously pickadate?  oh.  right.  i forgot.  you're javascript.
+        date = (pstruct.get('date_submit') or pstruct.get('date', '')).strip()
+        time = (pstruct.get('time_submit') or pstruct.get('time', '')).strip()
+
+        if (not time and not date):
+            return null
+        result = 'T'.join([date, time])
+        if not date:
+            raise Invalid(field.schema, _('Incomplete date'), result)
+        if not time:
+            raise Invalid(field.schema, _('Incomplete time'), result)
+        return result
+datetinput_serialize.__name__ = 'deserialize'
+DateTimeInputWidget.deserialize = datetimeinput_deserialize
+
+
 # See https://github.com/Pylons/colander/pull/212
 def clone_sequenceschema_fix(self):
     children = [node.clone() for node in self.children]
@@ -68,6 +91,9 @@ SchemaNode.clone = clone_sequenceschema_fix
 
 # Propose this! Update node attributes when cloning
 def update_node_attributes_on_clone(self, **kw):
+    if 'new_order' in kw:
+        kw['_order'] = next(self._counter)
+
     cloned = clone_sequenceschema_fix(self)
     cloned.__dict__.update(kw)
     return cloned
@@ -83,8 +109,9 @@ SchemaNode.extend = schema_extend
 
 def my_deserialize(self, cstruct=null):
     # Return None, only if request and cstruct is empty
-    if self.return_none_if_defined and cstruct == '':
-        return None
+    if hasattr(self, 'return_none_if_defined'):
+        if getattr(self, 'return_none_if_defined') and cstruct == '':
+            return None
 
     appstruct = super(SchemaNode, self).deserialize(cstruct)
 
@@ -110,13 +137,6 @@ def _order_schemaMeta_nodes(cls, name, bases, clsattrs):
         cls.__all_schema_nodes__.sort(lambda n: n._order)
 _order_schemaMeta_nodes.__name__ = '__init__'
 _SchemaMeta.__init__ = _order_schemaMeta_nodes
-
-
-def my_init(self, *arg, **kw):
-    self.return_none_if_defined = kw.pop('return_none_if_defined', False)
-    super(SchemaNode, self).__init__(*arg, **kw)
-my_init.__name__ = '__init__'
-SchemaNode.__init__ = my_init
 
 
 # Propose this!
@@ -453,22 +473,26 @@ class CSVInput(MappingSchema):
         String(),
         title=_('CSV content delimiter'),
         missing=None,
-        validator=OneOfWithDescription(CSV_DELIMITER))
+        validator=OneOf(CSV_DELIMITER.keys()),
+        widget=SelectWidget(values=CSV_DELIMITER.items()))
     csv_quote_char = SchemaNode(
         String(),
         title=_('CSV content quote'),
         missing=None,
-        validator=OneOfWithDescription(CSV_QUOTE_CHAR))
+        validator=OneOf(CSV_QUOTE_CHAR.keys()),
+        widget=SelectWidget(values=CSV_QUOTE_CHAR.items()))
     csv_line_terminator = SchemaNode(
         String(),
         title=_('CSV line terminator'),
         missing=None,
-        validator=OneOfWithDescription(CSV_LINE_TERMINATOR))
+        validator=OneOf(CSV_LINE_TERMINATOR.keys()),
+        widget=SelectWidget(values=CSV_LINE_TERMINATOR.items()))
     csv_encoding = SchemaNode(
         String(),
         title=_('CSV encoding'),
         missing=None,
-        validator=OneOfWithDescription(CSV_ENCODING))
+        validator=OneOf(CSV_ENCODING.keys()),
+        widget=SelectWidget(values=CSV_ENCODING.items()))
 
 
 class PaginationOutput(MappingSchema):
@@ -489,23 +513,11 @@ class DeleteOutput(MappingSchema):
 
 class FilterBy(object):
     def __init__(self, filter_type, value):
-        self.filter_type = filter_type
+        self.filter_type = filter_type or '='
         self.value = value
 
     def __repr__(self):
-        return '%s(%s)' % (self.filter_type, repr(self.value))
-
-    def __str__(self):
-        if not is_nonstr_iter(self.value):
-            return to_string(self.value)
-        else:
-            return self.value
-
-    def __unicode__(self):
-        if not is_nonstr_iter(self.value):
-            return to_unicode(self.value)
-        else:
-            return self.value
+        return '%s(%s)' % (self.filter_type, self.value)
 
 
 class FilterByType(SchemaType):
@@ -557,9 +569,9 @@ class FilterByType(SchemaType):
         else:
             value = super(FilterByType, self).deserialize(node, json_value)
             if value is not null:
-                return FilterBy(filter_type or '==', value)
+                return FilterBy(filter_type, value)
             else:
-                return value
+                return null
 
 
 class FilterByDate(FilterByType, Date):

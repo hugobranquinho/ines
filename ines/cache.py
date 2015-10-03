@@ -353,13 +353,24 @@ class api_cache_decorator(object):
 
     def __call__(self, wrapped):
         @wraps(wrapped)
-        def wrapper(cls, *args, **kwargs):
-            key = string_join(' ', [cls.application_name, cls.__api_name__, 'decorator', wrapped.__name__])
-            if kwargs.pop('expire_cache', False):
+        def wrapper(cls, *args, expire_cache=False, no_cache=False, **kwargs):
+            options = [
+                cls.application_name,
+                cls.__api_name__,
+                'decorator',
+                wrapped.__name__]
+            if args:
+                options.extend(args)
+            if kwargs:
+                options.extend(sorted(kwargs.items()))
+
+            key = string_join(' ', options)
+
+            if expire_cache:
                 cls.config.cache.remove(key)
                 return True
 
-            if not kwargs.pop('no_cache', False):
+            if not no_cache:
                 cached = cls.config.cache.get(key, default=MARKER, expire=self.expire_seconds)
                 if cached is not MARKER:
                     return cached

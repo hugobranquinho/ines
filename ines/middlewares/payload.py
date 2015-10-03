@@ -28,6 +28,7 @@ class Payload(Middleware):
             body = environ['wsgi.input'].read()
             if body:
                 arguments = []
+                body = to_string(body)
                 try:
                     body_json = loads(body)
                     for key, values in dict(body_json).items():

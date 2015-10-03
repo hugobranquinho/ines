@@ -12,6 +12,7 @@ from colander import Invalid
 from pkg_resources import get_distribution
 from pkg_resources import resource_filename
 from pyramid.config import Configurator as PyramidConfigurator
+from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.exceptions import Forbidden
 from pyramid.exceptions import NotFound
@@ -92,9 +93,12 @@ class Configurator(PyramidConfigurator):
                     super(Configurator, self).__init__(**kwargs)
                     return  # Nothing else to do where
 
-        if 'package' not in kwargs:
-            kwargs['package'] = caller_package()
+        if 'package' in kwargs:
+            # Nothing to do where.
+            super(Configurator, self).__init__(**kwargs)
+            return
 
+        kwargs['package'] = caller_package()
         settings = kwargs['settings'] = dict(kwargs.get('settings') or {})
         kwargs['settings'].update(global_settings or {})
 
@@ -224,8 +228,6 @@ class Configurator(PyramidConfigurator):
                 arguments = {'name': list_arguments[0]}
                 if len(list_arguments) > 1:
                     arguments['pattern'] = list_arguments[1]
-                if len(list_arguments) > 2:
-                    arguments['permission'] = list_arguments[2]
 
             self.add_route(**arguments)
 
@@ -379,19 +381,37 @@ class Configurator(PyramidConfigurator):
                 permission=NO_PERMISSION_REQUIRED)
 
     @configuration_extensions('deform')
-    def set_deform_translation(self, path):
+    def set_deform_translation(self, path=None, base_static_path=None):
         def translator(term):
             return get_localizer(get_current_request()).translate(term)
 
         deform = _import_module('deform')
-        deform_template_dir = resource_filename(*path.split(':', 1))
-        zpt_renderer = deform.ZPTRendererFactory(
-            [deform_template_dir],
-            translator=translator)
-        deform.Form.set_default_renderer(zpt_renderer)
+
+        if path:
+            deform_template_dir = resource_filename(*path.split(':', 1))
+            zpt_renderer = deform.ZPTRendererFactory(
+                [deform_template_dir],
+                translator=translator)
+            deform.Form.set_default_renderer(zpt_renderer)
+
+        if base_static_path:
+            if not base_static_path.endswith('/'):
+                base_static_path += '/'
+            for versions in deform.widget.default_resources.values():
+                for resources in versions.values():
+                    for resource_type, resource in resources.items():
+                        new_resources = [
+                            r.replace('deform:static/', base_static_path, 1)
+                            for r in maybe_list(resource)]
+
+                        if not is_nonstr_iter(resource):
+                            resources[resource_type] = new_resources[0]
+                        else:
+                            resources[resource_type] = tuple(new_resources)
 
         self.add_translation_dirs('deform:locale')
-        self.add_static_view('deform', 'deform:static')
+        if not base_static_path:
+            self.add_static_view('deform', 'deform:static')
 
     def register_input_schema(self, view, route_name, request_method):
         for req_method in maybe_list(request_method) or ['']:

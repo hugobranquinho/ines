@@ -10,8 +10,6 @@ Features
 
 - Add ines translations
 
-- api.core: revert actions
-
 - load api modules with venusian
 
 - script to create babel templates / update / compile
@@ -28,8 +26,6 @@ Features
 - Added ``convert.to_string``, in Python 3 this is the same as ``convert.to_unicode``
 
 - Python 3 compatible. Using ``six`` package to help doing the job
-
-- New api module, ``api.core.BaseCoreIndexedSession``. This module is equals to ``api.core.BaseCoreSession`` but indexs all information with ``Whoosh`` package.
 
 - ``csv`` renderer now accepts ``request.params``: `CSVDelimiter`, `CSVQuoteChar` and `CSVLineTerminator`
 
@@ -63,7 +59,7 @@ Features
 
 - ``url.ping_url`` check is URL is valid
 
-- ``validator.validate_code`` validate some code using JSON keys to read colander validators or ``ines.validator.*``
+- ``validator.parse_and_validate_code`` validate some code using JSON keys to read colander validators or ``ines.validator.*``
 
 - ``utils.is_prime`` to check if number is a prime
 

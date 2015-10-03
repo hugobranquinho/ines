@@ -73,28 +73,27 @@ class ApplicationHeaderAuthenticationPolicy(object):
         if have_cache and 'authenticated' in request.session_cache:
             return request.session_cache['authenticated']
 
-        authorization_type = None
-        authorization = self.unauthenticated_userid(request)
-        if authorization:
-            authorization_info = authorization.split(None, 1)
-            if len(authorization_info) == 2:
-                authorization_type, authorization = authorization_info
-            if authorization_type:
-                authorization_type = authorization_type.lower()
-
         authenticated = None
-        if authorization_type in ('apikey', 'token'):
-            application = getattr(request.applications, self.application_name)
-            authenticated = application.get_authorization(authorization_type, authorization)
-            if authenticated and not isinstance(authenticated, AuthenticatedSession):
-                session_type = authorization_type
-                if authorization_type == 'token':
-                    session_type = 'user'
-                authenticated = AuthenticatedSession(session_type, authenticated)
+        authorization_string = self.unauthenticated_userid(request)
+        if authorization_string:
+            authorization_type = None
+            lower_authorization_string = authorization_string.lower()
+            if lower_authorization_string.startswith('token'):
+                authorization_type, authorization = 'token', authorization_string[5:].strip()
+            elif lower_authorization_string.startswith('apikey'):
+                authorization_type, authorization = 'apikey', authorization_string[6:].strip()
+
+            if authorization_type:
+                authenticated = (
+                    getattr(request.applications, self.application_name)
+                    .get_authorization(authorization_type, authorization))
+
+                if authenticated and not isinstance(authenticated, AuthenticatedSession):
+                    session_type = authorization_type == 'token' and 'user' or authorization_type
+                    authenticated = AuthenticatedSession(session_type, authenticated)
 
         if have_cache:
             request.session_cache['authenticated'] = authenticated
-
         return authenticated
 
     def authenticated_userid(self, request):
@@ -108,8 +107,8 @@ class ApplicationHeaderAuthenticationPolicy(object):
 
         if self.cookie_key:
             userid = request.cookies.get(self.cookie_key)
-            if userid and userid.startswith('Token'):
-                return userid.replace('Token', 'Token ', 1)
+            if userid:
+                return userid
 
     def effective_principals(self, request):
         authenticated = self.get_authenticated_session(request)
@@ -120,7 +119,7 @@ class ApplicationHeaderAuthenticationPolicy(object):
 
     def remember(self, request, token):
         if self.cookie_key:
-            return self.cookie_profile.get_headers('Token%s' % token)
+            return self.cookie_profile.get_headers('Token %s' % token)
         else:
             return []
 

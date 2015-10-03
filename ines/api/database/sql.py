@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from colander import drop
 from collections import defaultdict
 
 from pyramid.compat import is_nonstr_iter
@@ -28,6 +29,7 @@ from sqlalchemy.util._collections import lightweight_named_tuple
 from ines import NOW
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
+from ines.convert import maybe_list
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
 from ines.convert import unicode_join
@@ -35,9 +37,11 @@ from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.path import get_object_on_path
 from ines.views.fields import FilterBy
+from ines.views.fields import OrderBy
 from ines.utils import PaginationClass
 
 
+SQL_ENGINES = {}
 SQL_DBS = defaultdict(dict)
 SQLALCHEMY_NOW_TYPE = type(func.now())
 
@@ -117,6 +121,223 @@ class BaseSQLSession(BaseSession):
             .values(values)
             .execute(autocommit=True))
 
+    def table_instance_as_dict(self, instance):
+        return dict((k, getattr(instance, k)) for k in instance.__table__.c.keys())
+
+    def set_filter_by_on_query(self, query, column, values):
+        return query.filter(create_filter_by(column, values))
+
+    def set_active_filter_on_query(self, query, tables, active=None):
+        if active:
+            return query.filter(active_filter(tables))
+        else:
+            return query.filter(inactive_filter(tables))
+
+    def get_active_attribute(self, tables, active=None):
+        if active is None:
+            attribute = active_filter(tables)
+        elif active:
+            attribute = true()
+        else:
+            attribute = false()
+
+        return attribute.label('active')
+
+    def _lookup_columns(self, table, attributes, active=None, active_tables=None, external=None):
+        relate_with = set()
+        if not attributes:
+            columns = list(table.__table__.c.values())
+
+            if active_tables:
+                if active is None:
+                    relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
+                columns.append(self.get_active_attribute(active_tables, active=active))
+        else:
+            external_names = []
+            external_methods = {}
+            external_attributes = defaultdict(dict)
+            if external:
+                for external_table, external_method in external.items():
+                    tablename = external_table.__tablename__
+                    external_names.append((tablename, len(tablename)))
+                    external_methods[tablename] = external_method
+
+            columns = []
+            for attribute in maybe_list(attributes):
+                column = getattr(table, attribute, None)
+                if column is not None:
+                    columns.append(column)
+
+                elif active_tables and attribute == 'active':
+                    if active is None:
+                        relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
+                    columns.append(self.get_active_attribute(active_tables, active=active))
+
+                else:
+                    for name, name_length in external_names:
+                        if attribute[:name_length] == name:
+                            external_attributes[name][attribute[name_length + 1:]] = (  # +1 = underscore
+                                len(columns),  # Index for posterior insert
+                                attribute)
+                            columns.append(attribute)
+                            break
+                    else:
+                        raise AttributeError('Missing column attribute "%s" on "%s"' % (attribute, self.__api_name__))
+
+            if external_attributes:
+                for name, name_attributes in external_attributes.items():
+                    external_columns = external_methods[name](name_attributes.keys(), active=active)
+                    if external_columns:
+                        relate_with.update(external_columns.relate_with)
+                        relate_with.add(name)
+
+                        for column in external_columns:
+                            column_idx, label_name = name_attributes[column.name]
+                            columns[column_idx] = column.label(label_name)
+
+        return LookupAtributes(columns, relate_with)
+
+    def _lookup_filters(self, table, filters, external=None):
+        sa_filters = []
+        relate_with = set()
+
+        external_names = []
+        external_methods = {}
+        external_filters = defaultdict(dict)
+        if external:
+            for external_table, external_method in external.items():
+                tablename = external_table.__tablename__
+                external_names.append((tablename, len(tablename)))
+                external_methods[tablename] = external_method
+
+        for attribute, value in filters.items():
+            not_filter = attribute[:4] == 'not_'
+            if not_filter:
+                attribute = attribute[4:]
+
+            is_not_none = attribute[-12:] == '_is_not_none'
+            if is_not_none:
+                column = getattr(table, attribute[:-12], None)
+            else:
+                column = getattr(table, attribute, None)
+
+            if column is not None:
+                if is_not_none:
+                    sa_filter = column.isnot(None)
+                else:
+                    sa_filter = create_filter_by(column, value)
+
+                if sa_filter is not None:
+                    if not_filter:
+                        sa_filters.append(not_(sa_filter))
+                    else:
+                        sa_filters.append(sa_filter)
+
+            else:
+                for name, name_length in external_names:
+                    if attribute[:name_length] == name:
+                        external_attribute_name = attribute[name_length + 1:]  # +1 = underscore
+                        if not_filter:
+                            external_attribute_name = 'not_%s' % external_attribute_name
+
+                        external_filters[name][external_attribute_name] = value
+                        break
+                else:
+                    raise AttributeError('Missing filter attribute "%s" on "%s"' % (attribute, self.__api_name__))
+
+        if external_filters:
+            for name, name_filters in external_filters.items():
+                external_sa_filters = external_methods[name](name_filters)
+                if external_sa_filters:
+                    relate_with.update(external_sa_filters.relate_with)
+                    relate_with.add(name)
+                    sa_filters.extend(external_sa_filters)
+
+        return LookupAtributes(sa_filters, relate_with)
+
+    def _lookup_order_by(self, table, attributes, active=None, active_tables=None, external=None):
+        order_by = []
+        relate_with = set()
+
+        external_names = []
+        external_methods = {}
+        external_order_by = defaultdict(dict)
+        if external:
+            for external_table, external_method in external.items():
+                tablename = external_table.__tablename__
+                external_names.append((tablename, len(tablename)))
+                external_methods[tablename] = external_method
+
+        for attribute in maybe_list(attributes):
+            if isinstance(attribute, OrderBy):
+                as_desc = attribute.descendant
+                attribute = attribute.column_name
+            else:
+                as_desc = attribute.endswith(' desc')
+                if as_desc:
+                    attribute = attribute[:-5]
+
+            column = getattr(table, attribute, None)
+            if column is not None:
+                if as_desc:
+                    order_by.append(column.desc())
+                else:
+                    order_by.append(column)
+
+            elif active_tables and attribute == 'active':
+                if active is None:
+                    relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
+
+                column = self.get_active_attribute(active_tables, active=active)
+                if as_desc:
+                    order_by.append(column.desc())
+                else:
+                    order_by.append(column)
+
+            else:
+                for name, name_length in external_names:
+                    if attribute[:name_length] == name:
+                        external_order_by[name][attribute[name_length + 1:]] = (  # +1 = underscore
+                            len(order_by),  # Index for posterior insert
+                            attribute,
+                            as_desc)
+                        order_by.append(attribute)
+                        break
+                else:
+                    raise AttributeError('Missing order by attribute "%s" on "%s"' % (attribute, self.__api_name__))
+
+        if external_order_by:
+            for name, name_attributes in external_order_by.items():
+                external_columns = external_methods[name](name_attributes.keys(), active=active)
+                if external_columns:
+                    relate_with.update(external_columns.relate_with)
+                    relate_with.add(name)
+
+                    for column in external_columns:
+                        column_idx, label_name, as_desc = name_attributes[column.name]
+                        column = column.label(label_name)
+
+                        if as_desc:
+                            order_by[column_idx] = column.desc()
+                        else:
+                            order_by[column_idx] = column
+
+        return LookupAtributes(order_by, relate_with)
+
+    def table_in_lookups(self, table, *lookups):
+        tablename = table.__tablename__
+        for lookup in lookups:
+            if tablename in lookup.relate_with:
+                return True
+
+        return False
+
+
+class LookupAtributes(list):
+    def __init__(self, columns, relate_with=None):
+        super(LookupAtributes, self).__init__(columns)
+        self.relate_with = relate_with or set()
+
 
 def initialize_sql(
         application_name,
@@ -143,11 +364,16 @@ def initialize_sql(
             append_arguments(table, 'mysql_engine', mysql_engine)
             append_arguments(table, 'mysql_charset', encoding)
 
-    SQL_DBS[application_name]['engine'] = engine = create_engine(
-        sql_path,
-        echo=debug,
-        poolclass=NullPool,
-        encoding=encoding)
+    engine_pattern = '%s-%s' % (sql_path, encoding)
+    if engine_pattern in SQL_ENGINES:
+        engine = SQL_ENGINES[engine_pattern]
+    else:
+        SQL_ENGINES[engine_pattern] = engine = create_engine(
+            sql_path,
+            echo=debug,
+            poolclass=NullPool,
+            encoding=encoding)
+    SQL_DBS[application_name]['engine'] = engine
 
     if session_extension:
         if callable(session_extension):
@@ -485,40 +711,14 @@ def query_filter_by(query, column, values):
         return query
 
 
-def create_filter_by(columns, values):
-    if not is_nonstr_iter(columns):
-        columns = [columns]
-
+def create_filter_by(column, values):
     if isinstance(values, FilterBy):
         filter_type = values.filter_type.lower()
-        if filter_type == 'like':
-            queries = [like_maybe_with_none(c, values.value) for c in columns]
-            return filter_query_with_queries(queries)
 
-        elif filter_type == '>':
-            queries = [c > values.value for c in columns]
-            return filter_query_with_queries(queries)
-
-        elif filter_type == '>=':
-            queries = [c >= values.value for c in columns]
-            return filter_query_with_queries(queries)
-
-        elif filter_type == '<':
-            queries = [c < values.value for c in columns]
-            return filter_query_with_queries(queries)
-
-        elif filter_type == '<=':
-            queries = [c <= values.value for c in columns]
-            return filter_query_with_queries(queries)
-
-        elif filter_type in ('=', '=='):
-            queries = [c == values.value for c in columns]
-            return filter_query_with_queries(queries)
-
-        elif filter_type == 'or':
+        if filter_type == 'or':
             or_queries = []
             for value in values.value:
-                query = create_filter_by(columns, value)
+                query = create_filter_by(column, value)
                 if query is not None:
                     or_queries.append(query)
 
@@ -530,7 +730,7 @@ def create_filter_by(columns, values):
         elif filter_type == 'and':
             and_queries = []
             for value in values.value:
-                query = create_filter_by(columns, value)
+                query = create_filter_by(column, value)
                 if query is not None:
                     and_queries.append(query)
 
@@ -539,26 +739,49 @@ def create_filter_by(columns, values):
             elif and_queries:
                 return and_(*and_queries)
 
+        if filter_type == 'like':
+            return like_maybe_with_none(column, values.value)
+
+        elif filter_type == '>':
+            return column > values.value
+
+        elif filter_type == '>=':
+            return column >= values.value
+
+        elif filter_type == '<':
+            return column < values.value
+
+        elif filter_type == '<=':
+            return column <= values.value
+
+        elif filter_type in ('=', '=='):
+            return column == values.value
+
+        elif filter_type == '!=':
+            return column != values.value
+
         else:
             raise Error('filter_type', u('Invalid filter type %s') % values.filter_type)
 
+    elif values is drop:
+        return None
+
     elif not is_nonstr_iter(values):
-        queries = [c == values for c in columns]
-        return filter_query_with_queries(queries)
+        return column == values
 
     else:
         or_queries = []
-        other_values = set()
+        noniter_values = set()
         for value in values:
             if isinstance(value, FilterBy) or is_nonstr_iter(value):
-                query = create_filter_by(columns, value)
+                query = create_filter_by(column, value)
                 if query is not None:
                     or_queries.append(query)
-            else:
-                other_values.add(value)
+            elif value is not drop:
+                noniter_values.add(value)
+        if noniter_values:
+            or_queries.append(maybe_with_none(column, noniter_values))
 
-        if other_values:
-            or_queries.extend(maybe_with_none(c, other_values) for c in columns)
         if len(or_queries) == 1:
             return or_queries[0]
         elif or_queries:

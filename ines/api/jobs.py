@@ -5,7 +5,6 @@ from os import getpgid
 from os.path import isfile
 from tempfile import gettempdir
 
-from pyramid.decorator import reify
 from pyramid.settings import asbool
 from six import _import_module
 from six import print_
@@ -32,7 +31,7 @@ from ines.system import start_system_thread
 from ines.utils import sort_with_none
 
 
-JOBS = []
+JOBS = set()
 RUNNING_JOBS = []
 
 JOBS_REPORT_PATTERN = 'jobs report %s'
@@ -111,7 +110,7 @@ class BaseJobsManager(BaseSessionManager):
 
     def add_job(self, api_name, wrapped, settings):
         apijob = APIJob(self, api_name, wrapped.__name__, settings)
-        JOBS.append(apijob)
+        JOBS.add(apijob)
 
         def run_job():
             return self.register_immediate_job_run(apijob)
@@ -124,7 +123,9 @@ class BaseJobsManager(BaseSessionManager):
         self.config.cache.append_value(JOBS_IMMEDIATE_KEY, apijob.name, expire=None)
 
     def immediate_job_run(self, name):
-        return self.register_immediate_job_run(get_job(name))
+        apijob = get_job(name)
+        if apijob:
+            return self.register_immediate_job_run(apijob)
 
     def run_monitor(self):
         try:
@@ -133,7 +134,8 @@ class BaseJobsManager(BaseSessionManager):
             immediate_jobs = set(
                 to_unicode(k)
                 for k in self.config.cache.get_values(JOBS_IMMEDIATE_KEY, expire=None))
-            for apijob in JOBS:
+
+            for apijob in list(JOBS):
                 run_job = False
                 if apijob.name in immediate_jobs:
                     run_job = True
@@ -184,7 +186,7 @@ class BaseJobsManager(BaseSessionManager):
                 continue
 
             for name, info in domain_info.items():
-                application_name = get_job_application_name(name)
+                application_name = get_job_string_application_name(name)
                 if not application_names or application_name in application_names:
                     job_info = jobs.get(name)
                     if not job_info:
@@ -193,7 +195,7 @@ class BaseJobsManager(BaseSessionManager):
                         if not apijob:
                             continue
 
-                        job_info['key'] = apijob.name
+                        job_info['key'] = name
                         job_info['application_name'] = application_name
                         job_info['description'] = apijob.title
 
@@ -290,6 +292,10 @@ class APIJob(object):
         self.api_name = api_name
         self.wrapped_name = wrapped_name
 
+        self.name = (
+            settings.get('unique_name')
+            or '%s:%s.%s' % (self.application_name, self.api_name, wrapped_name))
+
         self.active = False
         self.next_date = None
         self.updating = False
@@ -306,15 +312,14 @@ class APIJob(object):
 
         self.enable()
 
+    def __eq__(self, other):
+        return isinstance(other, APIJob) and self.name == other.name
+
+    def __hash__(self):
+        return hash(self.name)
+
     def __repr__(self):
         return '%s (%s)' % (self.name, self.next_date)
-
-    @reify
-    def name(self):
-        return '%s:%s.%s' % (
-            self.application_name,
-            self.api_name,
-            self.wrapped_name)
 
     @property
     def application_name(self):
@@ -377,12 +382,13 @@ class APIJob(object):
                     self.find_next()
 
 
-def get_job_application_name(name):
-    application_name, method_name = name.split(':', 1)
-    return application_name
+def get_job_string_application_name(name):
+    apijob = get_job(name)
+    if apijob:
+        return apijob.application_name
 
 
 def get_job(name):
-    for api_job in JOBS:
-        if api_job.name == name:
-            return api_job
+    for apijob in JOBS:
+        if apijob.name == name:
+            return apijob

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from re import compile
+
 from ines.utils import format_error_to_json_values
 
 
