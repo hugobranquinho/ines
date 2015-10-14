@@ -32,7 +32,9 @@ def maybe_datetime(value, date_format='%Y-%m-%d %H:%M:%S'):
 
 
 def maybe_date(value, date_format='%Y-%m-%d'):
-    if isinstance(value, DATE):
+    if isinstance(value, DATETIME):
+        return value.date()
+    elif isinstance(value, DATE):
         return value
 
     try:

@@ -15,6 +15,7 @@ from sqlalchemy import func
 from sqlalchemy import MetaData
 from sqlalchemy import not_
 from sqlalchemy import or_
+from sqlalchemy import String
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.declarative import declarative_base
@@ -29,6 +30,8 @@ from sqlalchemy.util._collections import lightweight_named_tuple
 from ines import NOW
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
+from ines.cleaner import clean_unicode
+from ines.cleaner import LOWER_MAPPING
 from ines.convert import maybe_list
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
@@ -44,6 +47,13 @@ from ines.utils import PaginationClass
 SQL_ENGINES = {}
 SQL_DBS = defaultdict(dict)
 SQLALCHEMY_NOW_TYPE = type(func.now())
+
+
+def postgres_non_ascii_and_lower(column):
+    if isinstance(column.type, String):
+        return func.translate(func.lower(column), *LOWER_MAPPING)
+    else:
+        return column
 
 
 class BaseSQLSessionManager(BaseSessionManager):
@@ -161,6 +171,7 @@ class BaseSQLSession(BaseSession):
                     tablename = external_table.__tablename__
                     external_names.append((tablename, len(tablename)))
                     external_methods[tablename] = external_method
+                external_names.sort(reverse=True)
 
             columns = []
             for attribute in maybe_list(attributes):
@@ -209,21 +220,36 @@ class BaseSQLSession(BaseSession):
                 tablename = external_table.__tablename__
                 external_names.append((tablename, len(tablename)))
                 external_methods[tablename] = external_method
+            external_names.sort(reverse=True)
 
         for attribute, value in filters.items():
             not_filter = attribute[:4] == 'not_'
             if not_filter:
                 attribute = attribute[4:]
 
+            is_like = False
+            is_ilike = False
             is_not_none = attribute[-12:] == '_is_not_none'
             if is_not_none:
                 column = getattr(table, attribute[:-12], None)
             else:
-                column = getattr(table, attribute, None)
+                is_like = attribute[-8:] == '_is_like'
+                if is_like:
+                    column = getattr(table, attribute[:-8], None)
+                else:
+                    is_ilike = attribute[-9:] == '_is_ilike'
+                    if is_ilike:
+                        column = getattr(table, attribute[:-9], None)
+                    else:
+                        column = getattr(table, attribute, None)
 
             if column is not None:
                 if is_not_none:
                     sa_filter = column.isnot(None)
+                elif is_like:
+                    sa_filter = like_maybe_with_none(column, value)
+                elif is_ilike:
+                    sa_filter = ilike_maybe_with_none(column, value)
                 else:
                     sa_filter = create_filter_by(column, value)
 
@@ -261,12 +287,13 @@ class BaseSQLSession(BaseSession):
 
         external_names = []
         external_methods = {}
-        external_order_by = defaultdict(dict)
+        external_order_by = defaultdict(list)
         if external:
             for external_table, external_method in external.items():
                 tablename = external_table.__tablename__
                 external_names.append((tablename, len(tablename)))
                 external_methods[tablename] = external_method
+            external_names.sort(reverse=True)
 
         for attribute in maybe_list(attributes):
             if isinstance(attribute, OrderBy):
@@ -280,9 +307,9 @@ class BaseSQLSession(BaseSession):
             column = getattr(table, attribute, None)
             if column is not None:
                 if as_desc:
-                    order_by.append(column.desc())
+                    order_by.append(postgres_non_ascii_and_lower(column).desc())
                 else:
-                    order_by.append(column)
+                    order_by.append(postgres_non_ascii_and_lower(column))
 
             elif active_tables and attribute == 'active':
                 if active is None:
@@ -297,10 +324,11 @@ class BaseSQLSession(BaseSession):
             else:
                 for name, name_length in external_names:
                     if attribute[:name_length] == name:
-                        external_order_by[name][attribute[name_length + 1:]] = (  # +1 = underscore
+                        external_order_by[name].append((
+                            attribute[name_length + 1:],  # +1 = underscore
                             len(order_by),  # Index for posterior insert
                             attribute,
-                            as_desc)
+                            as_desc))
                         order_by.append(attribute)
                         break
                 else:
@@ -308,13 +336,14 @@ class BaseSQLSession(BaseSession):
 
         if external_order_by:
             for name, name_attributes in external_order_by.items():
-                external_columns = external_methods[name](name_attributes.keys(), active=active)
+                external_keys = [k[0] for k in name_attributes]
+                external_columns = external_methods[name](external_keys, active=active)
                 if external_columns:
                     relate_with.update(external_columns.relate_with)
                     relate_with.add(name)
 
-                    for column in external_columns:
-                        column_idx, label_name, as_desc = name_attributes[column.key]
+                    for i, column in enumerate(external_columns):
+                        attribute_name, column_idx, label_name, as_desc = name_attributes[i]
                         column = column.label(label_name)
 
                         if as_desc:
@@ -493,13 +522,37 @@ def like_maybe_with_none(column, values, query=None):
     return filter_query_with_queries(queries, query)
 
 
+def ilike_maybe_with_none(column, values, query=None):
+    queries = []
+    values = maybe_set(values)
+
+    if None in values:
+        values.remove(None)
+        queries.append(column.is_(None))
+    for value in values:
+        like_filter = create_ilike_filter(column, value)
+        if like_filter is not None:
+            queries.append(like_filter)
+
+    return filter_query_with_queries(queries, query)
+
+
 def create_like_filter(column, value):
     value = maybe_unicode(value)
     if value:
         words = value.split()
         if words:
-            like_str = u('%%%s%%') % unicode_join('%', words)
-            return column.like(like_str)
+            like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
+            return postgres_non_ascii_and_lower(column).like(like_str)
+
+
+def create_ilike_filter(column, value):
+    value = maybe_unicode(value)
+    if value:
+        words = value.split()
+        if words:
+            like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
+            return postgres_non_ascii_and_lower(column).ilike(like_str)
 
 
 def create_rlike_filter(column, value):
@@ -512,28 +565,37 @@ def create_rlike_filter(column, value):
 
 
 class Pagination(PaginationClass):
-    def __init__(self, query, page=1, limit_per_page=20, count_column=None):
+    def __init__(self, query, page=1, limit_per_page=20, count_column=None, clear_group_by=False):
         if query is None:
             super(Pagination, self).__init__(page=1, limit_per_page=limit_per_page)
         else:
             super(Pagination, self).__init__(page=page, limit_per_page=limit_per_page)
 
-            entities = set()
-            if not count_column:
-                # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
-                entities.update(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
-
-            self.set_number_of_results(
-                query
-                .with_entities(func.count(count_column or 1), *entities)
-                .order_by(None)
-                .first()[0])
-
             if self.limit_per_page != 'all':
+                entities = set()
+                if not count_column:
+                    # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
+                    entities.update(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
+
+                count_query = query
+                if clear_group_by:
+                    count_query._group_by = []
+
+                self.set_number_of_results(
+                    sum(r[0] for r in (
+                        count_query
+                        .with_entities(func.count(count_column or 1), *entities)
+                        .order_by(None)
+                        .all())))
+
                 end_slice = self.page * self.limit_per_page
                 start_slice = end_slice - self.limit_per_page
                 query = query.slice(start_slice, end_slice)
+
             self.extend(query.all())
+
+            if self.limit_per_page == 'all':
+                self.set_number_of_results(len(self))
 
 
 class TablesSet(set):

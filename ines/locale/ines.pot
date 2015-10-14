@@ -6,7 +6,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-09-09 22:06+0100\n"
+"POT-Creation-Date: 2015-10-14 03:49+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -330,43 +330,70 @@ msgstr ""
 msgid "yottametre"
 msgstr ""
 
-#: ./ines/renderers.py:130
+#: ./ines/renderers.py:132
 msgid "Yes"
 msgstr ""
 
-#: ./ines/renderers.py:131
+#: ./ines/renderers.py:133
 msgid "No"
 msgstr ""
 
-#: ./ines/renderers.py:123
+#: ./ines/renderers.py:127
 msgid "Invalid CSV encoding"
 msgstr ""
 
-#: ./ines/validator.py:67 ./ines/validator.py:102 ./ines/validator.py:44
-msgid "Invalid number"
-msgstr ""
-
-#: ./ines/validator.py:107 ./ines/validator.py:111
+#: ./ines/validator.py:153 ./ines/validator.py:157
 msgid "Invalid postal address"
 msgstr ""
 
-#: ./ines/validator.py:115
+#: ./ines/validator.py:161
 msgid "First number must be between 1000 and 9999"
 msgstr ""
 
-#: ./ines/validator.py:77
+#: ./ines/validator.py:55 ./ines/validator.py:98 ./ines/validator.py:134
+msgid "Invalid number"
+msgstr ""
+
+#: ./ines/validator.py:66
+#, python-format
+msgid "Need to have ${length} chars"
+msgstr ""
+
+#: ./ines/validator.py:80
+msgid "Invalid code"
+msgstr ""
+
+#: ./ines/validator.py:90
 msgid "Invalid \"skype\" username"
 msgstr ""
 
-#: ./ines/validator.py:117
+#: ./ines/validator.py:114
+msgid "Required"
+msgstr ""
+
+#: ./ines/validator.py:122
+#, python-format
+msgid "Need to start with ${chars}"
+msgstr ""
+
+#: ./ines/validator.py:163
 msgid "Second number must have 3 digits"
 msgstr ""
 
-#: ./ines/api/mailer.py:158
+#: ./ines/validator.py:116
+msgid "Need to be a number"
+msgstr ""
+
+#: ./ines/validator.py:118
+#, python-format
+msgid "Need to have ${length} digits"
+msgstr ""
+
+#: ./ines/api/mailer.py:160
 msgid "Send queue emails"
 msgstr ""
 
-#: ./ines/api/storage.py:551
+#: ./ines/api/storage.py:559
 msgid "Create images"
 msgstr ""
 
@@ -374,122 +401,126 @@ msgstr ""
 msgid "Too many tries. Try again later"
 msgstr ""
 
-#: ./ines/api/core/__init__.py:710
-msgid "Cannot update to this parent. Loop found."
-msgstr ""
-
-#: ./ines/views/fields.py:423
+#: ./ines/views/fields.py:452
 msgid "Comma (,)"
 msgstr ""
 
-#: ./ines/views/fields.py:424
+#: ./ines/views/fields.py:453
 msgid "Semicolon (;)"
 msgstr ""
 
-#: ./ines/views/fields.py:425
+#: ./ines/views/fields.py:454
 msgid "TAB (\\t)"
 msgstr ""
 
-#: ./ines/views/fields.py:428
+#: ./ines/views/fields.py:457
 msgid "Double quote"
 msgstr ""
 
-#: ./ines/views/fields.py:429
+#: ./ines/views/fields.py:458
 msgid "Single quote"
 msgstr ""
 
-#: ./ines/views/fields.py:432
+#: ./ines/views/fields.py:461
 msgid "Windows (CR+LF)"
 msgstr ""
 
-#: ./ines/views/fields.py:433
+#: ./ines/views/fields.py:462
 msgid "Linux and MacOS (LF)"
 msgstr ""
 
-#: ./ines/views/fields.py:434
+#: ./ines/views/fields.py:463
 msgid "Old MacOS (CR)"
 msgstr ""
 
-#: ./ines/views/fields.py:435
+#: ./ines/views/fields.py:464
 msgid "Other (LF+CR)"
 msgstr ""
 
-#: ./ines/views/fields.py:438
+#: ./ines/views/fields.py:467
 msgid "All languages"
 msgstr ""
 
-#: ./ines/views/fields.py:439
+#: ./ines/views/fields.py:468
 msgid "West Europe"
 msgstr ""
 
-#: ./ines/views/fields.py:400
+#: ./ines/views/fields.py:429
 msgid "Page"
 msgstr ""
 
-#: ./ines/views/fields.py:401
+#: ./ines/views/fields.py:430
 msgid "Results per page"
 msgstr ""
 
-#: ./ines/views/fields.py:402
+#: ./ines/views/fields.py:431
 msgid "Order by"
 msgstr ""
 
-#: ./ines/views/fields.py:403
+#: ./ines/views/fields.py:432
 msgid "Number of results"
 msgstr ""
 
-#: ./ines/views/fields.py:404
+#: ./ines/views/fields.py:433
 msgid "Number of page results"
 msgstr ""
 
-#: ./ines/views/fields.py:405
+#: ./ines/views/fields.py:434
 msgid "Last page"
 msgstr ""
 
-#: ./ines/views/fields.py:406
+#: ./ines/views/fields.py:435
 msgid "Next page url"
 msgstr ""
 
-#: ./ines/views/fields.py:407
+#: ./ines/views/fields.py:436
 msgid "Previous page url"
 msgstr ""
 
-#: ./ines/views/fields.py:408
+#: ./ines/views/fields.py:437
 msgid "First page url"
 msgstr ""
 
-#: ./ines/views/fields.py:409
+#: ./ines/views/fields.py:438
 msgid "Last page url"
 msgstr ""
 
-#: ./ines/views/fields.py:445
+#: ./ines/views/fields.py:474
 msgid "CSV content delimiter"
 msgstr ""
 
-#: ./ines/views/fields.py:450
+#: ./ines/views/fields.py:480
 msgid "CSV content quote"
 msgstr ""
 
-#: ./ines/views/fields.py:455
+#: ./ines/views/fields.py:486
 msgid "CSV line terminator"
 msgstr ""
 
-#: ./ines/views/fields.py:460
+#: ./ines/views/fields.py:492
 msgid "CSV encoding"
 msgstr ""
 
-#: ./ines/views/fields.py:478
+#: ./ines/views/fields.py:511
 msgid "Deleted"
 msgstr ""
 
-#: ./ines/views/fields.py:337
+#: ./ines/views/fields.py:71
+msgid "Incomplete date"
+msgstr ""
+
+#: ./ines/views/fields.py:73
+msgid "Incomplete time"
+msgstr ""
+
+#: ./ines/views/fields.py:366
 msgid "Show fields"
 msgstr ""
 
-#: ./ines/views/fields.py:338
+#: ./ines/views/fields.py:367
 msgid "Exclude fields"
 msgstr ""
 
-#: ./ines/views/fields.py:223
+#: ./ines/views/fields.py:252
 msgid "Invalid file."
 msgstr ""

@@ -113,7 +113,7 @@ class codeValidation(object):
         if not number:
             raise Invalid(node, _('Required'))
         elif not number.isnumeric():
-            raise Invalid(node, _('Need to be a integer'))
+            raise Invalid(node, _('Need to be a number'))
         elif len(number) != self.length:
             raise Invalid(node, _('Need to have ${length} digits', mapping={'length': self.length}))
 

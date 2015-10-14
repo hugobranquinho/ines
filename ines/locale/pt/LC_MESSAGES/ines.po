@@ -5,7 +5,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE 1.0\n"
-"POT-Creation-Date: 2015-09-09 22:06+0100\n"
+"POT-Creation-Date: 2015-10-14 03:49+0100\n"
 "PO-Revision-Date: 2015-06-16 18:22+0100\n"
 "Last-Translator: Hugo Branquinho <hugobranq@gmail.com>\n"
 "Language-Team: Portuguese\n"
@@ -93,62 +93,77 @@ msgid "December"
 msgstr "Dezembro"
 
 #: ines/i18n.py:50
+#, python-format
 msgid "${week}, ${day} ${month} ${year} ${hour}"
 msgstr "${week}, ${day} de ${month} de ${year} às ${hour}"
 
 #: ines/i18n.py:51
+#, python-format
 msgid "${week}, ${day} ${month} ${year}"
 msgstr "${week}, ${day} de ${month} de ${year}"
 
 #: ines/i18n.py:52
+#, python-format
 msgid "${day} ${month} ${year} ${hour}"
 msgstr "${day} de ${month} de ${year} às ${hour}"
 
 #: ines/i18n.py:53
+#, python-format
 msgid "${day} ${month} ${year}"
 msgstr "${day} de ${month} de ${year}"
 
 #: ines/i18n.py:54
+#, python-format
 msgid "${month} ${year} ${hour}"
 msgstr "${month} de ${year} às ${hour}"
 
 #: ines/i18n.py:55
+#, python-format
 msgid "${month} ${year}"
 msgstr "${month} de ${year}"
 
 #: ines/i18n.py:56
+#, python-format
 msgid "${year} ${hour}"
 msgstr "No ano ${year} às ${hour}"
 
 #: ines/i18n.py:57
+#, python-format
 msgid "${year}"
 msgstr "${year}"
 
 #: ines/i18n.py:58
+#, python-format
 msgid "${week}, ${month} ${year} ${hour}"
 msgstr "${week}, ${month} de ${year} às ${hour}"
 
 #: ines/i18n.py:59
+#, python-format
 msgid "${week}, ${month} ${year}"
 msgstr "${week}, ${month} de ${year}"
 
 #: ines/i18n.py:60
+#, python-format
 msgid "${week}, ${day} ${year} ${hour}"
 msgstr "${week}, dia ${day} de ${year} às ${hour}"
 
 #: ines/i18n.py:61
+#, python-format
 msgid "${week}, ${day} ${year}"
 msgstr "${week}, dia ${day} de ${year}"
 
 #: ines/i18n.py:62
+#, python-format
 msgid "${day} ${year} ${hour}"
 msgstr "Dia ${day} de ${year} às ${hour}"
 
 #: ines/i18n.py:63
+#, python-format
 msgid "${day} ${year}"
 msgstr "Dia ${day} de ${year}"
 
 #: ines/i18n.py:64
+#, python-format
 msgid "${week}, ${year} ${hour}"
 msgstr "${week}, ${year} às ${hour}"
 
@@ -158,22 +173,27 @@ msgid "${week}, ${year}"
 msgstr "${week}, do ano ${year}"
 
 #: ines/i18n.py:66
+#, python-format
 msgid "${week}, ${day} ${month} ${hour}"
 msgstr "${week}, ${day} de ${month} às ${hour}"
 
 #: ines/i18n.py:67
+#, python-format
 msgid "${week}, ${day} ${month}"
 msgstr "${week}, ${day} de ${month}"
 
 #: ines/i18n.py:68
+#, python-format
 msgid "${day} ${month} ${hour}"
 msgstr "${day} de ${month} às ${hour}"
 
 #: ines/i18n.py:69
+#, python-format
 msgid "${day} ${month}"
 msgstr "${day} de ${month}"
 
 #: ines/i18n.py:70
+#, python-format
 msgid "${week}, ${month} ${hour}"
 msgstr "${week}, ${month} às ${hour}"
 
@@ -183,14 +203,17 @@ msgid "${week}, ${month}"
 msgstr "${week}, ${month}"
 
 #: ines/i18n.py:72
+#, python-format
 msgid "${month} ${hour}"
 msgstr "${month} às ${hour}"
 
 #: ines/i18n.py:73
+#, python-format
 msgid "${month}"
 msgstr "${month}"
 
 #: ines/i18n.py:74
+#, python-format
 msgid "${week}, ${day} ${hour}"
 msgstr "${week}, ${day} às ${hour}"
 
@@ -200,6 +223,7 @@ msgid "${week}, ${day}"
 msgstr "${week}, dia ${day}"
 
 #: ines/i18n.py:76
+#, python-format
 msgid "${day} ${hour}"
 msgstr "Dia ${day} às ${hour}"
 
@@ -209,6 +233,7 @@ msgid "${day}"
 msgstr "Dia ${day}"
 
 #: ines/i18n.py:78
+#, python-format
 msgid "${week} ${hour}"
 msgstr "${week}, ano de ${year}"
 
@@ -305,43 +330,70 @@ msgstr "zettametro"
 msgid "yottametre"
 msgstr "yottametro"
 
-#: ines/renderers.py:130
+#: ines/renderers.py:132
 msgid "Yes"
 msgstr "Sim"
 
-#: ines/renderers.py:131
+#: ines/renderers.py:133
 msgid "No"
 msgstr "Não"
 
-#: ines/renderers.py:123
+#: ines/renderers.py:127
 msgid "Invalid CSV encoding"
 msgstr "Codificação do CSV inválida"
 
-#: ines/validator.py:67 ines/validator.py:102 ines/validator.py:44
-msgid "Invalid number"
-msgstr "Número inválido"
-
-#: ines/validator.py:107 ines/validator.py:111
+#: ines/validator.py:153 ines/validator.py:157
 msgid "Invalid postal address"
 msgstr "Código postal inválido"
 
-#: ines/validator.py:115
+#: ines/validator.py:161
 msgid "First number must be between 1000 and 9999"
 msgstr "O primeiro número tem de ser entre 1000 e 9999"
 
-#: ines/validator.py:77
+#: ines/validator.py:55 ines/validator.py:98 ines/validator.py:134
+msgid "Invalid number"
+msgstr "Número inválido"
+
+#: ines/validator.py:66
+#, python-format
+msgid "Need to have ${length} chars"
+msgstr "Tem de ter ${length} caracteres"
+
+#: ines/validator.py:80
+msgid "Invalid code"
+msgstr "Código inválido"
+
+#: ines/validator.py:90
 msgid "Invalid \"skype\" username"
 msgstr "Contacto \"skype\" inválido"
 
-#: ines/validator.py:117
+#: ines/validator.py:114
+msgid "Required"
+msgstr "Obrigatório"
+
+#: ines/validator.py:122
+#, python-format
+msgid "Need to start with ${chars}"
+msgstr "Tem de começar por ${chars}"
+
+#: ines/validator.py:163
 msgid "Second number must have 3 digits"
 msgstr "O segundo número tem de ter 3 dígitos"
 
-#: ines/api/mailer.py:158
+#: ines/validator.py:116
+msgid "Need to be a number"
+msgstr "Tem de ser um número"
+
+#: ines/validator.py:118
+#, python-format
+msgid "Need to have ${length} digits"
+msgstr "Tem de ter ${length} dígitos"
+
+#: ines/api/mailer.py:160
 msgid "Send queue emails"
 msgstr "Enviar emails em lista de espera"
 
-#: ines/api/storage.py:551
+#: ines/api/storage.py:559
 msgid "Create images"
 msgstr "Criar imagens"
 
@@ -349,122 +401,129 @@ msgstr "Criar imagens"
 msgid "Too many tries. Try again later"
 msgstr "Demasiadas tentativas. Tente novamente mais tarde"
 
-#: ines/api/core/__init__.py:710
-msgid "Cannot update to this parent. Loop found."
-msgstr "Não é possivel definir este pai."
-
-#: ines/views/fields.py:423
+#: ines/views/fields.py:452
 msgid "Comma (,)"
 msgstr "Vírgula (,)"
 
-#: ines/views/fields.py:424
+#: ines/views/fields.py:453
 msgid "Semicolon (;)"
 msgstr "Ponto e vírgula (;)"
 
-#: ines/views/fields.py:425
+#: ines/views/fields.py:454
 msgid "TAB (\\t)"
 msgstr "TAB (\\t)"
 
-#: ines/views/fields.py:428
+#: ines/views/fields.py:457
 msgid "Double quote"
 msgstr "Aspas duplas"
 
-#: ines/views/fields.py:429
+#: ines/views/fields.py:458
 msgid "Single quote"
 msgstr "Aspas simples"
 
-#: ines/views/fields.py:432
+#: ines/views/fields.py:461
 msgid "Windows (CR+LF)"
 msgstr "Windows (CR+LF)"
 
-#: ines/views/fields.py:433
+#: ines/views/fields.py:462
 msgid "Linux and MacOS (LF)"
 msgstr "Linux e MacOS (LF)"
 
-#: ines/views/fields.py:434
+#: ines/views/fields.py:463
 msgid "Old MacOS (CR)"
 msgstr "MacOS antigo (CR)"
 
-#: ines/views/fields.py:435
+#: ines/views/fields.py:464
 msgid "Other (LF+CR)"
 msgstr "Outro (LF+CR)"
 
-#: ines/views/fields.py:438
+#: ines/views/fields.py:467
 msgid "All languages"
 msgstr "Todas as linguagens"
 
-#: ines/views/fields.py:439
+#: ines/views/fields.py:468
 msgid "West Europe"
 msgstr "Europa Ocidental"
 
-#: ines/views/fields.py:400
+#: ines/views/fields.py:429
 msgid "Page"
 msgstr "Página"
 
-#: ines/views/fields.py:401
+#: ines/views/fields.py:430
 msgid "Results per page"
 msgstr "Resultados por página"
 
-#: ines/views/fields.py:402
+#: ines/views/fields.py:431
 msgid "Order by"
 msgstr "Ordenar por"
 
-#: ines/views/fields.py:403
+#: ines/views/fields.py:432
 msgid "Number of results"
 msgstr "Número de resultados"
 
-#: ines/views/fields.py:404
+#: ines/views/fields.py:433
 msgid "Number of page results"
 msgstr "Número de resultados por página"
 
-#: ines/views/fields.py:405
+#: ines/views/fields.py:434
 msgid "Last page"
 msgstr "Última página"
 
-#: ines/views/fields.py:406
+#: ines/views/fields.py:435
 msgid "Next page url"
 msgstr "Url da página seguinte"
 
-#: ines/views/fields.py:407
+#: ines/views/fields.py:436
 msgid "Previous page url"
 msgstr "Url da página anterior"
 
-#: ines/views/fields.py:408
+#: ines/views/fields.py:437
 msgid "First page url"
 msgstr "Url da primeira página"
 
-#: ines/views/fields.py:409
+#: ines/views/fields.py:438
 msgid "Last page url"
 msgstr "Url da última página"
 
-#: ines/views/fields.py:445
+#: ines/views/fields.py:474
 msgid "CSV content delimiter"
 msgstr "Delimitador das colunas do CSV"
 
-#: ines/views/fields.py:450
+#: ines/views/fields.py:480
 msgid "CSV content quote"
 msgstr "Delimitador do texto de cada coluna do CSV"
 
-#: ines/views/fields.py:455
+#: ines/views/fields.py:486
 msgid "CSV line terminator"
 msgstr "Código para quebra de linha do CSV"
 
-#: ines/views/fields.py:460
+#: ines/views/fields.py:492
 msgid "CSV encoding"
 msgstr "Codificação do CSV"
 
-#: ines/views/fields.py:478
+#: ines/views/fields.py:511
 msgid "Deleted"
 msgstr "Apagado"
 
-#: ines/views/fields.py:337
+#: ines/views/fields.py:71
+msgid "Incomplete date"
+msgstr "Data incompleta"
+
+#: ines/views/fields.py:73
+msgid "Incomplete time"
+msgstr "Hora incompleta"
+
+#: ines/views/fields.py:366
 msgid "Show fields"
 msgstr "Mostrar campos"
 
-#: ines/views/fields.py:338
+#: ines/views/fields.py:367
 msgid "Exclude fields"
 msgstr "Excluir campos"
 
-#: ines/views/fields.py:223
+#: ines/views/fields.py:252
 msgid "Invalid file."
 msgstr "Ficheiro inválido"
+
+#~ msgid "Cannot update to this parent. Loop found."
+#~ msgstr "Não é possivel definir este pai."

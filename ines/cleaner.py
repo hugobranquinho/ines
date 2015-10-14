@@ -14,19 +14,11 @@ from ines.convert import unicode_join
 
 STRING_TO_DICT = lambda s: dict((l, l) for l in to_unicode(s))
 
-MAPPING = {
-    u('Š'): u('S'), u('š'): u('s'), u('Ž'): u('Z'), u('ž'): u('z'), u('À'): u('A'), u('Ð'): u('Dj'),
-    u('Á'): u('A'), u('Â'): u('A'), u('Ã'): u('A'), u('Ä'): u('A'), u('Å'): u('A'), u('Æ'): u('A'),
-    u('Ç'): u('C'), u('È'): u('E'), u('É'): u('E'), u('Ê'): u('E'), u('Ë'): u('E'), u('Ì'): u('I'),
-    u('Í'): u('I'), u('Î'): u('I'), u('Ï'): u('I'), u('Ñ'): u('N'), u('Ò'): u('O'), u('Ó'): u('O'),
-    u('Ô'): u('O'), u('Õ'): u('O'), u('Ö'): u('O'), u('Ø'): u('O'), u('Ù'): u('U'), u('Ú'): u('U'),
-    u('Û'): u('U'), u('Ü'): u('U'), u('Ý'): u('Y'), u('Þ'): u('B'), u('à'): u('a'), u('ß'): u('Ss'),
-    u('á'): u('a'), u('â'): u('a'), u('ã'): u('a'), u('ä'): u('a'), u('å'): u('a'), u('æ'): u('a'),
-    u('ç'): u('c'), u('è'): u('e'), u('é'): u('e'), u('ê'): u('e'), u('ë'): u('e'), u('ì'): u('i'),
-    u('í'): u('i'), u('î'): u('i'), u('ï'): u('i'), u('ð'): u('o'), u('ñ'): u('n'), u('ò'): u('o'),
-    u('ó'): u('o'), u('ô'): u('o'), u('õ'): u('o'), u('ö'): u('o'), u('ø'): u('o'), u('ù'): u('u('),
-    u('ú'): u('u'), u('ý'): u('y'), u('þ'): u('b'), u('ÿ'): u('y'), u('ƒ'): u('f'), u(' '): u(' ')}
-
+LOWER_MAPPING = (u('àáâãäåæÆßçèéêëƒìíîïñðòóôõöšýùúüûž'), u('aaaaaaaabceeeefiiiinoooooosyyuuuuz'))
+UPPER_MAPPING = (LOWER_MAPPING[0].upper(), LOWER_MAPPING[1].upper())
+MAPPING = dict(zip(*LOWER_MAPPING))
+MAPPING.update(zip(*UPPER_MAPPING))
+MAPPING.update({u('Ø'): u('O'), u('ø'): u('0'), u('þ'): u('b'), u(' '): u(' ')})
 MAPPING.update(STRING_TO_DICT(base_letters + base_digits))
 
 FILENAME_MAPPING = MAPPING.copy()

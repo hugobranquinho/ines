@@ -295,9 +295,9 @@ def compare_full_name_factory(name):
 
 
 def add_months(value, months):
-    month = value.month - 1 + months
-    year = value.year + (month / 12)
-    month = month % 12 + 1
+    month = value.month - 1 + int(months)
+    year = value.year + int(month / 12)
+    month = (month % 12) + 1
     day = min(value.day, monthrange(year, month)[1])
     return value.replace(year=year, month=month, day=day)
 
