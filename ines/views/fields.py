@@ -134,7 +134,7 @@ _original_SchemaMeta__init__ = _SchemaMeta.__init__
 def _order_schemaMeta_nodes(cls, name, bases, clsattrs):
     _original_SchemaMeta__init__(cls, name, bases, clsattrs)
     if cls.__all_schema_nodes__:
-        cls.__all_schema_nodes__.sort(lambda n: n._order)
+        cls.__all_schema_nodes__.sort(key=lambda n: n._order)
 _order_schemaMeta_nodes.__name__ = '__init__'
 _SchemaMeta.__init__ = _order_schemaMeta_nodes
 
