@@ -234,6 +234,7 @@ class Configurator(PyramidConfigurator):
     def add_default_renderers(self):
         super(Configurator, self).add_default_renderers()
 
+        import ines.renderers
         for key, renderer in DEFAULT_RENDERERS.items():
             self.add_renderer(key, renderer)
 
