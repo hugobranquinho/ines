@@ -12,10 +12,13 @@ from sqlalchemy import and_
 from sqlalchemy import Column
 from sqlalchemy import create_engine
 from sqlalchemy import func
+from sqlalchemy import Integer
 from sqlalchemy import MetaData
 from sqlalchemy import not_
+from sqlalchemy import Numeric
 from sqlalchemy import or_
 from sqlalchemy import String
+from sqlalchemy import TEXT
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.declarative import declarative_base
@@ -49,11 +52,15 @@ SQL_DBS = defaultdict(dict)
 SQLALCHEMY_NOW_TYPE = type(func.now())
 
 
-def postgres_non_ascii_and_lower(column):
+def postgresql_non_ascii_and_lower(column):
     if isinstance(column.type, String):
         return func.translate(func.lower(column), *LOWER_MAPPING)
     else:
         return column
+
+
+def column_is_postgresql(column):
+    return column.parent.mapped_table.metadata.bind.name == 'postgresql'
 
 
 class BaseSQLSessionManager(BaseSessionManager):
@@ -307,9 +314,9 @@ class BaseSQLSession(BaseSession):
             column = getattr(table, attribute, None)
             if column is not None:
                 if as_desc:
-                    order_by.append(postgres_non_ascii_and_lower(column).desc())
+                    order_by.append(postgresql_non_ascii_and_lower(column).desc())
                 else:
-                    order_by.append(postgres_non_ascii_and_lower(column))
+                    order_by.append(postgresql_non_ascii_and_lower(column))
 
             elif active_tables and attribute == 'active':
                 if active is None:
@@ -542,8 +549,14 @@ def create_like_filter(column, value):
     if value:
         words = value.split()
         if words:
+            if column_is_postgresql(column):
+                if isinstance(column.type, (Integer, Numeric)):
+                    column = func.cast(column, TEXT)
+                else:
+                    column = postgresql_non_ascii_and_lower(column)
+
             like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
-            return postgres_non_ascii_and_lower(column).like(like_str)
+            return column.like(like_str)
 
 
 def create_ilike_filter(column, value):
@@ -551,8 +564,14 @@ def create_ilike_filter(column, value):
     if value:
         words = value.split()
         if words:
+            if column_is_postgresql(column):
+                if isinstance(column.type, (Integer, Numeric)):
+                    column = func.cast(column, TEXT)
+                else:
+                    column = postgresql_non_ascii_and_lower(column)
+
             like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
-            return postgres_non_ascii_and_lower(column).ilike(like_str)
+            return column.ilike(like_str)
 
 
 def create_rlike_filter(column, value):
@@ -560,6 +579,12 @@ def create_rlike_filter(column, value):
     if value:
         words = value.split()
         if words:
+            if column_is_postgresql(column):
+                if isinstance(column.type, (Integer, Numeric)):
+                    column = func.cast(column, TEXT)
+                else:
+                    column = postgresql_non_ascii_and_lower(column)
+
             rlike_str = u('(%s)') % unicode_join('|', words)
             return column.op('rlike')(rlike_str)
 
