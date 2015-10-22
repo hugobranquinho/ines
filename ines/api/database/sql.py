@@ -25,6 +25,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.orm.descriptor_props import CompositeProperty
 from sqlalchemy.pool import NullPool
 from sqlalchemy.sql.expression import false
 from sqlalchemy.sql.expression import true
@@ -52,15 +53,29 @@ SQL_DBS = defaultdict(dict)
 SQLALCHEMY_NOW_TYPE = type(func.now())
 
 
-def postgresql_non_ascii_and_lower(column):
-    if isinstance(column.type, String):
-        return func.translate(func.lower(column), *LOWER_MAPPING)
-    else:
+def postgresql_non_ascii_and_lower(column, as_text=True):
+    if not column_is_postgresql(column):
         return column
+
+    elif hasattr(column, 'property'):
+        if len(column.property.columns) == 1:
+            if isinstance(column.property.columns[0].type, String):
+                return func.translate(func.lower(column), *LOWER_MAPPING)
+            elif as_text:
+                return func.text(column)
+            else:
+                return column
+
+        column = func.concat(*column.property.columns)
+
+    return func.translate(func.lower(column), *LOWER_MAPPING)
 
 
 def column_is_postgresql(column):
-    return column.parent.mapped_table.metadata.bind.name == 'postgresql'
+    if hasattr(column, 'bind') and column.bind:
+        return column.bind.name == 'postgresql'
+    else:
+        return column.parent.mapped_table.metadata.bind.name == 'postgresql'
 
 
 class BaseSQLSessionManager(BaseSessionManager):
@@ -314,9 +329,9 @@ class BaseSQLSession(BaseSession):
             column = getattr(table, attribute, None)
             if column is not None:
                 if as_desc:
-                    order_by.append(postgresql_non_ascii_and_lower(column).desc())
+                    order_by.append(postgresql_non_ascii_and_lower(column, as_text=False).desc())
                 else:
-                    order_by.append(postgresql_non_ascii_and_lower(column))
+                    order_by.append(postgresql_non_ascii_and_lower(column, as_text=False))
 
             elif active_tables and attribute == 'active':
                 if active is None:
@@ -550,15 +565,8 @@ def create_like_filter(column, value):
         words = value.split()
         if words:
             like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
-
-            if column_is_postgresql(column):
-                if isinstance(column.type, (Integer, Numeric)):
-                    column = func.cast(column, TEXT)
-                else:
-                    column = postgresql_non_ascii_and_lower(column)
-                    like_str = like_str.lower()
-
-            return column.like(like_str)
+            column = postgresql_non_ascii_and_lower(column)
+            return column.like(like_str.lower())
 
 
 def create_ilike_filter(column, value):
@@ -567,15 +575,8 @@ def create_ilike_filter(column, value):
         words = value.split()
         if words:
             like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
-
-            if column_is_postgresql(column):
-                if isinstance(column.type, (Integer, Numeric)):
-                    column = func.cast(column, TEXT)
-                else:
-                    column = postgresql_non_ascii_and_lower(column)
-                    like_str = like_str.lower()
-
-            return column.ilike(like_str)
+            column = postgresql_non_ascii_and_lower(column)
+            return column.ilike(like_str.lower())
 
 
 def create_rlike_filter(column, value):
@@ -584,14 +585,8 @@ def create_rlike_filter(column, value):
         words = value.split()
         if words:
             rlike_str = u('(%s)') % unicode_join('|', words)
-            if column_is_postgresql(column):
-                if isinstance(column.type, (Integer, Numeric)):
-                    column = func.cast(column, TEXT)
-                else:
-                    column = postgresql_non_ascii_and_lower(column)
-                    rlike_str = like_str.lower()
-
-            return column.op('rlike')(rlike_str)
+            column = postgresql_non_ascii_and_lower(column)
+            return column.op('rlike')(rlike_str.lower())
 
 
 class Pagination(PaginationClass):
@@ -804,6 +799,9 @@ def query_filter_by(query, column, values):
 
 
 def create_filter_by(column, values):
+    if hasattr(column, 'property') and isinstance(column.property, CompositeProperty):
+        column = func.concat(*column.property.columns)
+
     if isinstance(values, FilterBy):
         filter_type = values.filter_type.lower()
 
