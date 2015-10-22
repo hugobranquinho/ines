@@ -549,13 +549,15 @@ def create_like_filter(column, value):
     if value:
         words = value.split()
         if words:
+            like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
+
             if column_is_postgresql(column):
                 if isinstance(column.type, (Integer, Numeric)):
                     column = func.cast(column, TEXT)
                 else:
                     column = postgresql_non_ascii_and_lower(column)
+                    like_str = like_str.lower()
 
-            like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
             return column.like(like_str)
 
 
@@ -564,13 +566,15 @@ def create_ilike_filter(column, value):
     if value:
         words = value.split()
         if words:
+            like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
+
             if column_is_postgresql(column):
                 if isinstance(column.type, (Integer, Numeric)):
                     column = func.cast(column, TEXT)
                 else:
                     column = postgresql_non_ascii_and_lower(column)
+                    like_str = like_str.lower()
 
-            like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
             return column.ilike(like_str)
 
 
@@ -579,13 +583,14 @@ def create_rlike_filter(column, value):
     if value:
         words = value.split()
         if words:
+            rlike_str = u('(%s)') % unicode_join('|', words)
             if column_is_postgresql(column):
                 if isinstance(column.type, (Integer, Numeric)):
                     column = func.cast(column, TEXT)
                 else:
                     column = postgresql_non_ascii_and_lower(column)
+                    rlike_str = like_str.lower()
 
-            rlike_str = u('(%s)') % unicode_join('|', words)
             return column.op('rlike')(rlike_str)
 
 
