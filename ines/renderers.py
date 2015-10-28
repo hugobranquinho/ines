@@ -8,6 +8,7 @@ from os.path import basename
 
 from colander import Mapping
 from colander import Sequence
+from pyramid.renderers import json_renderer_factory
 from six import binary_type
 from six import integer_types
 from six import moves
@@ -30,6 +31,10 @@ DATE = datetime.date
 DATETIME = datetime.datetime
 
 
+# Compact JSON response
+json_renderer_factory.kw['separators'] = (',', ':')
+
+
 class CSV(object):
     def lookup_header(self, node):
         if isinstance(node.typ, Sequence):
@@ -44,31 +49,42 @@ class CSV(object):
         else:
             return [node.title]
 
-    def lookup_row(self, node, value):
+    def lookup_row(self, request, node, value):
         if isinstance(node.typ, Sequence):
-            return self.lookup_row(node.children[0], value)
+            return self.lookup_row(request, node.children[0], value)
 
         elif isinstance(node.typ, Mapping):
             row = []
             for child in node.children:
                 if isinstance(value, dict):
-                    row.extend(self.lookup_row(child, value.get(camelcase(node.name))))
+                    row.extend(self.lookup_row(request, child, value.get(camelcase(node.name))))
                 else:
-                    row.extend(self.lookup_row(child, getattr(value, child.name, None)))
+                    row.extend(self.lookup_row(request, child, getattr(value, child.name, None)))
             return row
 
         else:
+            if value is not None and hasattr(node, 'value_decoder'):
+                value = node.value_decoder(request, value)
+
             return [value]
 
-    def lookup_rows(self, node, values):
+    def lookup_rows(self, request, node, values):
         rows = [self.lookup_header(node)]
         for value in values:
-            rows.append(self.lookup_row(node, value))
+            rows.append(self.lookup_row(request, node, value))
         return rows
+
+    def build_with_schema(self, request, schema, values):
+        pass
 
     def __call__(self, info):
         def _render(value, system):
             request = system.get('request')
+
+            output_schema = None
+            if isinstance(value, dict):
+                output_schema = value['schema']
+                value = value['value']
 
             delimiter = ';'
             quote_char = '"'
@@ -87,7 +103,9 @@ class CSV(object):
                     request_method=request.method)
                 if output:
                     output_schema = output[0].schema
-                    value = self.lookup_rows(output_schema.children[0], value)
+
+                if output_schema:
+                    value = self.lookup_rows(request, output_schema.children[0], value)
 
                     output_filename = getattr(output_schema, 'filename', None)
                     if output_filename:

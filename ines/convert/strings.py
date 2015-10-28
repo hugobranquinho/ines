@@ -3,6 +3,7 @@
 import datetime
 from json import dumps
 from re import compile as regex_compile
+from time import mktime
 
 from pyramid.compat import is_nonstr_iter
 
@@ -17,6 +18,7 @@ from ines import lru_cache
 
 
 DATE = datetime.date
+DATETIME = datetime.datetime
 REPLACE_CAMELCASE_REGEX = regex_compile(u('[^A-Z0-9_.]')).sub
 CLEAR_SPACES_REGEX = regex_compile(' +').sub
 
@@ -214,36 +216,54 @@ def pluralizing_key(key, only_last=True):
         return unicode_join('_', map(pluralizing_word, key.split('_')))
 
 
-def json_dumps(value):
-    value = prepare_for_json(value)
+def json_dumps(value, none_as_str=False):
+    value = prepare_for_json(value, none_as_str)
     return dumps(value)
 
 
-def prepare_for_json(value):
+def prepare_for_json(value, minify=False):
     if value is None:
-        return None
+        if minify:
+            return ''
+        else:
+            return None
+
     elif hasattr(value, '__json__'):
         return value.__json__()
+
+    elif isinstance(value, bool):
+        if minify:
+            return value and 1 or 0
+        else:
+            return value
+
     elif isinstance(value, (float, integer_types)):
         return value
+
     elif isinstance(value, dict):
-        return prepare_dict_for_json(value)
+        return prepare_dict_for_json(value, minify)
+
     elif is_nonstr_iter(value):
-        return prepare_iter_for_json(value)
-    elif isinstance(value, DATE):
-        return value.isoformat()
+        return prepare_iter_for_json(value, minify)
+
+    elif isinstance(value, (DATE, DATETIME)):
+        if minify:
+            return mktime(value.timetuple())
+        else:
+            return value.isoformat()
+
     else:
         return to_unicode(value)
 
 
-def prepare_dict_for_json(values):
+def prepare_dict_for_json(values, minify=False):
     return dict(
-        (to_unicode(key), prepare_for_json(value))
+        (to_unicode(key), prepare_for_json(value, minify))
         for key, value in values.items())
 
 
-def prepare_iter_for_json(values):
-    return [prepare_for_json(value) for value in values]
+def prepare_iter_for_json(values, minify=False):
+    return [prepare_for_json(value, minify) for value in values]
 
 
 def clear_spaces(value):
