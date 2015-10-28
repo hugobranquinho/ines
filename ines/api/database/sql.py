@@ -11,6 +11,7 @@ from six import _import_module
 from sqlalchemy import and_
 from sqlalchemy import Column
 from sqlalchemy import create_engine
+from sqlalchemy import Enum
 from sqlalchemy import func
 from sqlalchemy import Integer
 from sqlalchemy import MetaData
@@ -58,15 +59,19 @@ def postgresql_non_ascii_and_lower(column, as_text=True):
         return column
 
     elif hasattr(column, 'property'):
-        if len(column.property.columns) == 1:
-            if isinstance(column.property.columns[0].type, String):
+        columns = column.property.columns
+        if len(columns) == 1:
+            first_column = column.property.columns[0]
+            if isinstance(first_column.type, Enum):
+                return column
+            elif isinstance(first_column.type, String):
                 return func.translate(func.lower(column), *LOWER_MAPPING)
             elif as_text:
                 return func.text(column)
             else:
                 return column
 
-        column = func.concat(*column.property.columns)
+        column = func.concat(*columns)
 
     return func.translate(func.lower(column), *LOWER_MAPPING)
 

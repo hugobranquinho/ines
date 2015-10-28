@@ -232,9 +232,10 @@ class Configurator(PyramidConfigurator):
             self.add_route(**arguments)
 
     def add_default_renderers(self):
+        import ines.renderers
+
         super(Configurator, self).add_default_renderers()
 
-        import ines.renderers
         for key, renderer in DEFAULT_RENDERERS.items():
             self.add_renderer(key, renderer)
 
