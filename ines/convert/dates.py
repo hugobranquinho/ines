@@ -48,7 +48,7 @@ def maybe_date(value, date_format='%Y-%m-%d'):
 def date_to_timestamp(value):
     value = maybe_datetime(value)
     if value:
-        return mktime(value.timetuple())
+        return int(mktime(value.timetuple()))
 
 
 def convert_timezone(value, time_zone=None):

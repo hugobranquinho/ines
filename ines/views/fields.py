@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 from cgi import FieldStorage
-from json import dumps
 from json import loads
 from os.path import basename
 
@@ -29,6 +28,7 @@ from deform.widget import SelectWidget
 from six import string_types
 from six import u
 
+from ines.convert import compact_dump
 from ines.convert import to_string
 from ines.convert import to_unicode
 from ines.convert import uncamelcase
@@ -49,7 +49,7 @@ def datetinput_serialize(self, field, cstruct, **kw):
     if callable(options.get('max')):
         options['max'] = options['max']()
 
-    kw.setdefault('options_json', dumps(options))
+    kw.setdefault('options_json', compact_dump(options))
     values = self.get_template_values(field, cstruct, kw)
     return field.renderer(template, **values)
 datetinput_serialize.__name__ = 'serialize'

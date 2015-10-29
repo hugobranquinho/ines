@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from json import dumps
 from json import loads
 
 from six import moves
 from six import string_types
 from webob.request import environ_add_POST
 
+from ines.convert import compact_dump
 from ines.convert import maybe_list
 from ines.convert import string_join
 from ines.convert import to_string
@@ -55,4 +55,4 @@ def dump_query_value(value):
     if isinstance(value, string_types):
         return to_string(value)
     else:
-        return to_string(dumps(value))
+        return to_string(compact_dump(value))

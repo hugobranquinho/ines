@@ -216,9 +216,13 @@ def pluralizing_key(key, only_last=True):
         return unicode_join('_', map(pluralizing_word, key.split('_')))
 
 
-def json_dumps(value, none_as_str=False):
-    value = prepare_for_json(value, none_as_str)
-    return dumps(value)
+def compact_dump(values):
+    return dumps(values, separators=(',', ':'))
+
+
+def json_dumps(value, minify=False):
+    value = prepare_for_json(value, minify)
+    return compact_dump(value)
 
 
 def prepare_for_json(value, minify=False):
@@ -248,7 +252,7 @@ def prepare_for_json(value, minify=False):
 
     elif isinstance(value, (DATE, DATETIME)):
         if minify:
-            return mktime(value.timetuple())
+            return int(mktime(value.timetuple()))
         else:
             return value.isoformat()
 

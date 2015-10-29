@@ -32,6 +32,7 @@ from ines.exceptions import Error
 from ines.i18n import translate_factory
 from ines.interfaces import IBaseSessionManager
 from ines.utils import infinitedict
+from ines.utils import user_agent_is_mobile
 
 
 unquote = moves.urllib.parse.unquote
@@ -78,6 +79,10 @@ class InesRequest(Request):
     @reify
     def is_production_environ(self):
         return asbool(self.settings['is_production_environ'])
+
+    @reify
+    def is_mobile(self):
+        return user_agent_is_mobile(self.user_agent)
 
     def render_to_response(self, renderer, values=None, status=None):
         if status is not None:

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from json import dumps
 from json import loads
 from os import linesep
 from os.path import isfile
@@ -13,6 +12,7 @@ from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.authentication import AuthenticatedSession
 from ines.convert import bytes_join
+from ines.convert import compact_dump
 from ines.convert import date_to_timestamp
 from ines.convert import to_unicode
 from ines.convert import make_sha256
@@ -169,7 +169,7 @@ class BaseTokenPolicySession(BaseSession):
         if token_expire_seconds:
             data['token_expire_seconds'] = int(token_expire_seconds)
 
-        info = dumps(data)
+        info = compact_dump(data)
 
         # Save token
         file_path = self.get_token_file_path(token_256)

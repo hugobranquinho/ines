@@ -595,28 +595,29 @@ def create_rlike_filter(column, value):
 
 
 class Pagination(PaginationClass):
-    def __init__(self, query, page=1, limit_per_page=20, count_column=None, clear_group_by=False):
+    def __init__(self, query, page=1, limit_per_page=20, count_column=None, clear_group_by=False, ignore_count=False):
         if query is None:
             super(Pagination, self).__init__(page=1, limit_per_page=limit_per_page)
         else:
             super(Pagination, self).__init__(page=page, limit_per_page=limit_per_page)
 
             if self.limit_per_page != 'all':
-                entities = set()
-                if not count_column:
-                    # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
-                    entities.update(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
+                if not ignore_count:
+                    entities = set()
+                    if not count_column:
+                        # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
+                        entities.update(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
 
-                count_query = query
-                if clear_group_by:
-                    count_query._group_by = []
+                    count_query = query
+                    if clear_group_by:
+                        count_query._group_by = []
 
-                self.set_number_of_results(
-                    sum(r[0] for r in (
-                        count_query
-                        .with_entities(func.count(count_column or 1), *entities)
-                        .order_by(None)
-                        .all())))
+                    self.set_number_of_results(
+                        sum(r[0] for r in (
+                            count_query
+                            .with_entities(func.count(count_column or 1), *entities)
+                            .order_by(None)
+                            .all())))
 
                 end_slice = self.page * self.limit_per_page
                 start_slice = end_slice - self.limit_per_page
@@ -834,7 +835,7 @@ def create_filter_by(column, values):
             elif and_queries:
                 return and_(*and_queries)
 
-        if filter_type == 'like':
+        if filter_type in ('like', 'contém'):
             return like_maybe_with_none(column, values.value)
 
         elif filter_type == '>':
@@ -852,7 +853,7 @@ def create_filter_by(column, values):
         elif filter_type in ('=', '=='):
             return column == values.value
 
-        elif filter_type == '!=':
+        elif filter_type in ('!=', '≠'):
             return column != values.value
 
         else:
