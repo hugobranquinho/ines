@@ -23,6 +23,12 @@ def lookup_for_route_params(route):
     return params.keys()
 
 
+def lookup_for_route_name_params(request, route_name):
+    intr_route = request.registry.introspector.get('routes', route_name)
+    if intr_route is not None:
+        return lookup_for_route_params(intr_route['object'])
+
+
 def lookup_for_route_permissions(registry, introspector_route):
     permissions = {}
     for maybe_view in registry.introspector.related(introspector_route):

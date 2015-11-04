@@ -101,6 +101,21 @@ update_node_attributes_on_clone.__name__ = 'clone'
 SchemaNode.clone = update_node_attributes_on_clone
 
 
+# Bug fix
+def delete_schema_node_item(self, name):
+    for idx, node in enumerate(self.children[:]):
+        if node.name == name:
+            for i, n in enumerate(self.__all_schema_nodes__):
+                if n.name == name:
+                    self.__all_schema_nodes__.pop(i)
+                break
+
+            return self.children.pop(idx)
+    raise KeyError(name)
+delete_schema_node_item.__name__ = '__delitem__'
+SchemaNode.__delitem__ = delete_schema_node_item
+
+
 def schema_extend(self, **nodes):
     self.children.extend(nodes)
 schema_extend.__name__ = 'extend'

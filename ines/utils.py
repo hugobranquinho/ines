@@ -26,6 +26,11 @@ from pyramid.httpexceptions import HTTPError
 from six import PY3
 from six import u
 
+try:
+    from deform import ValidationFailure
+except ImportError:
+    pass
+
 from ines import DOMAIN_NAME
 from ines import DEFAULT_RETRY_ERRNO
 from ines import NOW
@@ -615,3 +620,26 @@ def user_agent_is_mobile(user_agent):
         user_agent = to_string(user_agent)
         return MOBILE_REGEX_B.search(user_agent) or MOBILE_REGEX_V.search(user_agent[0:4])
     return False
+
+
+def resolve_deform_error(form, error):
+    if not ValidationFailure:
+        raise NotImplementedError('deform package missing')
+
+    if isinstance(error, Invalid):
+        key = error.node.name
+        message = error.msg
+    else:
+        key = error.key
+        message = error.message
+
+    form_error = Invalid(form, message)
+    for child in form.children:
+        if child.name == key:
+            form_error[key] = message
+            break
+    else:
+        form.hide_global_error = False
+
+    form.widget.handle_error(form, form_error)
+    return ValidationFailure(form, form_error.value, form_error)
