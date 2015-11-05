@@ -235,6 +235,8 @@ class BaseJobsManager(BaseSessionManager):
         if order_by:
             column = order_by.column_name
             sort_with_none(response, key=column, reverse=order_by.descendant)
+        else:
+            sort_with_none(response, key='description')
 
         return response
 
