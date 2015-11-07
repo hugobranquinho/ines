@@ -91,29 +91,12 @@ SchemaNode.clone = clone_sequenceschema_fix
 
 # Propose this! Update node attributes when cloning
 def update_node_attributes_on_clone(self, **kw):
-    if 'new_order' in kw:
-        kw['_order'] = next(self._counter)
-
+    kw['_order'] = next(self._counter)
     cloned = clone_sequenceschema_fix(self)
     cloned.__dict__.update(kw)
     return cloned
 update_node_attributes_on_clone.__name__ = 'clone'
 SchemaNode.clone = update_node_attributes_on_clone
-
-
-# Bug fix
-def delete_schema_node_item(self, name):
-    for idx, node in enumerate(self.children[:]):
-        if node.name == name:
-            for i, n in enumerate(self.__all_schema_nodes__):
-                if n.name == name:
-                    self.__all_schema_nodes__.pop(i)
-                break
-
-            return self.children.pop(idx)
-    raise KeyError(name)
-delete_schema_node_item.__name__ = '__delitem__'
-SchemaNode.__delitem__ = delete_schema_node_item
 
 
 def schema_extend(self, **nodes):
