@@ -353,7 +353,10 @@ class api_cache_decorator(object):
 
     def __call__(self, wrapped):
         @wraps(wrapped)
-        def wrapper(cls, *args, expire_cache=False, no_cache=False, **kwargs):
+        def wrapper(cls, *args, **kwargs):
+            expire_cache = kwargs.pop('expire_cache', False)
+            no_cache = kwargs.pop('no_cache', False)
+
             options = [
                 cls.application_name,
                 cls.__api_name__,

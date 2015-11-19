@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from functools import lru_cache
 from json import loads
 from string import ascii_lowercase
 
@@ -134,21 +133,7 @@ class codeValidation(object):
             raise Invalid(node, _('Invalid number'))
 
 
-@lru_cache(1000)
-def get_pt_postal_address(cp4, cp3):
-    response = get_url_body(
-        url='https://www.ctt.pt/feapl_2/app/open/postalCodeSearch/postalCodeSearch.jspx',
-        data={'method:searchPC2': 'Procurar', 'cp4': cp4, 'cp3': cp3},
-        method='post')
-
-    block = response.split(u('highlighted-result'), 1)[1].split(u('</div>'), 1)[0]
-    address = block.split(u('subheader">'), 1)[1].split('<', 1)[0].title()
-    locality = block.rsplit(u('subheader">'), 1)[1].split('<', 1)[0].title()
-
-    return address, locality
-
-
-def validate_pt_post_address(postal_address, search_address=False):
+def validate_pt_post_address(postal_address):
     if u('-') not in postal_address:
         raise Error('postal_address', _('Invalid postal address'))
 
@@ -161,6 +146,3 @@ def validate_pt_post_address(postal_address, search_address=False):
         raise Error('postal_address', _('First number must be between 1000 and 9999'))
     elif len(cp3) != 3:
         raise Error('postal_address', _('Second number must have 3 digits'))
-
-    if search_address:
-        return get_pt_postal_address(cp4, cp3)
