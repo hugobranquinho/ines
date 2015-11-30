@@ -276,7 +276,7 @@ split_values = SplitValues()
 class OrderBy(object):
     def __init__(self, argument_name, descendant=False):
         self.argument_name = argument_name
-        self.column_name = uncamelcase(argument_name)
+        self.column_name = argument_name
         self.descendant = descendant
 
     def __repr__(self):
