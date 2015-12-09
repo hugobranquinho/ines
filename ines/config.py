@@ -45,6 +45,7 @@ from ines.cache import SaveMeMemcached
 from ines.convert import string_join
 from ines.convert import maybe_list
 from ines.exceptions import Error
+from ines.exceptions import HTTPBrowserUpgrade
 from ines.interfaces import IBaseSessionManager
 from ines.interfaces import IInputSchemaView
 from ines.interfaces import IOutputSchemaView
@@ -354,7 +355,12 @@ class Configurator(PyramidConfigurator):
         self.set_authorization_policy(authorization_policy)
 
     @configuration_extensions('errors.interface')
-    def add_errors_interface(self, not_found=None, forbidden=None, global_error=None, error=None):
+    def add_errors_interface(self, not_found=None, forbidden=None, global_error=None, error=None, browser_error=None):
+        if browser_error:
+            self.add_view(
+                view=browser_error,
+                context=HTTPBrowserUpgrade,
+                permission=NO_PERMISSION_REQUIRED)
         if not_found:
             self.add_view(
                 view=not_found,

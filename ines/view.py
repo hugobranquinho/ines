@@ -5,6 +5,7 @@ from pyramid.view import view_config as pyramid_view_config
 from pyramid.view import view_defaults
 
 from ines.convert import maybe_list
+from ines.browser import BrowserDecorator
 from ines.views.input import InputSchemaView
 from ines.views.output import OutputSchemaView
 
@@ -16,6 +17,25 @@ class view_config(pyramid_view_config):
 
         def callback(context, name, ob):
             config = context.config.with_package(info.module)
+
+            route_name = settings.get('route_name') or getattr(ob, '__view_defaults__', {}).get('route_name')
+            if route_name:
+                browser_constructor = config.registry.settings.get('browser_constructor')
+                if not browser_constructor:
+                    browser_settings = dict(
+                        (key[8:], value)
+                        for key, value in config.registry.settings.items()
+                        if key.startswith('browser.') and value)
+
+                    if browser_settings:
+                        browser_constructor = BrowserDecorator(browser_settings)
+                        config.registry.settings['browser_constructor'] = browser_constructor
+
+                if browser_constructor:
+                    decorator = maybe_list(settings.pop('decorator', None))
+                    decorator.append(browser_constructor)
+                    settings['decorator'] = tuple(decorator)
+
             config.add_view(view=ob, **settings)
 
         info = self.venusian.attach(

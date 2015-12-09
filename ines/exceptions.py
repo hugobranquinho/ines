@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from pyramid.httpexceptions import HTTPBadRequest
+from pyramid.httpexceptions import HTTPClientError
 from pyramid.httpexceptions import HTTPUnauthorized
 from six import u
 
@@ -12,6 +13,11 @@ class Error(Exception):
         self.key = key
         self.message = message
         self.exception = exception
+
+
+class HTTPBrowserUpgrade(HTTPClientError):
+    code = 403
+    explanation = u('Browser upgrade required')
 
 
 class HTTPTokenExpired(HTTPUnauthorized):

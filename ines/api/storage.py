@@ -331,16 +331,9 @@ class BaseStorageSession(BaseSQLSession):
 
     def get_files(
             self,
-            file_id=None,
             key=None,
-            application_code=MARKER,
-            code_key=MARKER,
-            type_key=MARKER,
-            parent_id=MARKER,
-            parent_key=None,
             attributes=None,
             only_one=False,
-            order_by=None,
             **kwargs):
 
         attributes = set(attributes or ['id'])
@@ -357,8 +350,10 @@ class BaseStorageSession(BaseSQLSession):
             if attribute not in ('id', 'created_date') and attribute in FilePath.__table__.c:
                 columns.append(FilePath.__table__.c[attribute])
                 relate_with_path = True
+
         query = self.session.query(*columns or [File.id])
 
+        file_id = kwargs.get('file_id')
         if file_id:
             query = query.filter(FilePath.id.in_(maybe_set(file_id)))
             relate_with_path = True
@@ -371,30 +366,40 @@ class BaseStorageSession(BaseSQLSession):
         if key:
             query = query.filter(File.key.in_(maybe_set(key)))
 
-        if application_code is None:
-            query = query.filter(File.application_code.is_(None))
-        elif application_code is not MARKER:
-            query = query.filter(File.application_code == to_unicode(application_code))
+        if 'application_code' in kwargs:
+            application_code = kwargs['application_code']
+            if application_code is None:
+                query = query.filter(File.application_code.is_(None))
+            else:
+                query = query.filter(File.application_code == to_unicode(application_code))
 
-        if code_key is None:
-            query = query.filter(File.code_key.is_(None))
-        elif code_key is not MARKER:
-            query = query.filter(File.code_key == to_unicode(code_key))
+        if 'code_key' in kwargs:
+            code_key = kwargs['code_key']
+            if code_key is None:
+                query = query.filter(File.code_key.is_(None))
+            else:
+                query = query.filter(File.code_key == to_unicode(code_key))
 
-        if type_key is None:
-            query = query.filter(File.type_key.is_(None))
-        elif type_key is not MARKER:
-            query = query.filter(File.type_key == to_unicode(type_key))
+        if 'type_key' in kwargs:
+            type_key = kwargs['type_key']
+            if type_key is None:
+                query = query.filter(File.type_key.is_(None))
+            else:
+                query = query.filter(File.type_key == to_unicode(type_key))
 
-        if parent_id is None:
-            query = query.filter(File.parent_id.is_(None))
-        elif parent_id is not MARKER:
-            query = query.filter(File.parent_id == int(parent_id))
+        if 'parent_id' in kwargs:
+            parent_id = kwargs['parent_id']
+            if parent_id is None:
+                query = query.filter(File.parent_id.is_(None))
+            else:
+                query = query.filter(File.parent_id == int(parent_id))
 
+        parent_key = kwargs.get('parent_key')
         if parent_key:
             parent = aliased(File)
             query = query.filter(File.parent_id == parent.id).filter(parent.key == to_unicode(parent_key))
 
+        order_by = kwargs.get('order_by')
         if order_by is not None:
             query = query.order_by(order_by)
 

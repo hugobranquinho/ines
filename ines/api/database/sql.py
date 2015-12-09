@@ -323,13 +323,17 @@ class BaseSQLSession(BaseSession):
             external_names.sort(reverse=True)
 
         for attribute in maybe_list(attributes):
+            as_desc = False
             if isinstance(attribute, OrderBy):
                 as_desc = attribute.descendant
                 attribute = attribute.column_name
-            else:
-                as_desc = attribute.endswith(' desc')
-                if as_desc:
-                    attribute = attribute[:-5]
+
+            elif attribute.lower().endswith(' desc'):
+                attribute = attribute[:-5]
+                as_desc = True
+
+            elif attribute.lower().endswith(' asc'):
+                attribute = attribute[:-4]
 
             column = getattr(table, attribute, None)
             if column is not None:
