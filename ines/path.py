@@ -20,8 +20,7 @@ def find_class_on_module(module, class_to_find):
     result = set()
     module_package_name = module.__name__.split('.', 1)[0]
     for key, class_found in getmembers(module, isclass):
-        if class_found is not class_to_find and \
-           issubclass(class_found, class_to_find):
+        if class_found is not class_to_find and issubclass(class_found, class_to_find):
             value_package_name = class_found.__module__.split('.', 1)[0]
             if value_package_name == module_package_name:
                 result.add(class_found)

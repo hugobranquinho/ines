@@ -164,15 +164,22 @@ class BaseSQLSession(BaseSession):
     def set_filter_by_on_query(self, query, column, values):
         return query.filter(create_filter_by(column, values))
 
-    def set_active_filter_on_query(self, query, tables, active=None):
+    def set_active_filter_on_query(self, query, tables, active=None, active_query=None):
         if active:
-            return query.filter(active_filter(tables))
+            query_filter = active_filter(tables)
         else:
-            return query.filter(inactive_filter(tables))
+            query_filter = inactive_filter(tables)
 
-    def get_active_attribute(self, tables, active=None):
+        if active_query is not None:
+            query_filter = and_(query_filter, active_query)
+
+        return query.filter(query_filter)
+
+    def get_active_attribute(self, tables, active=None, active_query=None):
         if active is None:
             attribute = active_filter(tables)
+            if active_query is not None:
+                attribute = and_(active_query, attribute)
         elif active:
             attribute = true()
         else:
@@ -180,7 +187,7 @@ class BaseSQLSession(BaseSession):
 
         return attribute.label('active')
 
-    def _lookup_columns(self, table, attributes, active=None, active_tables=None, external=None):
+    def _lookup_columns(self, table, attributes, active=None, active_tables=None, external=None, active_query=None):
         relate_with = set()
         if not attributes:
             columns = list(table.__table__.c.values())
@@ -188,7 +195,7 @@ class BaseSQLSession(BaseSession):
             if active_tables:
                 if active is None:
                     relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
-                columns.append(self.get_active_attribute(active_tables, active=active))
+                columns.append(self.get_active_attribute(active_tables, active=active, active_query=active_query))
         else:
             external_names = []
             external_methods = {}
@@ -209,7 +216,7 @@ class BaseSQLSession(BaseSession):
                 elif active_tables and attribute == 'active':
                     if active is None:
                         relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
-                    columns.append(self.get_active_attribute(active_tables, active=active))
+                    columns.append(self.get_active_attribute(active_tables, active=active, active_query=active_query))
 
                 else:
                     for name, name_length in external_names:
@@ -308,7 +315,7 @@ class BaseSQLSession(BaseSession):
 
         return LookupAtributes(sa_filters, relate_with)
 
-    def _lookup_order_by(self, table, attributes, active=None, active_tables=None, external=None):
+    def _lookup_order_by(self, table, attributes, active=None, active_tables=None, external=None, active_query=None):
         order_by = []
         relate_with = set()
 
@@ -346,7 +353,7 @@ class BaseSQLSession(BaseSession):
                 if active is None:
                     relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
 
-                column = self.get_active_attribute(active_tables, active=active)
+                column = self.get_active_attribute(active_tables, active=active, active_query=active_query)
                 if as_desc:
                     order_by.append(column.desc())
                 else:
@@ -892,10 +899,12 @@ def new_lightweight_named_tuple(response, *new_fields):
     return lightweight_named_tuple('result', response._real_fields + tuple(new_fields))
 
 
-def get_orm_tables(database_name):
+def get_orm_tables(database_name=None):
     references = {}
-    for base in SQL_DBS[database_name]['bases']:
-        references.update(get_tables_on_registry(base._decl_class_registry))
+    for name, database in SQL_DBS.items():
+        if not database_name or name == database_name:
+            for base in database.get('bases') or []:
+                references.update(get_tables_on_registry(base._decl_class_registry))
     return references
 
 

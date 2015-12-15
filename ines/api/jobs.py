@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import datetime
 import errno
 from os import getpgid
 from os.path import isfile
@@ -38,6 +39,17 @@ JOBS_REPORT_PATTERN = 'jobs report %s'
 JOBS_REPORT_KEY = JOBS_REPORT_PATTERN % DOMAIN_NAME
 JOBS_LOCK_KEY = lambda k: 'jobs lock %s' % k
 JOBS_IMMEDIATE_KEY = 'jobs immediate run'
+FROM_TIMESTAMP = datetime.datetime.fromtimestamp
+
+
+def to_timestamp(date):
+    if date:
+        return int(date.timestamp())
+
+
+def from_timestamp(timestamp):
+    if timestamp:
+        return FROM_TIMESTAMP(timestamp)
 
 
 class BaseJobsManager(BaseSessionManager):
@@ -167,13 +179,13 @@ class BaseJobsManager(BaseSessionManager):
             info = self.config.cache.get(JOBS_REPORT_KEY, expire=None) or {}
 
             job_info = info.setdefault(apijob.name, {})
-            job_info['next'] = apijob.next_date
+            job_info['next'] = to_timestamp(apijob.next_date)
             job_info['active'] = apijob.active
             if called_date:
-                job_info.setdefault('called', []).append(called_date)
+                job_info.setdefault('called', []).append(to_timestamp(called_date))
 
             if as_add:
-                job_info['start'] = NOW()
+                job_info['start'] = to_timestamp(NOW())
 
             self.config.cache.put(JOBS_REPORT_KEY, info, expire=None)
 
@@ -199,18 +211,19 @@ class BaseJobsManager(BaseSessionManager):
                         job_info['application_name'] = application_name
                         job_info['description'] = apijob.title
 
-                    info_next = info['next']
+                    info_next = from_timestamp(info['next'])
                     if info_next:
                         added_info_next = job_info.get('next_date')
                         if not added_info_next or added_info_next > info_next:
                             job_info['next_date'] = info_next
 
-                    if not job_info.get('start_date') or info['start'] < job_info['start_date']:
-                        job_info['start_date'] = info['start']
+                    info_start = from_timestamp(info['start'])
+                    if not job_info.get('start_date') or info_start < job_info['start_date']:
+                        job_info['start_date'] = info_start
 
                     called = job_info.setdefault('called', [])
                     if info.get('called'):
-                        called.extend(info['called'])
+                        called.extend(from_timestamp(d) for d in info['called'])
                         called.sort()
                     job_info['called_length'] = len(called)
 
