@@ -2,6 +2,7 @@
 
 import mimetypes
 
+from ines.convert import maybe_bytes
 from ines.convert import maybe_string
 from ines.convert import to_bytes
 from ines.utils import is_file_type
@@ -55,14 +56,14 @@ class GuessTypeWithData(object):
 # TODO: http://www.freeformatter.com/mime-types-list.html
 guess_mimetype_with_data = GuessTypeWithData()
 
-guess_mimetype_with_data.add_startswith('<?xml', 'text/xml')
-guess_mimetype_with_data.add_startswith('\xef\xbb\xbf<?xml', 'text/xml')
-guess_mimetype_with_data.add_startswith('\0<\0?\0x\0m\0l', 'text/xml')
-guess_mimetype_with_data.add_startswith('<\0?\0x\0m\0l\0', 'text/xml')
-guess_mimetype_with_data.add_startswith('\xfe\xff\0<\0?\0x\0m\0l', 'text/xml')
-guess_mimetype_with_data.add_startswith('\xff\xfe<\0?\0x\0m\0l\0', 'text/xml')
-guess_mimetype_with_data.add_startswith('<html', 'text/html')
-guess_mimetype_with_data.add_startswith('<HTML', 'text/html')
+guess_mimetype_with_data.add_startswith(b'<?xml', 'text/xml')
+guess_mimetype_with_data.add_startswith(b'\xef\xbb\xbf<?xml', 'text/xml')
+guess_mimetype_with_data.add_startswith(b'\0<\0?\0x\0m\0l', 'text/xml')
+guess_mimetype_with_data.add_startswith(b'<\0?\0x\0m\0l\0', 'text/xml')
+guess_mimetype_with_data.add_startswith(b'\xfe\xff\0<\0?\0x\0m\0l', 'text/xml')
+guess_mimetype_with_data.add_startswith(b'\xff\xfe<\0?\0x\0m\0l\0', 'text/xml')
+guess_mimetype_with_data.add_startswith(b'<html', 'text/html')
+guess_mimetype_with_data.add_startswith(b'<HTML', 'text/html')
 
 
 # Add image handlers
@@ -110,7 +111,7 @@ def find_mimetype(filename=None, header_or_file=None):
         header_or_file.seek(0)
         header = header_or_file.read(guess_mimetype_with_data.min_header_size)
     else:
-        header = maybe_string(header_or_file)
+        header = maybe_bytes(header_or_file)
 
     mimetype = None
     if header is not None:

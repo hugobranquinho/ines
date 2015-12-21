@@ -523,7 +523,7 @@ def validate_skype_username(username, validate_with_api=False):
 def validate_phone_number(number):
     if number:
         number = clean_phone_number(to_unicode(number))
-        if 20 > len(number or '') > 5:
+        if 21 > len(number or '') > 3:
             return number
 
 

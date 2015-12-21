@@ -151,9 +151,10 @@ def open_url(url, data=None, timeout=None, headers=None, method='get'):
     if data:
         if isinstance(data, string_types):
             data = to_string(data)
-        else:
-            if isinstance(data, (dict, MultiDict)):
-                data = data.items()
+        elif isinstance(data, (dict, MultiDict)):
+            data = data.items()
+
+        if isinstance(data, (dict, tuple, list)):
             data = dict((to_string(k), to_string(v)) for k, v in data)
             data = urlencode(data)
 

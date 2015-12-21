@@ -1,6 +1,21 @@
 # -*- coding: utf-8 -*-
 
+from os.path import normcase
+from os.path import normpath
+from os.path import join as join_path
+from os.path import isdir
+from os.path import exists
+
+from pkg_resources import resource_exists
+from pkg_resources import resource_filename
+from pkg_resources import resource_isdir
+from pyramid.asset import resolve_asset_spec
 from pyramid.config.views import DefaultViewMapper
+from pyramid.httpexceptions import HTTPNotFound
+from pyramid.static import static_view
+from pyramid.response import FileResponse
+from pyramid.static import _secure_path
+from pyramid.traversal import traversal_path_info
 from pyramid.view import view_config as pyramid_view_config
 from pyramid.view import view_defaults
 
@@ -154,3 +169,53 @@ class api_config(pyramid_view_config):
 class api_defaults(view_defaults):
     def __init__(self, **settings):
         view_defaults.__init__(self, **settings)
+
+
+class gzip_static_view(static_view):
+    def __init__(self, *args, **kwargs):
+        gzip_path = kwargs.pop('gzip_path')
+        super(gzip_static_view, self).__init__(*args, **kwargs)
+
+        package_name, self.gzip_docroot = resolve_asset_spec(gzip_path, self.package_name)
+        self.norm_gzip_docroot = normcase(normpath(self.gzip_docroot))
+
+    def __call__(self, context, request):
+        if self.use_subpath:
+            path_tuple = request.subpath
+        else:
+            path_tuple = traversal_path_info(request.environ['PATH_INFO'])
+
+        if self.cachebust_match:
+            path_tuple = self.cachebust_match(path_tuple)
+        path = _secure_path(path_tuple)
+
+        if path is None:
+            raise HTTPNotFound('Out of bounds: %s' % request.url)
+
+        use_gzip = 'gzip' in request.accept_encoding
+        if self.package_name: # package resource
+            docroot = use_gzip and self.gzip_docroot or self.docroot
+            resource_path ='%s/%s' % (docroot.rstrip('/'), path)
+            if resource_isdir(self.package_name, resource_path):
+                if not request.path_url.endswith('/'):
+                    self.add_slash_redirect(request)
+                resource_path = '%s/%s' % (resource_path.rstrip('/'),self.index)
+            if not resource_exists(self.package_name, resource_path):
+                raise HTTPNotFound(request.url)
+            filepath = resource_filename(self.package_name, resource_path)
+
+        else:
+            norm_docroot = use_gzip and self.gzip_norm_docroot or self.norm_docroot
+            filepath = normcase(normpath(join_path(norm_docroot, path)))
+            if isdir(filepath):
+                if not request.path_url.endswith('/'):
+                    self.add_slash_redirect(request)
+                filepath = join_path(filepath, self.index)
+            if not exists(filepath):
+                raise HTTPNotFound(request.url)
+
+        response = FileResponse(filepath, request, self.cache_max_age)
+        if use_gzip:
+            response.content_encoding = 'gzip'
+
+        return response

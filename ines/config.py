@@ -38,6 +38,7 @@ from ines.api.jobs import BaseJobsManager
 from ines.api.jobs import BaseJobsSession
 from ines.api.mailer import BaseMailerSession
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
+from ines.authorization import Everyone
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
 from ines.cache import SaveMe
@@ -53,6 +54,7 @@ from ines.interfaces import ISchemaView
 from ines.middlewares import DEFAULT_MIDDLEWARE_POSITION
 from ines.path import find_class_on_module
 from ines.path import get_object_on_path
+from ines.view import gzip_static_view
 from ines.views.postman import PostmanCollection
 from ines.views.schema import SchemaView
 from ines.request import InesRequest
@@ -421,6 +423,12 @@ class Configurator(PyramidConfigurator):
         if not base_static_path:
             self.add_static_view('deform', 'deform:static')
 
+    def add_gzip_static_view(self, path, gzip_path, route_name='static', cache_max_age=None, permission=Everyone):
+        self.add_view(
+            route_name=route_name,
+            view=gzip_static_view(path, gzip_path=gzip_path, cache_max_age=cache_max_age, use_subpath=True),
+            permission=permission)
+
     def register_input_schema(self, view, route_name, request_method):
         for req_method in maybe_list(request_method) or ['']:
             utility_name = '%s %s' % (route_name or '', req_method or '')
@@ -460,6 +468,7 @@ class Configurator(PyramidConfigurator):
             if view is not None:
                 schemas.append(view)
         return schemas
+
 
 class APIConfigurator(Configurator):
     @configuration_extensions('apidocjs')

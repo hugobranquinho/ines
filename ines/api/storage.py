@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from base64 import b64encode
 from collections import defaultdict
 import datetime
 from io import BytesIO
@@ -14,6 +15,7 @@ from six import _import_module
 from six import binary_type
 from six import string_types
 from six import u
+from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
@@ -37,10 +39,13 @@ from ines.convert import maybe_integer
 from ines.convert import maybe_set
 from ines.convert import maybe_string
 from ines.convert import maybe_unicode
+from ines.convert import to_bytes
 from ines.exceptions import Error
 from ines.i18n import _
 from ines.mimetype import find_mimetype
 from ines.path import join_paths
+from ines.url import get_url_file
+from ines.url import open_json_url
 from ines.utils import file_unique_code
 from ines.utils import get_dir_filenames
 from ines.utils import get_open_file
@@ -78,20 +83,14 @@ class BaseStorageSessionManager(BaseSQLSessionManager):
                         if resize_type in ('width', 'height'):
                             self.resizes.setdefault(application_code, {}).setdefault(name, {})[resize_type] = int(value)
 
+            self.tinypng_api = self.settings.get('tinypng_api')
+            self.tinypng_locked_months = []
+
 
 class BaseStorageSession(BaseSQLSession):
     __api_name__ = 'storage'
 
-    def save_file(
-            self,
-            binary,
-            application_code,
-            code_key=None,
-            filename=None,
-            title=None,
-            parent_id=None,
-            type_key=None):
-
+    def save_file_path(self, binary, filename=None, compressed=False):
         # Generate a unique code using SHA256
         if isinstance(binary, (binary_type, string_types)):
             unique_code = string_unique_code(binary)
@@ -105,7 +104,7 @@ class BaseStorageSession(BaseSQLSession):
         try:
             file_path = (
                 self.session
-                .query(FilePath.id, FilePath.size, FilePath.mimetype)
+                .query(*FilePath.__table__.c.values())
                 .filter(FilePath.code == unique_code)
                 .first())
 
@@ -114,48 +113,60 @@ class BaseStorageSession(BaseSQLSession):
                 # Create a new filepath
                 filename = maybe_string(filename)
                 mimetype = find_mimetype(filename=filename, header_or_file=binary)
-                file_path = FilePath(code=unique_code, mimetype=maybe_unicode(mimetype))
+                file_path = FilePath(code=unique_code, mimetype=maybe_unicode(mimetype), compressed=compressed)
 
                 to_add = []
                 file_size = 0
 
                 # Save blocks
                 blocks = self.save_blocks(binary)
-    
+
                 for order, (block_id, block_size) in enumerate(blocks):
                     to_add.append(FileBlock(file_id_block=block_id, order=order))
                     file_size += block_size
 
                 # Add file path to DB
                 file_path.size = file_size
-                self.session.add(file_path)
-                self.session.flush()
+                file_path.id = self.direct_insert(file_path).inserted_primary_key[0]
 
                 # Relate blocks and file path
                 for block_relation in to_add:
                     block_relation.file_id_path = file_path.id
-                self.session.add_all(to_add)
-                self.session.flush()
+                    self.direct_insert(block_relation)
 
-            # Add applications file relation
-            new = File(
-                file_id=file_path.id,
-                parent_id=parent_id,
-                key=make_unique_hash(70),
-                application_code=to_unicode(application_code),
-                code_key=maybe_unicode(code_key),
-                filename=maybe_unicode(filename),
-                title=maybe_unicode(title),
-                type_key=maybe_unicode(type_key))
-            self.session.add(new)
-            self.session.flush()
-
-            # Add some attributes
-            new.size = file_path.size
-            new.mimetype = file_path.mimetype
-            return new
+            return file_path
         finally:
             self.cache.unlock(lock_key)
+
+    def save_file(
+            self,
+            binary,
+            application_code,
+            code_key=None,
+            filename=None,
+            title=None,
+            parent_id=None,
+            type_key=None):
+
+        file_path = self.save_file_path(binary, filename)
+
+        # Add applications file relation
+        new = File(
+            file_id=file_path.id,
+            parent_id=parent_id,
+            key=make_unique_hash(70),
+            application_code=to_unicode(application_code),
+            code_key=maybe_unicode(code_key),
+            filename=maybe_unicode(filename),
+            title=maybe_unicode(title),
+            type_key=maybe_unicode(type_key))
+        self.session.add(new)
+        self.session.flush()
+
+        # Add some attributes
+        new.size = file_path.size
+        new.mimetype = file_path.mimetype
+        return new
 
     @reify
     def block_size(self):
@@ -209,6 +220,7 @@ class BaseStorageSession(BaseSQLSession):
                 block = while_binary.read(block_size)
             if not block:
                 break
+
             # Create hash of the block
             blocks.append(string_unique_code(block))
         if not blocks:
@@ -237,7 +249,8 @@ class BaseStorageSession(BaseSQLSession):
                     response.append(existing_blocks[block_hash])
                 else:
                     if binary_is_string:
-                        block_binary = binary[order * block_size:block_size]
+                        start_idx = order * block_size
+                        block_binary = binary[start_idx:start_idx + block_size]
                     else:
                         binary.seek(order * block_size)
                         block_binary = binary.read(block_size)
@@ -259,6 +272,57 @@ class BaseStorageSession(BaseSQLSession):
                 self.cache.unlock(lock_key)
 
         return response
+
+    def delete_file_paths(self, *ids):
+        if not ids:
+            return False
+
+        ids = maybe_set(ids)
+
+        # Get existing files blocks
+        blocks_ids = set(
+            f.file_id_block
+            for f in (
+                self.session
+                .query(FileBlock.file_id_block)
+                .filter(FileBlock.file_id_path.in_(ids))
+                .all()))
+
+        # Check if we can delete some file block relations
+        delete_block_ids = blocks_ids.difference(
+            f.file_id_block
+            for f in (
+                self.session
+                .query(FileBlock.file_id_block)
+                .filter(FileBlock.file_id_block.in_(blocks_ids))
+                .filter(FileBlock.file_id_path.notin_(ids))
+                .all()))
+
+        delete_paths = None
+        if delete_block_ids:
+            # Get paths to delete
+            delete_paths = set(
+                b.path
+                for b in (
+                    self.session
+                    .query(BlockPath.path)
+                    .filter(BlockPath.id.in_(delete_block_ids))
+                    .all()))
+
+        # Delete blocks relations
+        self.direct_delete(FileBlock, FileBlock.file_id_path.in_(ids))
+        # Delete files paths from DB
+        self.direct_delete(FilePath, FilePath.id.in_(ids))
+
+        if delete_block_ids:
+            # Delete blocks paths from DB
+            self.direct_delete(BlockPath, BlockPath.id.in_(delete_block_ids))
+
+            # Delete blocks paths from storage
+            for path in delete_paths:
+                remove_file_quietly(join_paths(self.storage_path, path))
+
+        return True
 
     def delete_files(self, *ids):
         if not ids:
@@ -282,50 +346,12 @@ class BaseStorageSession(BaseSQLSession):
                 .filter(File.file_id.in_(files_paths_ids))
                 .filter(File.id.notin_(delete_file_ids))
                 .all()))
-        if delete_file_path_ids:
-            # Get existing files blocks
-            blocks_ids = set(
-                f.file_id_block
-                for f in (
-                    self.session
-                    .query(FileBlock.file_id_block)
-                    .filter(FileBlock.file_id_path.in_(delete_file_path_ids))
-                    .all()))
-
-            # Check if we can delete some file block relations
-            delete_block_ids = blocks_ids.difference(
-                f.file_id_block
-                for f in (
-                    self.session
-                    .query(FileBlock.file_id_block)
-                    .filter(FileBlock.file_id_block.in_(blocks_ids))
-                    .filter(FileBlock.file_id_path.notin_(delete_file_path_ids))
-                    .all()))
-
-            if delete_block_ids:
-                # Get paths to delete
-                delete_paths = set(
-                    b.path
-                    for b in (
-                        self.session
-                        .query(BlockPath.path)
-                        .filter(BlockPath.id.in_(delete_block_ids))
-                        .all()))
 
         # Delete files relations
         self.direct_delete(File, File.id.in_(delete_file_ids))
-        if delete_file_path_ids:
-            # Delete blocks relations
-            self.direct_delete(FileBlock, FileBlock.file_id_path.in_(delete_file_path_ids))
-            # Delete files paths from DB
-            self.direct_delete(FilePath, FilePath.id.in_(delete_file_path_ids))
-            if delete_block_ids:
-                # Delete blocks paths from DB
-                self.direct_delete(BlockPath, BlockPath.id.in_(delete_block_ids))
 
-                # Delete blocks paths from storage
-                for path in delete_paths:
-                    remove_file_quietly(join_paths(self.storage_path, path))
+        if delete_file_path_ids:
+            self.delete_file_paths(*delete_file_path_ids)
 
         return True
 
@@ -414,26 +440,35 @@ class BaseStorageSession(BaseSQLSession):
         if only_one:
             response = [response]
 
-        files_blocks = defaultdict(list)
-        for block in (
-                self.session
-                .query(BlockPath.path, FileBlock.file_id_path)
-                .filter(BlockPath.id == FileBlock.file_id_block)
-                .filter(FileBlock.file_id_path.in_(set(f.file_id for f in response)))
-                .order_by(FileBlock.order)
-                .all()):
-            files_blocks[block.file_id_path].append(block.path)
-
         # Add items to SQLAlchemy tuple result
+        files_binary = self.get_file_binary_dict(set(f.file_id for f in response))
         new_namedtuple = new_lightweight_named_tuple(response[0], 'open_file')
         response[:] = [
-            new_namedtuple(r + (StorageFile(self.storage_path, files_blocks[r.file_id]), ))
+            new_namedtuple(r + (files_binary[r.file_id], ))
             for r in response]
 
         if only_one:
             return response[0]
         else:
             return response
+
+    def get_file_binary_dict(self, file_ids):
+        files_blocks = defaultdict(list)
+        for block in (
+                self.session
+                .query(BlockPath.path, FileBlock.file_id_path)
+                .filter(BlockPath.id == FileBlock.file_id_block)
+                .filter(FileBlock.file_id_path.in_(file_ids))
+                .order_by(FileBlock.order)
+                .all()):
+            files_blocks[block.file_id_path].append(block.path)
+
+        return dict(
+            (i, StorageFile(self.storage_path, files_blocks[i]))
+            for i in file_ids)
+
+    def get_file_binary(self, file_id):
+        return self.get_file_binary_dict([file_id]).get(file_id)
 
     def get_file(self, **kwargs):
         return self.get_files(only_one=True, **kwargs)
@@ -447,10 +482,11 @@ class BaseStorageWithImageSession(BaseStorageSession):
         try:
             im = self.api_session_manager.image_cls.open(binary_or_file)
             im.verify()
+            im.close()
         except:
             raise Error('image', 'Invalid image.')
         else:
-            return im
+            return self.api_session_manager.image_cls.open(binary_or_file)
 
     def get_thumbnail(self, key, resize_name, attributes=None):
         resized = self.get_files(
@@ -598,6 +634,50 @@ class BaseStorageWithImageSession(BaseStorageSession):
                         self.resize_image(f, application_code, resize_name)
                         self.flush()
 
+    @job(second=0, minute=15, hour=2,
+         title=_('Compress images'),
+         unique_name='ines:compress_images')
+    def compress_images(self):
+        month_str = TODAY_DATE().strftime('%Y%m')
+        if not self.api_session_manager.tinypng_api or month_str in self.api_session_manager.tinypng_locked_months:
+            return None
+
+        headers = {
+            'Authorization': b'Basic ' + b64encode(b'api:' + to_bytes(self.api_session_manager.tinypng_api))}
+
+        while True:
+            file_info = (
+                self.session
+                .query(FilePath.id, File.filename)
+                .filter(FilePath.compressed.is_(False))
+                .filter(FilePath.mimetype.in_(['image/jpeg', 'image/png']))
+                .filter(FilePath.id == File.file_id)
+                .order_by(FilePath.size, File.filename.desc())
+                .first())
+
+            if not file_info:
+                break
+
+            binary = self.get_file_binary(file_info.id).read()
+            response = open_json_url(
+                'https://api.tinify.com/shrink',
+                method='POST',
+                data=binary,
+                headers=headers)
+
+            # self.api_session_manager.tinypng_locked_months.append(month_str)
+
+            if response['output']['ratio'] >= 1:
+                self.direct_update(FilePath, FilePath.id == file_info.id, {'compressed': True})
+            else:
+                new_file_binary = get_url_file(response['output']['url'], headers=headers)
+                file_path_id = self.save_file_path(new_file_binary, filename=file_info.filename, compressed=True).id
+                if file_path_id == file_info.id:
+                    self.direct_update(FilePath, FilePath.id == file_info.id, {'compressed': True})
+                else:
+                    self.direct_update(File, File.file_id == file_info.id, {'file_id': file_path_id})
+                    self.delete_file_paths(file_info.id)
+
     def save_image(
             self,
             binary,
@@ -615,7 +695,6 @@ class BaseStorageWithImageSession(BaseStorageSession):
         if image_validation:
             image_validation(im)
 
-        temporary_path = None
         if crop_left or crop_upper or crop_right or crop_lower:
             crop_left = int(crop_left or 0)
             crop_upper = int(crop_upper or 0)
@@ -629,10 +708,10 @@ class BaseStorageWithImageSession(BaseStorageSession):
             elif (crop_upper + crop_lower) >= height:
                 raise Error('crop_upper+crop_lower', u('Upper and lower crop bigger then image height'))
 
-            new_im = self.api_session_manager.image_cls.open(binary)
-            new_im = new_im.crop((int(crop_left), int(crop_upper), int(width - crop_right), int(height - crop_lower)))
-            temporary_path = save_temporary_image(new_im)
-            binary = get_open_file(temporary_path)
+            im = im.crop((int(crop_left), int(crop_upper), int(width - crop_right), int(height - crop_lower)))
+
+        temporary_path = save_temporary_image(im)
+        binary = get_open_file(temporary_path)
 
         f = self.save_file(binary, application_code, code_key, filename=filename, title=title)
         if asbool(self.settings.get('thumb.create_on_add')):
@@ -657,6 +736,7 @@ class FilePath(FilesDeclarative):
     code = Column(Unicode(70), unique=True, nullable=False)
     size = Column(Integer, nullable=False)
     mimetype = Column(Unicode(100))
+    compressed = Column(Boolean, default=False)
     created_date = Column(DateTime, nullable=False, default=func.now())
 
 
@@ -747,10 +827,10 @@ def save_temporary_image(im, default_format='JPEG'):
     open_file = get_open_file(temporary_path, mode='wb')
 
     try:
-        im.save(open_file, format=im.format or default_format)
+        im.save(open_file, format=im.format or default_format, optimize=True)
     except IOError as error:
         if error.args[0] == 'cannot write mode P as JPEG':
-            im.convert('RGB').save(open_file, format=im.format or default_format)
+            im.convert('RGB').save(open_file, format=im.format or default_format, optimize=True)
         else:
             raise
 
