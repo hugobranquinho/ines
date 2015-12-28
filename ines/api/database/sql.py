@@ -37,6 +37,7 @@ from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.cleaner import clean_unicode
 from ines.cleaner import LOWER_MAPPING
+from ines.convert import maybe_integer
 from ines.convert import maybe_list
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
@@ -79,6 +80,8 @@ def postgresql_non_ascii_and_lower(column, as_text=True):
 def column_is_postgresql(column):
     if hasattr(column, 'bind') and column.bind:
         return column.bind.name == 'postgresql'
+    elif hasattr(column, 'table'):
+        return column_is_postgresql(column.table)
     else:
         return column.parent.mapped_table.metadata.bind.name == 'postgresql'
 
@@ -398,6 +401,32 @@ class BaseSQLSession(BaseSession):
                 return True
 
         return False
+
+    def create_global_search_options(self, search, tables, ignore_columns=None):
+        response = []
+        search_number = maybe_integer(search[:9])
+
+        for table in tables:
+            for column_key in table.__table__.c.keys():
+                column = getattr(table, column_key)
+                if ignore_columns and column.name in ignore_columns:
+                    continue
+
+                if isinstance(column.type, Enum):
+                    for value in column.type.enums:
+                        if search in value:
+                            response.append(column == value)
+
+                elif isinstance(column.type, String):
+                    value = create_like_filter(column, search)
+                    if value is not None:
+                        response.append(value)
+
+                elif isinstance(column.type, (Numeric, Integer)):
+                    if search_number is not None:
+                        response.append(column == search_number)
+
+        return response
 
 
 class LookupAtributes(list):

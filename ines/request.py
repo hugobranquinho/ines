@@ -78,7 +78,7 @@ class InesRequest(Request):
 
     @reify
     def is_production_environ(self):
-        return asbool(self.settings['is_production_environ'])
+        return self.registry.config.is_production_environ
 
     @reify
     def is_mobile(self):

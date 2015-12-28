@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import codecs
+from collections import defaultdict
 from csv import QUOTE_MINIMAL
 from csv import writer as csv_writer
 import datetime
@@ -36,14 +37,26 @@ json_renderer_factory.kw['separators'] = (',', ':')
 
 
 class CSV(object):
-    def lookup_header(self, node):
+    sequence_count = defaultdict(int)
+
+    def lookup_header(self, node, values):
         if isinstance(node.typ, Sequence):
-            return self.lookup_header(node.children[0])
+            count = set(len(getattr(value, node.name)) for value in values)
+            node_max = self.sequence_count[node.name] = max(count)
+
+            row = []
+            first_row = self.lookup_header(node.children[0], values)
+            row.extend(first_row)
+
+            for i in range(1, node_max):
+                row.extend('%s (%s)' % (title, i) for title in first_row)
+
+            return row
 
         elif isinstance(node.typ, Mapping):
             header = []
             for child in node.children:
-                header.extend(self.lookup_header(child))
+                header.extend(self.lookup_header(child, values))
             return header
 
         else:
@@ -51,7 +64,24 @@ class CSV(object):
 
     def lookup_row(self, request, node, value):
         if isinstance(node.typ, Sequence):
-            return self.lookup_row(request, node.children[0], value)
+            row = []
+            value_length = len(value)
+
+            for i in range(self.sequence_count[node.name]):
+                if i >= value_length:
+                    child_value = None
+                else:
+                    child_value = value[i]
+
+                for child in node.children[0].children:
+                    if child_value is None:
+                        row.extend(self.lookup_row(request, child, None))
+                    elif isinstance(value, dict):
+                        row.extend(self.lookup_row(request, child, child_value.get(camelcase(node.name))))
+                    else:
+                        row.extend(self.lookup_row(request, child, getattr(child_value, child.name, None)))
+
+            return row
 
         elif isinstance(node.typ, Mapping):
             row = []
@@ -69,7 +99,7 @@ class CSV(object):
             return [value]
 
     def lookup_rows(self, request, node, values):
-        rows = [self.lookup_header(node)]
+        rows = [self.lookup_header(node, values)]
         for value in values:
             rows.append(self.lookup_row(request, node, value))
         return rows

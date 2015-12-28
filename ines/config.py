@@ -222,6 +222,10 @@ class Configurator(PyramidConfigurator):
     def version(self):
         return get_distribution(self.package_name).version
 
+    @property
+    def is_production_environ(self):
+        return asbool(self.settings['is_production_environ'])
+
     def add_routes(self, *routes, **kwargs):
         for arguments in routes:
             if not arguments:

@@ -4,6 +4,7 @@ from pyramid.i18n import get_localizer as base_get_localizer
 from pyramid.i18n import make_localizer
 from pyramid.interfaces import ILocalizer
 from pyramid.interfaces import ITranslationDirectories
+from pyramid.threadlocal import get_current_request
 from six import u
 from translationstring import TranslationString
 
@@ -183,7 +184,7 @@ def translate_month_factory(request):
 
 
 def translate_month(request, month):
-    return translate_month_factory(request)(month)
+    return translate_month_factory(request or get_current_request())(month)
 
 
 def translate_metric_factory(request, metric=METER, to_metric=None, round_to=None):
