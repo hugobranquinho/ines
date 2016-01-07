@@ -349,37 +349,57 @@ class SaveMeMemcached(_SaveMe):
 
 class api_cache_decorator(object):
     def __init__(self, expire_seconds=900):
-        self.expire_seconds = int(expire_seconds)
+        self.cache_name = None
+        self.wrapper = None
+        self.expire_seconds = expire_seconds
+
+        self.father = None
+        self.children = []
 
     def __call__(self, wrapped):
         @wraps(wrapped)
-        def wrapper(cls, *args, **kwargs):
-            expire_cache = kwargs.pop('expire_cache', False)
-            no_cache = kwargs.pop('no_cache', False)
-
-            options = [
-                cls.application_name,
-                cls.__api_name__,
-                'decorator',
-                wrapped.__name__]
-            if args:
-                options.extend(args)
-            if kwargs:
-                options.extend(sorted(kwargs.items()))
-
-            key = string_join(' ', options)
-
+        def wrapper(cls, expire_cache=False, no_cache=False):
             if expire_cache:
-                cls.config.cache.remove(key)
-                return True
+                return self.expire(cls)
 
-            if not no_cache:
-                cached = cls.config.cache.get(key, default=MARKER, expire=self.expire_seconds)
+            elif not no_cache:
+                cached = cls.config.cache.get(self.cache_name, default=MARKER, expire=self.expire_seconds)
                 if cached is not MARKER:
                     return cached
 
-            cached = wrapped(cls, *args, **kwargs)
-            cls.config.cache.put(key, cached)
+            cached = wrapped(cls)
+            cls.config.cache.put(self.cache_name, cached, expire=self.expire_seconds)
             return cached
 
+        self.cache_name = 'ines.api_cache_decorator %s %s' % (wrapped.__module__, wrapped.__qualname__)
+        self.wrapper = wrapper
         return wrapper
+
+    def child(self, expire_seconds=MARKER):
+        if expire_seconds is MARKER:
+            expire_seconds = self.expire_seconds
+
+        new = api_cache_decorator(expire_seconds=expire_seconds)
+        new.father = self
+        self.children.append(new)
+        return new
+
+    def expire(self, api_session, expire_children=False, ignore_father=False):
+        if self.wrapper and self.cache_name:
+            if expire_children and self.children:
+                for child in self.children:
+                    child.expire(api_session, ignore_father=True)
+
+            clear_paths = []
+            for app_session in api_session.applications.asdict().values():
+                cache_path = app_session.cache.path
+                if cache_path not in clear_paths:
+                    clear_paths.append(cache_path)
+                    app_session.cache.remove(self.cache_name)
+
+            if not ignore_father and self.father:
+                self.father.expire(api_session)
+
+            return True
+
+        return False

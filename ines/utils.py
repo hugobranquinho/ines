@@ -219,13 +219,25 @@ def get_content_type(value):
 def different_values(first, second):
     if first is None:
         if second is None:
-            return False
+            return True
         else:
             return True
     elif second is None:
         return True
     else:
         return bool(first != second)
+
+
+def compare_values(first, second, method_name='__eq__'):
+    if first is None:
+        if second is None:
+            return method_name in ('__eq__', '__le__', '__ge__')
+        else:
+            return method_name == '__ne__'
+    elif second is None:
+        return method_name == '__ne__'
+    else:
+        return bool(getattr(first, method_name)(second))
 
 
 def get_file_size(source_file):
@@ -585,7 +597,14 @@ def is_file_type(value):
 def sort_with_none(iterable, key, reverse=False):
     def sort_key(item):
         value = getattr(item, key)
-        return (value is None, value)
+        return (value is None, isinstance(value, str) and value.lower() or value)
+    iterable.sort(key=sort_key, reverse=reverse)
+
+
+def sort_dict_with_none(iterable, key, reverse=False):
+    def sort_key(item):
+        value = item.get(key)
+        return (value is None, isinstance(value, str) and value.lower() or value)
     iterable.sort(key=sort_key, reverse=reverse)
 
 

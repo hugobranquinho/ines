@@ -716,6 +716,8 @@ class BaseStorageWithImageSession(BaseStorageSession):
         f = self.save_file(binary, application_code, code_key, filename=filename, title=title)
         if asbool(self.settings.get('thumb.create_on_add')):
             self.create_image_resizes.run_job()
+        if asbool(self.settings.get('compress_on_add')):
+            self.compress_images.run_job()
 
         if temporary_path:
             remove_file_quietly(temporary_path)

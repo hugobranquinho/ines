@@ -47,6 +47,7 @@ from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.path import get_object_on_path
 from ines.views.fields import FilterBy
 from ines.views.fields import OrderBy
+from ines.utils import compare_values
 from ines.utils import PaginationClass
 
 
@@ -875,7 +876,7 @@ def create_filter_by(column, values):
             elif and_queries:
                 return and_(*and_queries)
 
-        if filter_type in ('like', 'contém'):
+        elif filter_type in ('like', 'contém'):
             return like_maybe_with_none(column, values.value)
 
         elif filter_type == '>':
@@ -922,6 +923,108 @@ def create_filter_by(column, values):
             return or_queries[0]
         elif or_queries:
             return or_(*or_queries)
+
+
+def do_filter_by(response, key, values, clear_response=True):
+    keep_index = set()
+    if isinstance(values, FilterBy):
+        filter_type = values.filter_type.lower()
+
+        if filter_type == 'or':
+            for value in values.value:
+                keep_index.update(do_filter_by(response, key, value, clear_response=False))
+
+        elif filter_type == 'and':
+            valid_response = list(response)
+            for value in values.value:
+                valid_index = do_filter_by(valid_response, key, value, clear_response=False)
+                if not valid_index:
+                    valid_response.clear()
+                else:
+                    for i in reversed(list(enumerate(valid_response))):
+                        if i not in valid_index:
+                            valid_response.pop(i)
+                if not valid_response:
+                    break
+
+            keep_index.update(i for i, r in enumerate(valid_response))
+
+        elif filter_type in ('like', 'contém'):
+            values = [clean_unicode(v).lower() for v in values.value.split()]
+            for i, r in enumerate(response):
+                r_value = r.get(key)
+                if not r_value:
+                    continue
+
+                r_value = clean_unicode(r_value).lower()
+                for value in values:
+                    try:
+                        ridx = r_value.index(value)
+                    except ValueError:
+                        break
+                    else:
+                        r_value = r_value[ridx + len(value):]
+                else:
+                    keep_index.add(i)
+
+        elif filter_type == '>':
+            keep_index.update(
+                i for i, r in enumerate(response)
+                if compare_values(r.get(key), values.value, '__gt__'))
+
+        elif filter_type == '>=':
+            keep_index.update(
+                i for i, r in enumerate(response)
+                if compare_values(r.get(key), values.value, '__ge__'))
+
+        elif filter_type == '<':
+            keep_index.update(
+                i for i, r in enumerate(response)
+                if compare_values(r.get(key), values.value, '__lt__'))
+
+        elif filter_type == '<=':
+            keep_index.update(
+                i for i, r in enumerate(response)
+                if compare_values(r.get(key), values.value, '__le__'))
+
+        elif filter_type in ('=', '=='):
+            keep_index.update(
+                i for i, r in enumerate(response)
+                if compare_values(r.get(key), values.value, '__eq__'))
+
+        elif filter_type in ('!=', '≠'):
+            keep_index.update(
+                i for i, r in enumerate(response)
+                if compare_values(r.get(key), values.value, '__ne__'))
+
+        else:
+            raise Error('filter_type', u('Invalid filter type %s') % values.filter_type)
+
+    elif values is drop:
+        pass
+
+    elif not is_nonstr_iter(values):
+        keep_index.update(
+            i for i, r in enumerate(response)
+            if r.get(key) == values)
+
+    else:
+        for value in values:
+            if isinstance(value, FilterBy) or is_nonstr_iter(value):
+                keep_index.update(do_filter_by(response, key, value, clear_response=False))
+            elif value is not drop:
+                keep_index.update(
+                    i for i, r in enumerate(response)
+                    if compare_values(r.get(key), value, '__eq__'))
+
+    if not clear_response:
+        return keep_index
+    elif not keep_index:
+        response.clear()
+    else:
+        for i, r in reversed(list(enumerate(response))):
+            if i not in keep_index:
+                response.pop(i)
 
 
 def new_lightweight_named_tuple(response, *new_fields):
