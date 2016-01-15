@@ -203,7 +203,7 @@ class BaseSQLSession(BaseSession):
         else:
             external_names = []
             external_methods = {}
-            external_attributes = defaultdict(dict)
+            external_attributes = defaultdict(lambda: defaultdict(list))
             if external:
                 for external_table, external_method in external.items():
                     tablename = external_table.__tablename__
@@ -225,9 +225,8 @@ class BaseSQLSession(BaseSession):
                 else:
                     for name, name_length in external_names:
                         if attribute[:name_length] == name:
-                            external_attributes[name][attribute[name_length + 1:]] = (  # +1 = underscore
-                                len(columns),  # Index for posterior insert
-                                attribute)
+                            # Index for posterior insert
+                            external_attributes[name][attribute[name_length + 1:]].append(len(columns))
                             columns.append(attribute)
                             break
                     else:
@@ -241,8 +240,9 @@ class BaseSQLSession(BaseSession):
                         relate_with.add(name)
 
                         for column in external_columns:
-                            column_idx, label_name = name_attributes[column.key]
-                            columns[column_idx] = column.label(label_name)
+                            label_name = '%s_%s' % (name, column.key)
+                            for column_idx in name_attributes[column.key]:
+                                columns[column_idx] = column.label(label_name)
 
         return LookupAtributes(columns, relate_with)
 
@@ -428,6 +428,15 @@ class BaseSQLSession(BaseSession):
                         response.append(column == search_number)
 
         return response
+
+    def fill_response_with_indexs(self, indexs, references, response):
+        named_tuple = lightweight_named_tuple('result', list(response[0]._real_fields))
+        for idx, value in enumerate(response):
+            new_value = list(value)
+            for key, index_list in indexs.items():
+                for i in index_list:
+                    new_value[i] = references[key][getattr(value, key)]
+            response[idx] = named_tuple(new_value)
 
 
 class LookupAtributes(list):

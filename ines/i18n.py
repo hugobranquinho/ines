@@ -170,6 +170,12 @@ def translate_date(request, year=None, month=None, day=None, hour=None, minute=N
     return translator(message)
 
 
+def translate_date_object(request, date):
+    return translate_date(
+        request,
+        year=date.year, month=date.month, day=date.day)
+
+
 def translate_datetime(request, date):
     return translate_date(
         request,
