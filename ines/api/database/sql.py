@@ -9,8 +9,11 @@ from pyramid.settings import asbool
 from six import u
 from six import _import_module
 from sqlalchemy import and_
+from sqlalchemy import cast
 from sqlalchemy import Column
 from sqlalchemy import create_engine
+from sqlalchemy import Date
+from sqlalchemy import DateTime
 from sqlalchemy import Enum
 from sqlalchemy import func
 from sqlalchemy import Integer
@@ -23,13 +26,17 @@ from sqlalchemy import TEXT
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.event import listen as sqlalchemy_listen
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.descriptor_props import CompositeProperty
+from sqlalchemy.orm.util import AliasedClass
 from sqlalchemy.pool import NullPool
+from sqlalchemy.schema import DDL
 from sqlalchemy.sql.expression import false
 from sqlalchemy.sql.expression import true
+from sqlalchemy.sql.selectable import Alias
 from sqlalchemy.util._collections import lightweight_named_tuple
 
 from ines import NOW
@@ -37,7 +44,6 @@ from ines.api import BaseSessionManager
 from ines.api import BaseSession
 from ines.cleaner import clean_unicode
 from ines.cleaner import LOWER_MAPPING
-from ines.convert import maybe_integer
 from ines.convert import maybe_list
 from ines.convert import maybe_set
 from ines.convert import maybe_unicode
@@ -55,6 +61,11 @@ SQL_ENGINES = {}
 SQL_DBS = defaultdict(dict)
 SQLALCHEMY_NOW_TYPE = type(func.now())
 
+POSTGRESQL_LOWER_AND_CLEAR = """
+    CREATE OR REPLACE FUNCTION lower_and_clear(VARCHAR)
+        RETURNS VARCHAR AS $$ SELECT translate(lower($1), '%s', '%s') $$
+        LANGUAGE SQL""" % LOWER_MAPPING
+
 
 def postgresql_non_ascii_and_lower(column, as_text=True):
     if not column_is_postgresql(column):
@@ -62,29 +73,45 @@ def postgresql_non_ascii_and_lower(column, as_text=True):
 
     elif hasattr(column, 'property'):
         columns = column.property.columns
-        if len(columns) == 1:
-            first_column = column.property.columns[0]
-            if isinstance(first_column.type, Enum):
-                return column
-            elif isinstance(first_column.type, String):
-                return func.translate(func.lower(column), *LOWER_MAPPING)
-            elif as_text:
-                return func.text(column)
-            else:
-                return column
+        if len(columns) > 1:
+            column = func.concat(*columns)
+        else:
+            column = column.property.columns[0]
 
-        column = func.concat(*columns)
-
-    return func.translate(func.lower(column), *LOWER_MAPPING)
+    if isinstance(column.type, Enum):
+        return column
+    elif isinstance(column.type, String):
+        return func.lower_and_clear(column)
+    elif isinstance(column.type, Numeric):
+        return column
+    elif as_text:
+        return func.text(column)
+    else:
+        return column
 
 
 def column_is_postgresql(column):
-    if hasattr(column, 'bind') and column.bind:
-        return column.bind.name == 'postgresql'
-    elif hasattr(column, 'table'):
-        return column_is_postgresql(column.table)
-    else:
-        return column.parent.mapped_table.metadata.bind.name == 'postgresql'
+    bind = getattr(column, 'bind', None)
+    if bind is not None:
+        return bind.name == 'postgresql'
+
+    table = getattr(column, 'table', None)
+    if table is not None:
+        return column_is_postgresql(table)
+
+    clause = getattr(column, 'clause', None)
+    if clause is not None:
+        return column_is_postgresql(clause)
+
+    clauses = getattr(column, 'clauses', None)
+    if clauses is not None:
+        return column_is_postgresql(list(clauses)[0])
+
+    parent = getattr(column, 'parent', None)
+    if parent is not None:
+        return column_is_postgresql(parent.mapped_table.metadata)
+
+    raise ValueError('Missing bind on %s. Check `column_is_postgresql`' % column)
 
 
 class BaseSQLSessionManager(BaseSessionManager):
@@ -129,8 +156,7 @@ class BaseSQLSession(BaseSession):
 
     def direct_insert(self, obj):
         values = {}
-        for column in obj.__table__.c:
-            key = column.key
+        for key, column in obj.__table__.c.items():
             value = getattr(obj, key, None)
             if value is None and column.default:
                 value = column.default.execute()
@@ -151,8 +177,7 @@ class BaseSQLSession(BaseSession):
             .rowcount)
 
     def direct_update(self, obj, query, values):
-        for column in obj.__table__.c:
-            key = column.key
+        for key, column in obj.__table__.c.items():
             if key not in values and column.onupdate:
                 values[key] = column.onupdate.execute()
 
@@ -199,14 +224,21 @@ class BaseSQLSession(BaseSession):
             if active_tables:
                 if active is None:
                     relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
-                columns.append(self.get_active_attribute(active_tables, active=active, active_query=active_query))
+
+                column = self.get_active_attribute(active_tables, active=active, active_query=active_query)
+                relate_with.update(t.name for t in get_object_tables(column))
+                columns.append(column)
         else:
             external_names = []
             external_methods = {}
             external_attributes = defaultdict(lambda: defaultdict(list))
             if external:
                 for external_table, external_method in external.items():
-                    tablename = external_table.__tablename__
+                    if isinstance(external_table, AliasedClass):
+                        tablename = external_table.name.parent.name
+                    else:
+                        tablename = external_table.__tablename__
+
                     external_names.append((tablename, len(tablename)))
                     external_methods[tablename] = external_method
                 external_names.sort(reverse=True)
@@ -215,12 +247,16 @@ class BaseSQLSession(BaseSession):
             for attribute in maybe_list(attributes):
                 column = getattr(table, attribute, None)
                 if column is not None:
+                    relate_with.update(t.name for t in get_object_tables(column))
                     columns.append(column)
 
                 elif active_tables and attribute == 'active':
                     if active is None:
                         relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
-                    columns.append(self.get_active_attribute(active_tables, active=active, active_query=active_query))
+
+                    column = self.get_active_attribute(active_tables, active=active, active_query=active_query)
+                    relate_with.update(t.name for t in get_object_tables(column))
+                    columns.append(column)
 
                 else:
                     for name, name_length in external_names:
@@ -246,7 +282,7 @@ class BaseSQLSession(BaseSession):
 
         return LookupAtributes(columns, relate_with)
 
-    def _lookup_filters(self, table, filters, external=None):
+    def _lookup_filters(self, table, filters, external=None, ignore_external_names=None):
         sa_filters = []
         relate_with = set()
 
@@ -255,18 +291,37 @@ class BaseSQLSession(BaseSession):
         external_filters = defaultdict(dict)
         if external:
             for external_table, external_method in external.items():
-                tablename = external_table.__tablename__
+                if isinstance(external_table, AliasedClass):
+                    tablename = external_table.name.parent.name
+                else:
+                    tablename = external_table.__tablename__
+
                 external_names.append((tablename, len(tablename)))
                 external_methods[tablename] = external_method
             external_names.sort(reverse=True)
 
         for attribute, value in filters.items():
+            if attribute == 'global_search':
+                global_tables = [table]
+                if external:
+                    global_tables.extend(external.keys())
+
+                global_filters = self.create_global_search_options(value, global_tables)
+                if global_filters:
+                    sa_filters.append(or_(*global_filters))
+                    relate_with.update(
+                        t.name
+                        for f in global_filters
+                        for t in get_object_tables(f))
+
+                # Go to next attribute
+                continue
+
             not_filter = attribute[:4] == 'not_'
             if not_filter:
                 attribute = attribute[4:]
 
-            is_like = False
-            is_ilike = False
+            is_like = is_ilike = False
             is_not_none = attribute[-12:] == '_is_not_none'
             if is_not_none:
                 column = getattr(table, attribute[:-12], None)
@@ -292,11 +347,12 @@ class BaseSQLSession(BaseSession):
                     sa_filter = create_filter_by(column, value)
 
                 if sa_filter is not None:
+                    relate_with.update(t.name for t in get_object_tables(column))
+
                     if not_filter:
                         sa_filters.append(not_(sa_filter))
                     else:
                         sa_filters.append(sa_filter)
-
             else:
                 for name, name_length in external_names:
                     if attribute[:name_length] == name:
@@ -328,7 +384,11 @@ class BaseSQLSession(BaseSession):
         external_order_by = defaultdict(list)
         if external:
             for external_table, external_method in external.items():
-                tablename = external_table.__tablename__
+                if isinstance(external_table, AliasedClass):
+                    tablename = external_table.name.parent.name
+                else:
+                    tablename = external_table.__tablename__
+
                 external_names.append((tablename, len(tablename)))
                 external_methods[tablename] = external_method
             external_names.sort(reverse=True)
@@ -348,6 +408,7 @@ class BaseSQLSession(BaseSession):
 
             column = getattr(table, attribute, None)
             if column is not None:
+                relate_with.update(t.name for t in get_object_tables(column))
                 if as_desc:
                     order_by.append(postgresql_non_ascii_and_lower(column, as_text=False).desc())
                 else:
@@ -358,6 +419,7 @@ class BaseSQLSession(BaseSession):
                     relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
 
                 column = self.get_active_attribute(active_tables, active=active, active_query=active_query)
+                relate_with.update(t.name for t in get_object_tables(column))
                 if as_desc:
                     order_by.append(column.desc())
                 else:
@@ -396,36 +458,67 @@ class BaseSQLSession(BaseSession):
         return LookupAtributes(order_by, relate_with)
 
     def table_in_lookups(self, table, *lookups):
-        tablename = table.__tablename__
+        if isinstance(table, AliasedClass):
+            tablename = table._aliased_insp.name
+        elif isinstance(table, Alias):
+            tablename = table.name
+        else:
+            tablename = table.__tablename__
+
         for lookup in lookups:
             if tablename in lookup.relate_with:
                 return True
-
         return False
 
-    def create_global_search_options(self, search, tables, ignore_columns=None):
+    def create_global_search_options(self, search, tables):
         response = []
-        search_number = maybe_integer(search[:9])
+        search = clean_unicode(search)
+        search_list = search.split()
 
-        for table in tables:
-            for column_key in table.__table__.c.keys():
-                column = getattr(table, column_key)
-                if ignore_columns and column.name in ignore_columns:
+        for table in maybe_list(tables):
+            ignore_columns = getattr(table, '__ignore_on_global_search__', None)
+            ignore_ids = getattr(table, '__ignore_ids_on_global_search__', True)
+
+            for column_name in table._sa_class_manager.local_attrs.keys():
+                if ((ignore_ids and (column_name == 'id' or column_name.endswith('_id')))
+                        or (ignore_columns and column_name in ignore_columns)):
                     continue
 
-                if isinstance(column.type, Enum):
-                    for value in column.type.enums:
-                        if search in value:
-                            response.append(column == value)
+                column = getattr(table, column_name)
+                if hasattr(column, 'type'):
+                    if isinstance(column.type, Enum):
+                        for value in column.type.enums:
+                            value_to_search = value
+                            for s in search_list:
+                                try:
+                                    idx = value_to_search.index(s)
+                                except ValueError:
+                                    break
+                                else:
+                                    value_to_search = value_to_search[idx + len(s):]
+                            else:
+                                response.append(column == value)
 
-                elif isinstance(column.type, String):
-                    value = create_like_filter(column, search)
-                    if value is not None:
-                        response.append(value)
+                    elif isinstance(column.type, String):
+                        value = create_like_filter(column, search)
+                        if value is not None:
+                            response.append(value)
 
-                elif isinstance(column.type, (Numeric, Integer)):
-                    if search_number is not None:
-                        response.append(column == search_number)
+                    elif isinstance(column.type, (Numeric, Integer, Date, DateTime)):
+                        value = create_like_filter(cast(column, String), search)
+                        if value is not None:
+                            response.append(value)
+
+                else:
+                    clauses = getattr(column, 'clauses', None)
+                    if clauses is not None:
+                        value = create_like_filter(func.concat(*clauses), search)
+                        if value is not None:
+                            response.append(value)
+                    else:
+                        value = create_like_filter(cast(column, String), search)
+                        if value is not None:
+                            response.append(value)
 
         return response
 
@@ -469,6 +562,10 @@ def initialize_sql(
         for table in metadata.sorted_tables:
             append_arguments(table, 'mysql_engine', mysql_engine)
             append_arguments(table, 'mysql_charset', encoding)
+
+    # Add some postgresql functions
+    if sql_path.lower().startswith('postgresql') and metadata:
+        sqlalchemy_listen(metadata, 'before_create', DDL(POSTGRESQL_LOWER_AND_CLEAR))
 
     engine_pattern = '%s-%s' % (sql_path, encoding)
     if engine_pattern in SQL_ENGINES:
@@ -778,29 +875,46 @@ class Options(dict):
 
 
 def get_object_tables(value):
-    tables = set()
     table = getattr(value, 'table', None)
     if table is not None:
-        tables.add(table)
-    else:
-        element = getattr(value, '_element', None)
-        if element is not None:
-            # Label column
-            table = getattr(element, 'table', None)
-            if table is not None:
-                tables.add(table)
-            else:
-                tables.update(get_object_tables(element))
+        return set([table])
+
+    element = getattr(value, '_element', None)
+    if element is not None:
+        # Label column
+        table = getattr(element, 'table', None)
+        if table is not None:
+            return set([table])
         else:
-            clauses = getattr(value, 'clauses', None)
-            if clauses is not None:
-                # Function
-                for clause in value.clauses:
-                    tables.update(get_object_tables(clause))
-            elif hasattr(value, '_orig'):
-                for orig in value._orig:
-                    tables.update(get_object_tables(orig))
-    return tables
+            return get_object_tables(element)
+
+    clauses = getattr(value, 'clauses', None)
+    if clauses is not None:
+        # Function
+        tables = set()
+        for clause in value.clauses:
+            tables.update(get_object_tables(clause))
+        return tables
+
+    clause = getattr(value, 'clause', None)
+    if clause is not None:
+        return get_object_tables(clause)
+
+    orig = getattr(value, '_orig', None)
+    if orig is not None:
+        tables = set()
+        for o in orig:
+            tables.update(get_object_tables(o))
+        return tables
+
+    get_children = getattr(value, 'get_children', None)
+    if get_children is not None:
+        tables = set()
+        for child in get_children():
+            tables.update(get_object_tables(child))
+        return tables
+
+    raise ValueError('Missing tables for %s. Check `get_object_tables` method' % value)
 
 
 class Columns(list):

@@ -653,11 +653,9 @@ def resolve_deform_error(form, error):
         message = error.message
 
     form_error = Invalid(form, message)
-    for child in form.children:
-        if child.name == key:
-            form_error[key] = message
-            break
-    else:
+    try:
+        form_error[key] = message
+    except KeyError:
         form.hide_global_error = False
 
     form.widget.handle_error(form, form_error)

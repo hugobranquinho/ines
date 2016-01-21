@@ -15,7 +15,6 @@ from colander import Invalid
 from colander import MappingSchema
 from colander import null
 from colander import OneOf
-from colander import Range
 from colander import SchemaNode
 from colander import SchemaType
 from colander import Sequence
@@ -163,31 +162,6 @@ def sequence_impl(self, node, value, callback, accept_scalar):
     return result
 sequence_impl.__name__ = '_impl'
 Sequence._impl = sequence_impl
-
-
-# See https://github.com/Pylons/colander/pull/211
-def my_range_call(self, node, value):
-    if self.min is not None:
-        min_value = self.min
-        if callable(min_value):
-            min_value = min_value()
-
-        if value < min_value:
-            min_err = COLANDER_I18N(
-                self.min_err, mapping={'val': value, 'min': min_value})
-            raise Invalid(node, min_err)
-
-    if self.max is not None:
-        max_value = self.max
-        if callable(max_value):
-            max_value = max_value()
-
-        if value > max_value:
-            max_err = COLANDER_I18N(
-                self.max_err, mapping={'val': value, 'max': max_value})
-            raise Invalid(node, max_err)
-my_range_call.__name__ = '__call__'
-Range.__call__ = my_range_call
 
 
 class OneOfWithDescription(OneOf):

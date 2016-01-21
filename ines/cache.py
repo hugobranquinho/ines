@@ -403,3 +403,17 @@ class api_cache_decorator(object):
             return True
 
         return False
+
+
+def api_lock_decorator(wrapped):
+    lock_name = 'ines.api_lock_decorator %s %s' % (wrapped.__module__, wrapped.__qualname__)
+
+    @wraps(wrapped)
+    def wrapper(cls, *args, **kwargs):
+        try:
+            cls.config.cache.lock(lock_name)
+            return wrapped(cls, *args, **kwargs)
+        finally:
+            cls.config.cache.unlock(lock_name)
+
+    return wrapped
