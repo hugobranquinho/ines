@@ -6,6 +6,7 @@ from os.path import basename
 
 from colander import _ as COLANDER_I18N
 from colander import _SchemaMeta
+from colander import _SchemaNode
 from colander import Boolean as BaseBoolean
 from colander import drop
 from colander import Date
@@ -24,6 +25,7 @@ from colander.compat import is_nonstr_iter
 from deform.widget import DateInputWidget
 from deform.widget import DateTimeInputWidget
 from deform.widget import SelectWidget
+from pyramid.decorator import reify
 from six import string_types
 from six import u
 
@@ -125,6 +127,13 @@ def my_deserialize(self, cstruct=null):
     return appstruct
 my_deserialize.__name__ = 'deserialize'
 SchemaNode.deserialize = my_deserialize
+
+
+# Fix deform multiple form (on same page) fields errors
+def schemanode_oid(cls):
+    return 'deformField-%s-%s' % (cls.name, cls._order)
+schemanode_oid.__name__ = 'oid'
+_SchemaNode.oid = reify(schemanode_oid)
 
 
 _original_SchemaMeta__init__ = _SchemaMeta.__init__

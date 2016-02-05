@@ -218,10 +218,7 @@ def get_content_type(value):
 
 def different_values(first, second):
     if first is None:
-        if second is None:
-            return True
-        else:
-            return True
+        return second is not None
     elif second is None:
         return True
     else:

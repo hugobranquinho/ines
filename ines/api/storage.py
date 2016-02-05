@@ -757,6 +757,7 @@ class File(FilesDeclarative):
     created_date = Column(DateTime, nullable=False, default=func.now())
 
 Index('storage_file_code_idx', File.application_code, File.code_key)
+Index('storage_code_key_idx', File.code_key)
 
 
 class BlockPath(FilesDeclarative):
@@ -824,9 +825,14 @@ class StorageFile(object):
                 block.close()
 
 
-def save_temporary_image(im, default_format='JPEG'):
+def create_temporary_file(mode='wb'):
     temporary_path = join_paths(FILES_TEMPORARY_DIR, make_unique_hash(64))
-    open_file = get_open_file(temporary_path, mode='wb')
+    open_file = get_open_file(temporary_path, mode=mode)
+    return temporary_path, open_file
+
+
+def save_temporary_image(im, default_format='JPEG', mode='wb'):
+    temporary_path, open_file = create_temporary_file(mode)
 
     try:
         im.save(open_file, format=im.format or default_format, optimize=True)

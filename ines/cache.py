@@ -7,6 +7,7 @@ from pickle import loads as pickle_loads
 
 from six import _import_module
 from six import wraps
+from six import string_types
 
 from ines import DEFAULT_RETRY_ERRNO
 from ines import lru_cache
@@ -405,15 +406,20 @@ class api_cache_decorator(object):
         return False
 
 
-def api_lock_decorator(wrapped):
-    lock_name = 'ines.api_lock_decorator %s %s' % (wrapped.__module__, wrapped.__qualname__)
+class api_lock_decorator(object):
+    def __init__(self, lock_name=None):
+        self.lock_name = lock_name
 
-    @wraps(wrapped)
-    def wrapper(cls, *args, **kwargs):
-        try:
-            cls.config.cache.lock(lock_name)
-            return wrapped(cls, *args, **kwargs)
-        finally:
-            cls.config.cache.unlock(lock_name)
+    def __call__(self, wrapped):
+        if not self.lock_name:
+            self.lock_name = 'ines.api_lock_decorator %s %s' % (wrapped.__module__, wrapped.__qualname__)
 
-    return wrapped
+        @wraps(wrapped)
+        def wrapper(cls, *args, **kwargs):
+            try:
+                cls.config.cache.lock(self.lock_name)
+                return wrapped(cls, *args, **kwargs)
+            finally:
+                cls.config.cache.unlock(self.lock_name)
+
+        return wrapper

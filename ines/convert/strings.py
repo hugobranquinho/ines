@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+from decimal import Decimal
+from decimal import InvalidOperation
 from json import dumps
 from re import compile as regex_compile
 from time import mktime
@@ -76,6 +78,24 @@ def maybe_integer(value):
         pass
     else:
         return result
+
+
+def maybe_float(value):
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        pass
+    else:
+        return result
+
+
+def maybe_decimal(value, scale=2):
+    try:
+        result = Decimal(value)
+    except InvalidOperation:
+        pass
+    else:
+        return result.quantize(Decimal(10) ** -scale)
 
 
 def maybe_null(value):
