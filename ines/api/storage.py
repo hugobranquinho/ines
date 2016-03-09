@@ -547,7 +547,12 @@ class BaseStorageWithImageSession(BaseStorageSession):
                 .first())
 
             if not existing:
-                im = self.api_session_manager.image_cls.open(file_info.open_file)
+                original_temporary_path, original_file = create_temporary_file(mode='wb')
+                original_file.write(file_info.open_file.read())
+                original_file.close()
+
+                original_file = get_open_file(original_temporary_path)
+                im = self.api_session_manager.image_cls.open(original_file)
 
                 width = int(im.size[0])
                 height = int(im.size[1])
@@ -579,6 +584,10 @@ class BaseStorageWithImageSession(BaseStorageSession):
                 im = im.resize((int(resize_width), int(resize_height)), self.api_session_manager.resize_quality)
                 temporary_path = save_temporary_image(im)
                 resized = get_open_file(temporary_path)
+
+                original_file.close()
+                remove_file_quietly(original_temporary_path)
+
                 self.save_file(
                     resized,
                     application_code=application_code,
@@ -665,7 +674,7 @@ class BaseStorageWithImageSession(BaseStorageSession):
                 data=binary,
                 headers=headers)
 
-            # self.api_session_manager.tinypng_locked_months.append(month_str)
+            self.api_session_manager.tinypng_locked_months.append(month_str)
 
             if response['output']['ratio'] >= 1:
                 self.direct_update(FilePath, FilePath.id == file_info.id, {'compressed': True})
@@ -823,6 +832,9 @@ class StorageFile(object):
         for block in self.blocks:
             if not isinstance(block, string_types):
                 block.close()
+
+    def seek(self, position):
+        self.block_position = 0
 
 
 def create_temporary_file(mode='wb'):

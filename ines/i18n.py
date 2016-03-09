@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from math import ceil
+
 from pyramid.i18n import get_localizer as base_get_localizer
 from pyramid.i18n import make_localizer
 from pyramid.interfaces import ILocalizer
@@ -8,8 +10,9 @@ from pyramid.threadlocal import get_current_request
 from six import u
 from translationstring import TranslationString
 
-from ines.convert.strings import maybe_unicode
+from ines.convert import clear_price
 from ines.convert import unicode_join
+from ines.convert.strings import maybe_unicode
 
 
 def InesTranslationStringFactory(factory_domain):
@@ -378,3 +381,183 @@ def metric_to_unicode(value, metric=METER, to_metric=None, round_to=None):
     .. note:: To speed things, cache :meth:`metric_to_unicode_factory`.
     """
     return metric_to_unicode_factory(metric, to_metric, round_to)(value)
+
+
+NUMBERS_MILL_I18N = [
+
+]
+
+
+class NumberDescription(object):
+    unit_i18n = {
+        0: 'zero',
+        1: 'um',
+        2: 'dois',
+        3: 'três',
+        4: 'quatro',
+        5: 'cinco',
+        6: 'seis',
+        7: 'sete',
+        8: 'oito',
+        9: 'nove',
+        10: 'dez',
+        11: 'onze',
+        12: 'doze',
+        13: 'treze',
+        14: 'quatorze',
+        15: 'quinze',
+        16: 'dezesseis',
+        17: 'dezessete',
+        18: 'dezoito',
+        19: 'dezanove',
+    }
+
+    ten_i18n = {
+        2: 'vinte',
+        3: 'trinta',
+        4: 'quarenta',
+        5: 'cinquenta',
+        6: 'sessenta',
+        7: 'setenta',
+        8: 'oitenta',
+        9: 'noventa',
+    }
+
+    hundred_plural_i18n = {
+        1: 'cento',
+        2: 'duzentos',
+        3: 'trezentos',
+        4: 'quatrocentos',
+        5: 'quinhentos',
+        6: 'seiscentos',
+        7: 'setecentos',
+        8: 'oitocentos',
+        9: 'novecentos',
+    }
+    hundred_i18n = hundred_plural_i18n.copy()
+    hundred_i18n.update({
+        1: 'cem'
+    })
+
+    # Number = length of right blocks
+    thousand_plural_i18n = {
+        1: '%s mil',
+        2: '%s milhões',
+        3: '%s mil milhões',
+        4: '%s biliões',
+        5: '%s mil biliões',
+        6: '%s triliões',
+        7: '%s mil triliões',
+        8: '%s quatriliões',
+        9: '%s mil quatriliões',
+        10: '%s quintiliões',
+        11: '%s mil quintiliões',
+        12: '%s sextiliões',
+        13: '%s mil sextiliões',
+        14: '%s septiliões',
+        15: '%s mil septiliões'
+    }
+    thousand_i18n = thousand_plural_i18n.copy()
+    thousand_i18n.update({
+        1: 'mil',
+        2: 'um milhão',
+        3: 'mil milhões',
+        4: 'um bilião',
+        5: 'mil bilião',
+        6: 'um trilião',
+        7: 'mil triliões',
+        8: 'um quatrilião',
+        9: 'mil quatriliões',
+        10: 'um quintilião',
+        11: 'mil quintiliões',
+        12: 'um sextilião',
+        13: 'mil sextiliões',
+        14: 'um septilião',
+        15: 'mil septiliões'
+    })
+
+    def __init__(self, block_sep=' e ', thousand_sep=' e '):
+        self.block_sep = block_sep
+        self.thousand_sep = thousand_sep
+
+    def __call__(self, number):
+        number = int(number)
+        description = self.unit_i18n.get(number)
+        if description:
+            return description
+
+        descriptions = []
+        number_str = str(number)
+        next_blocks_length = -1
+
+        while number_str:
+            deep_number = int(number_str[-3:])
+            number_str = number_str[:-3]
+            next_blocks_length += 1
+
+            if not deep_number:
+                continue
+            elif next_blocks_length and deep_number == 1:
+                descriptions.insert(0, (self.thousand_i18n[next_blocks_length], False, next_blocks_length))
+                continue
+
+            deep_descriptions = []
+            add_deep_description = deep_descriptions.append
+
+            if deep_number > 99:
+                deep_number_str = str(deep_number)
+                deep_number = int(deep_number_str[1:])
+                hundred_digit = int(deep_number_str[0])
+
+                if deep_number:
+                    add_deep_description(self.hundred_plural_i18n[hundred_digit])
+                else:
+                    add_deep_description(self.hundred_i18n[hundred_digit])
+
+            with_hundred = deep_number > 19
+            if with_hundred:
+                deep_number_str = str(deep_number)
+                deep_number = int(deep_number_str[1:])
+                add_deep_description(self.ten_i18n[int(deep_number_str[0])])
+
+            if deep_number:
+                add_deep_description(self.unit_i18n[deep_number])
+
+            deep_description = self.block_sep.join(deep_descriptions)
+            if next_blocks_length:
+                deep_description = self.thousand_plural_i18n[next_blocks_length] % deep_description
+
+            descriptions.insert(0, (deep_description, with_hundred, next_blocks_length))
+
+        response = descriptions.pop(0)[0]
+        for i, (description, with_hundred, next_blocks_length) in enumerate(descriptions):
+            if next_blocks_length:
+                response += ', '
+            elif not with_hundred:
+                response += self.thousand_sep
+            else:
+                response += ' '
+            response += description
+
+        return response
+
+
+find_number_description = NumberDescription()
+
+CURRENCY_I18N = {
+    'eur': ('euro', 'euros')
+}
+
+
+def translate_price(request, price, currency='eur', sep=' e '):
+    number_str, decimal_str = str(clear_price(price)).split('.')
+
+    number = int(number_str)
+    currency_description = CURRENCY_I18N[currency]
+    response = '%s %s' % (find_number_description(number), currency_description[int(number != 1)])
+
+    decimal = int(decimal_str)
+    if decimal:
+        response += '%s%s cêntimos' % (sep, find_number_description(decimal))
+
+    return response.capitalize()

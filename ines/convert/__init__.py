@@ -54,3 +54,7 @@ def maybe_set(value):
         return set([value])
     else:
         return set(value)
+
+
+def clear_price(number):
+    return maybe_decimal(number, scale=2)

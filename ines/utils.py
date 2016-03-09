@@ -6,6 +6,7 @@ import datetime
 import errno
 from hashlib import sha256
 from io import IOBase
+from json import loads as loads_json
 from math import ceil
 from os import getpid
 from os import listdir
@@ -425,6 +426,10 @@ def get_file_binary(path, mode='rb', retries=3, retry_errno=DEFAULT_RETRY_ERRNO)
         raise
     else:
         return binary
+
+
+def get_file_json(path, mode='r', retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
+    return loads_json(get_file_binary(path, mode=mode, retries=retries, retry_errno=retry_errno))
 
 
 def put_binary_on_file(

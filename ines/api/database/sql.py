@@ -914,6 +914,14 @@ def get_object_tables(value):
             tables.update(get_object_tables(child))
         return tables
 
+    original_property = getattr(value, 'original_property', None)
+    if original_property:
+        # composite
+        tables = set()
+        for attr in original_property.attrs:
+            tables.update(get_object_tables(attr))
+        return tables
+
     raise ValueError('Missing tables for %s. Check `get_object_tables` method' % value)
 
 

@@ -427,6 +427,17 @@ class Configurator(PyramidConfigurator):
         if not base_static_path:
             self.add_static_view('deform', 'deform:static')
 
+    def add_static_views(self, *routes, **kwargs):
+        permission = kwargs.get('permission', Everyone)
+        cache_max_age = kwargs.get('cache_max_age', Everyone)
+
+        for route_name, path, pattern in routes:
+            self.add_view(
+                route_name=route_name,
+                view=static_view(path, cache_max_age=cache_max_age, use_subpath=True),
+                permission=permission)
+            self.add_routes((route_name, pattern))
+
     def add_gzip_static_view(self, path, gzip_path, route_name='static', cache_max_age=None, permission=Everyone):
         self.add_view(
             route_name=route_name,

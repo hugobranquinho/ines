@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from os import sep as OS_SEP
 from os.path import normcase
 from os.path import normpath
 from os.path import join as join_path
@@ -50,6 +51,15 @@ class view_config(pyramid_view_config):
                     decorator = maybe_list(settings.pop('decorator', None))
                     decorator.append(browser_constructor)
                     settings['decorator'] = tuple(decorator)
+
+            if not config.is_production_environ:
+                renderer = settings.get('renderer')
+                renderer_development_folder = config.settings.get('renderer_development_folder')
+                if renderer and renderer_development_folder and ':' in renderer:
+                    package_name, path = renderer.split(':', 1)
+                    breadcrumbs = path.split(OS_SEP)
+                    breadcrumbs[0] = renderer_development_folder
+                    settings['renderer'] = '%s:%s' % (package_name, join_path(*breadcrumbs))
 
             config.add_view(view=ob, **settings)
 

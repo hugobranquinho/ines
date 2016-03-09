@@ -16,6 +16,7 @@ from ines.api import BaseSession
 from ines.api.jobs import job
 from ines.convert import to_string
 from ines.convert import to_unicode
+from ines.convert import maybe_list
 from ines.convert import maybe_string
 from ines.exceptions import Error
 from ines.i18n import _
@@ -107,15 +108,11 @@ class BaseMailerSession(BaseSession):
 
         # Envelope CC
         if cc:
-            if not isinstance(cc, list):
-                cc = [cc]
-            options['cc'] = [format_email(e, content_charset) for e in cc]
+            options['cc'] = [format_email(e, content_charset) for e in maybe_list(cc)]
 
         # Envelope BCC
         if bcc:
-            if not isinstance(bcc, list):
-                bcc = [bcc]
-            options['bcc'] = [format_email(e, content_charset) for e in bcc]
+            options['bcc'] = [format_email(e, content_charset) for e in maybe_list(bcc)]
 
         if not isinstance(recipients, list):
             recipients = [recipients]
@@ -133,7 +130,7 @@ class BaseMailerSession(BaseSession):
 
         mime_attachments = []
         if attachments:
-            for attachment in attachments:
+            for attachment in maybe_list(attachments):
                 filename = to_string(
                     attachment.get('filename')
                     or basename(attachment['file'].name)).replace(' ', '')
