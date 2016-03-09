@@ -108,10 +108,14 @@ class BaseMailerSession(BaseSession):
 
         # Envelope CC
         if cc:
+            if isinstance(cc, dict):
+                cc = [cc]
             options['cc'] = [format_email(e, content_charset) for e in maybe_list(cc)]
 
         # Envelope BCC
         if bcc:
+            if isinstance(bcc, dict):
+                bcc = [bcc]
             options['bcc'] = [format_email(e, content_charset) for e in maybe_list(bcc)]
 
         if not isinstance(recipients, list):
@@ -130,6 +134,8 @@ class BaseMailerSession(BaseSession):
 
         mime_attachments = []
         if attachments:
+            if isinstance(attachments, dict):
+                attachments = [attachments]
             for attachment in maybe_list(attachments):
                 filename = to_string(
                     attachment.get('filename')
