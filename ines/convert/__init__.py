@@ -16,9 +16,11 @@ from ines.convert.dates import (calculate_age,
                                 total_time_seconds)
 
 from ines.convert.strings import (bytes_join,
+                                  bytes_to_unicode,
                                   camelcase,
                                   clear_spaces,
                                   compact_dump,
+                                  encode_and_decode,
                                   json_dumps,
                                   maybe_bytes,
                                   maybe_decimal,

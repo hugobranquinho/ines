@@ -19,6 +19,8 @@ from six import u
 
 from ines import DEFAULT_RENDERERS
 from ines.convert import camelcase
+from ines.convert import encode_and_decode
+from ines.convert import to_bytes
 from ines.convert import to_string
 from ines.convert import to_unicode
 from ines.convert import json_dumps
@@ -243,14 +245,15 @@ class File(object):
 
             filename = value.get('filename') or basename(f.name)
             if value.get('is_attachment'):
-                response.content_disposition = 'attachment; filename="%s"' % filename
+                content_disposition = 'attachment; filename="%s"' % filename
             else:
-                response.content_disposition = 'inline; filename="%s"' % filename
+                content_disposition = 'inline; filename="%s"' % filename
+
+            response.content_disposition = encode_and_decode(content_disposition, 'latin-1', 'ignore')
 
             # Add others headers
             add_header = response._headerlist.append
             add_header(('Status-Code', response.status))
-            add_header(('Accept-Ranges', 'bytes'))
 
             return None
         return _render

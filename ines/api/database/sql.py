@@ -111,6 +111,10 @@ def column_is_postgresql(column):
     if parent is not None:
         return column_is_postgresql(parent.mapped_table.metadata)
 
+    from_objects = getattr(column, '_from_objects', None)
+    if from_objects is not None:
+        return column_is_postgresql(from_objects[0])
+
     raise ValueError('Missing bind on %s. Check `column_is_postgresql`' % column)
 
 

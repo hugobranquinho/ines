@@ -146,7 +146,8 @@ class BaseStorageSession(BaseSQLSession):
             filename=None,
             title=None,
             parent_id=None,
-            type_key=None):
+            type_key=None,
+            session=None):
 
         file_path = self.save_file_path(binary, filename)
 
@@ -366,7 +367,7 @@ class BaseStorageSession(BaseSQLSession):
         return_open_file = 'open_file' in attributes
         if return_open_file:
             attributes.remove('open_file')
-            attributes.add('file_id')
+            attributes.add('id')
 
         columns = []
         relate_with_path = False
@@ -441,10 +442,10 @@ class BaseStorageSession(BaseSQLSession):
             response = [response]
 
         # Add items to SQLAlchemy tuple result
-        files_binary = self.get_file_binary_dict(set(f.file_id for f in response))
+        files_binary = self.get_files_binary(*(f.id for f in response))
         new_namedtuple = new_lightweight_named_tuple(response[0], 'open_file')
         response[:] = [
-            new_namedtuple(r + (files_binary[r.file_id], ))
+            new_namedtuple(r + (files_binary[r.id], ))
             for r in response]
 
         if only_one:
@@ -452,23 +453,28 @@ class BaseStorageSession(BaseSQLSession):
         else:
             return response
 
-    def get_file_binary_dict(self, file_ids):
+    def get_files_binary(self, *file_ids):
+        filenames = {}
+        file_ids = set(file_ids)
         files_blocks = defaultdict(list)
+
         for block in (
                 self.session
-                .query(BlockPath.path, FileBlock.file_id_path)
+                .query(File.id, File.filename, BlockPath.path)
                 .filter(BlockPath.id == FileBlock.file_id_block)
-                .filter(FileBlock.file_id_path.in_(file_ids))
+                .filter(File.file_id == FileBlock.file_id_path)
+                .filter(File.id.in_(file_ids))
                 .order_by(FileBlock.order)
                 .all()):
-            files_blocks[block.file_id_path].append(block.path)
+            files_blocks[block.id].append(block.path)
+            filenames[block.id] = block.filename
 
         return dict(
-            (i, StorageFile(self.storage_path, files_blocks[i]))
+            (i, StorageFile(self.storage_path, filenames.get(i), files_blocks[i]))
             for i in file_ids)
 
     def get_file_binary(self, file_id):
-        return self.get_file_binary_dict([file_id]).get(file_id)
+        return self.get_files_binary(file_id).get(file_id)
 
     def get_file(self, **kwargs):
         return self.get_files(only_one=True, **kwargs)
@@ -657,7 +663,7 @@ class BaseStorageWithImageSession(BaseStorageSession):
         while True:
             file_info = (
                 self.session
-                .query(FilePath.id, File.filename)
+                .query(File.id, File.file_id, File.filename)
                 .filter(FilePath.compressed.is_(False))
                 .filter(FilePath.mimetype.in_(['image/jpeg', 'image/png']))
                 .filter(FilePath.id == File.file_id)
@@ -677,15 +683,15 @@ class BaseStorageWithImageSession(BaseStorageSession):
             self.api_session_manager.tinypng_locked_months.append(month_str)
 
             if response['output']['ratio'] >= 1:
-                self.direct_update(FilePath, FilePath.id == file_info.id, {'compressed': True})
+                self.direct_update(FilePath, FilePath.id == file_info.file_id, {'compressed': True})
             else:
                 new_file_binary = get_url_file(response['output']['url'], headers=headers)
                 file_path_id = self.save_file_path(new_file_binary, filename=file_info.filename, compressed=True).id
-                if file_path_id == file_info.id:
-                    self.direct_update(FilePath, FilePath.id == file_info.id, {'compressed': True})
+                if file_path_id == file_info.file_id:
+                    self.direct_update(FilePath, FilePath.id == file_info.file_id, {'compressed': True})
                 else:
-                    self.direct_update(File, File.file_id == file_info.id, {'file_id': file_path_id})
-                    self.delete_file_paths(file_info.id)
+                    self.direct_update(File, File.file_id == file_info.file_id, {'file_id': file_path_id})
+                    self.delete_file_paths(file_info.file_id)
 
     def save_image(
             self,
@@ -789,8 +795,9 @@ class FileBlock(FilesDeclarative):
 
 
 class StorageFile(object):
-    def __init__(self, storage_path, blocks, block_size=OPEN_BLOCK_SIZE):
+    def __init__(self, storage_path, name, blocks, block_size=OPEN_BLOCK_SIZE):
         self.storage_path = storage_path
+        self.name = name
         self.blocks = blocks
         self.block_position = 0
         self.block_size = block_size

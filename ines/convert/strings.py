@@ -26,6 +26,8 @@ CLEAR_SPACES_REGEX = regex_compile(' +').sub
 
 NULLS = frozenset([u('null'), u(''), u('none')])
 
+BYTES_REFERENCES = ['B', 'kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+
 
 def to_unicode(value, encoding='utf-8', errors='strict'):
     if isinstance(value, text_type):
@@ -57,6 +59,10 @@ else:
             return value.encode(encoding, errors)
         else:
             return str(value)
+
+
+def encode_and_decode(value, encoding='utf-8', errors='strict'):
+    return to_unicode(to_bytes(value, encoding, errors), encoding, errors)
 
 
 def unicode_join(sep, items):
@@ -292,3 +298,24 @@ def prepare_iter_for_json(values, minify=False):
 
 def clear_spaces(value):
     return CLEAR_SPACES_REGEX(' ', to_string(value))
+
+
+def bytes_to_unicode(bytes, round_to=2):
+    if not bytes:
+        return to_unicode('0 B')
+    else:
+        bytes_float = float(bytes)
+        references_length = len(BYTES_REFERENCES) - 1
+        for i in range(references_length):
+            number = bytes_float / 1000
+            if number < 1.0:
+                break
+            bytes_float = number
+        else:
+            i = references_length
+
+        response = round(bytes_float, round_to)
+        if response.is_integer():
+            response = int(response)
+
+        return to_unicode('%s %s' % (response, BYTES_REFERENCES[i]))
