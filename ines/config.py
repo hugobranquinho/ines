@@ -395,12 +395,13 @@ class Configurator(PyramidConfigurator):
                 permission=NO_PERMISSION_REQUIRED)
 
     @configuration_extensions('deform')
-    def set_deform_translation(self, path=None, base_static_path=None):
+    def set_deform_translation(self, path=None, production_path=None, base_static_path=None):
         def translator(term):
             return get_localizer(get_current_request()).translate(term)
 
         deform = _import_module('deform')
 
+        path = self.is_production_environ and production_path or path
         if path:
             deform_template_dir = resource_filename(*path.split(':', 1))
             zpt_renderer = deform.ZPTRendererFactory(
