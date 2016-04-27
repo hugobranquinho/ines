@@ -152,7 +152,7 @@ def open_url(url, data=None, timeout=None, headers=None, method='get'):
         if isinstance(data, string_types):
             data = to_string(data)
         elif isinstance(data, (dict, MultiDict)):
-            data = data.items()
+            data = list(data.items())
 
         if isinstance(data, (dict, tuple, list)):
             data = dict((to_string(k), to_string(v)) for k, v in data)
