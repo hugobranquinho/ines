@@ -76,17 +76,16 @@ class ApplicationHeaderAuthenticationPolicy(object):
         authenticated = None
         authorization_string = self.unauthenticated_userid(request)
         if authorization_string:
-            authorization_type = None
-            lower_authorization_string = authorization_string.lower()
-            if lower_authorization_string.startswith('token'):
-                authorization_type, authorization = 'token', authorization_string[5:].strip()
-            elif lower_authorization_string.startswith('apikey'):
-                authorization_type, authorization = 'apikey', authorization_string[6:].strip()
+            authorization_info = authorization_string.split('-', 2)
+            authorization_type = authorization_info[0].lower()
 
-            if authorization_type:
+            if (len(authorization_info) == 2
+                    and authorization_info[1]
+                    and authorization_type in ('token', 'apikey')):
+
                 authenticated = (
                     getattr(request.applications, self.application_name)
-                    .get_authorization(authorization_type, authorization))
+                    .get_authorization(authorization_type, authorization_info[1]))
 
                 if authenticated and not isinstance(authenticated, AuthenticatedSession):
                     session_type = authorization_type == 'token' and 'user' or authorization_type
@@ -119,7 +118,7 @@ class ApplicationHeaderAuthenticationPolicy(object):
 
     def remember(self, request, token):
         if self.cookie_key:
-            return self.cookie_profile.get_headers('Token %s' % token)
+            return self.cookie_profile.get_headers('Token-%s' % token)
         else:
             return []
 

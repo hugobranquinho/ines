@@ -60,7 +60,7 @@ class PostmanCollection(object):
             if method_permission not in (Everyone, NotAuthenticated):
                 if isinstance(authentication, ApplicationHeaderAuthenticationPolicy):
                     if authentication.header_key:
-                        headers.add('%s: Token {{token}}' % authentication.header_key)
+                        headers.add('%s: Token-{{token}}' % authentication.header_key)
                     if authentication.cookie_key:
                         headers.add('Cookie: %s={{token}}' % authentication.cookie_key)
                 break
