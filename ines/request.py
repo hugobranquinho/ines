@@ -164,7 +164,10 @@ class InesRequest(Request):
             return MultiDict(data)
 
     def self_route_url(self, *elements, **kw):
-        return self.route_url(self.matched_route.name, *elements, **kw)
+        if self.matched_route:
+            return self.route_url(self.matched_route.name, *elements, **kw)
+        else:
+            return self.url
 
     def redirect_to_url(self, url, headers=None):
         url = unquote(to_string(url))
