@@ -309,12 +309,35 @@ def compare_full_name_factory(name):
     return replacer
 
 
-def add_months(value, months):
-    month = value.month - 1 + int(months)
+def replace_month(value, diff_month):
+    month = value.month - 1 + int(diff_month)
+
     year = value.year + int(month / 12)
+    if diff_month < 0 and month < 0:
+        year -= 1
+
     month = (month % 12) + 1
-    day = min(value.day, monthrange(year, month)[1])
-    return value.replace(year=year, month=month, day=day)
+
+    day = value.day
+    if day > 28:
+        day = min(value.day, monthrange(year, month)[1])
+
+    return value.replace(
+        year=year,
+        month=month,
+        day=day)
+
+
+def replace_year(value, diff_year):
+    new_year = value.year + diff_year
+
+    try:
+        value = value.replace(year=new_year)
+    except ValueError:
+        # February day error
+        return value.replace(year=new_year, day=28)
+    else:
+        return value
 
 
 def last_day_of_month_for_weekday(year, month, weekday):

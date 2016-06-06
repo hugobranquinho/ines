@@ -12,8 +12,9 @@ from ines import NOW
 from ines.convert import to_string
 from ines.convert import maybe_integer
 from ines.exceptions import NoMoreDates
-from ines.utils import add_months
 from ines.utils import last_day_of_month_for_weekday
+from ines.utils import replace_month
+from ines.utils import replace_year
 
 
 MINYEAR = datetime.MINYEAR
@@ -105,7 +106,7 @@ def find_last_weekday_of_month(weekday):
             return last_weekday - value.day
         elif last_weekday < value.day:
             next_month = datetime.date(value.year, value.month, 1)
-            next_month = add_months(next_month, 1)
+            next_month = replace_month(next_month, diff_month=1)
             last_weekday = last_day_of_month_for_weekday(
                 next_month.year,
                 next_month.month,
@@ -153,7 +154,7 @@ def find_months(options):
     def finder(value):
         nearest = get_nearest(value.month, options, 12)
         if nearest:
-            return add_months(value, nearest).replace(day=1, hour=0, minute=0, second=0)
+            return replace_month(value, diff_month=nearest).replace(day=1, hour=0, minute=0, second=0)
     return finder
 
 
@@ -311,7 +312,7 @@ class Cron(object):
             if year < next_date.year:
                 continue
             elif year != next_date.year:
-                next_date = next_date.replace(year=year)
+                next_date = replace_year(next_date, diff_year=year - next_date.year)
 
             while next_date.year == year:
                 for find_next_value in self.finders:
