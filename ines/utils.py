@@ -46,6 +46,7 @@ from ines.convert import to_string
 from ines.convert import to_unicode
 from ines.convert import maybe_integer
 from ines.convert.codes import make_sha256_no_cache
+from ines.i18n import _
 from ines.i18n import translate_factory
 from ines.url import open_json_url
 
@@ -141,10 +142,12 @@ def format_error_to_json_values(error, kwargs=None, request=None):
     if isinstance(error, HTTPError):
         status = error.code
         key = camelcase(error.title)
+        title = error.title
         message = error.explanation
     elif isinstance(error, Invalid):
         status = 400
         key = camelcase(error._keyname())
+        title = _('Form error')
         message = error.msg
 
         errors = defaultdict(list)
@@ -165,11 +168,13 @@ def format_error_to_json_values(error, kwargs=None, request=None):
     else:
         status = getattr(error, 'code', 400)
         key = camelcase(getattr(error, 'key', 'undefined'))
+        title = getattr(error, 'title', None)
         message = getattr(error, 'msg', getattr(error, 'message', u('Undefined')))
 
     values = {
         'status': status,
         'property': key,
+        'title': title and translate(title) or None,
         'message': translate(message)}
     if kwargs:
         values.update(kwargs)
@@ -557,7 +562,7 @@ def validate_skype_username(username, validate_with_api=False):
     return False
 
 
-def validate_phone_number(number):
+def maybe_phone_number(number):
     if number:
         number = clean_phone_number(to_unicode(number))
         if 21 > len(number or '') > 3:

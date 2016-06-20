@@ -112,7 +112,7 @@ def column_is_postgresql(column):
         return column_is_postgresql(parent.mapped_table.metadata)
 
     from_objects = getattr(column, '_from_objects', None)
-    if from_objects is not None:
+    if from_objects:
         return column_is_postgresql(from_objects[0])
 
     raise ValueError('Missing bind on %s. Check `column_is_postgresql`' % column)
@@ -746,7 +746,16 @@ def create_rlike_filter(column, value):
 
 
 class Pagination(PaginationClass):
-    def __init__(self, query, page=1, limit_per_page=20, count_column=None, clear_group_by=False, ignore_count=False):
+    def __init__(
+            self,
+            query,
+            page=1,
+            limit_per_page=20,
+            count_column=None,
+            clear_group_by=False,
+            ignore_count=False,
+            extend_entitites=False):
+
         if query is None:
             super(Pagination, self).__init__(page=1, limit_per_page=limit_per_page)
         else:
@@ -755,7 +764,7 @@ class Pagination(PaginationClass):
             if self.limit_per_page != 'all':
                 if not ignore_count:
                     entities = set()
-                    if not count_column:
+                    if not count_column or extend_entitites:
                         # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
                         entities.update(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
 

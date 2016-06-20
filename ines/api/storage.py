@@ -92,6 +92,9 @@ class BaseStorageSession(BaseSQLSession):
 
     def save_file_path(self, binary, filename=None, compressed=False):
         # Generate a unique code using SHA256
+        if isinstance(binary, StorageFile):
+            filename = filename or binary.name
+            binary = binary.read()
         if isinstance(binary, (binary_type, string_types)):
             unique_code = string_unique_code(binary)
         else:
@@ -151,6 +154,11 @@ class BaseStorageSession(BaseSQLSession):
 
         file_path = self.save_file_path(binary, filename)
 
+        session_id = session_type = None
+        if self.request.authenticated:
+            session_id = self.request.authenticated.session_id
+            session_type = self.request.authenticated.session_type
+
         # Add applications file relation
         new = File(
             file_id=file_path.id,
@@ -160,7 +168,9 @@ class BaseStorageSession(BaseSQLSession):
             code_key=maybe_unicode(code_key),
             filename=maybe_unicode(filename),
             title=maybe_unicode(title),
-            type_key=maybe_unicode(type_key))
+            type_key=maybe_unicode(type_key),
+            session_type=session_type,
+            session_id=session_id)
         self.session.add(new)
         self.session.flush()
 
@@ -769,6 +779,10 @@ class File(FilesDeclarative):
     type_key = Column(Unicode(50))
     filename = Column(Unicode(255))
     title = Column(Unicode(255))
+
+    session_type = Column(Unicode(25))
+    session_id = Column(Unicode(100))
+
     created_date = Column(DateTime, nullable=False, default=func.now())
 
 Index('storage_file_code_idx', File.application_code, File.code_key)
@@ -841,7 +855,11 @@ class StorageFile(object):
                 block.close()
 
     def seek(self, position):
+        # @@TODO
         self.block_position = 0
+        for block in self.blocks:
+            if not isinstance(block, string_types):
+                block.seek(0)
 
 
 def create_temporary_file(mode='wb'):

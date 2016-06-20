@@ -137,16 +137,13 @@ class BaseMailerSession(BaseSession):
             if isinstance(attachments, dict):
                 attachments = [attachments]
             for attachment in maybe_list(attachments):
-                filename = to_string(
-                    attachment.get('filename')
-                    or basename(attachment['file'].name)).replace(' ', '')
-                mimetype = to_string(
-                    attachment.get('content_type')
-                    or find_mimetype(filename, attachment['file']))
+                f = attachment.get('file') or attachment['fp']
+                filename = to_string(attachment.get('filename') or basename(f.name)).replace(' ', '')
+                mimetype = to_string(attachment.get('content_type') or find_mimetype(filename, f))
 
-                attachment['file'].seek(0)
+                f.seek(0)
                 mime_attachments.append(self.api_session_manager.attachment_cls(
-                    data=attachment['file'],
+                    data=f,
                     filename=filename,
                     content_type=mimetype))
 

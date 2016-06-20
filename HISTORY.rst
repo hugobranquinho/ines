@@ -41,7 +41,7 @@ Features
 
 - ``utils.validate_skype_username`` to validate skype usernames
 
-- ``utils.validate_phone_number`` to validate telephone / mobile numbers
+- ``utils.maybe_phone_number`` to validate and returntelephone / mobile numbers
 
 - ``utils.validate_pt_post_address`` to validate Portuguese postal addresses
 

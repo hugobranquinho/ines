@@ -17,7 +17,7 @@ from ines.exceptions import Error
 from ines.i18n import _
 from ines.url import get_url_body
 from ines.utils import find_next_prime
-from ines.utils import validate_phone_number
+from ines.utils import maybe_phone_number
 from ines.utils import validate_skype_username
 
 
@@ -92,7 +92,7 @@ class isSkype(object):
 @register_code
 class isPhoneNumber(object):
     def __call__(self, node, value):
-        number = validate_phone_number(value)
+        number = maybe_phone_number(value)
         if not number:
             raise Invalid(node, _('Invalid number'))
         else:
