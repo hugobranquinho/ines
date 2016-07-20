@@ -163,9 +163,14 @@ class InesRequest(Request):
             data = parse_qsl_text(self.environ.get('QUERY_STRING', ''))
             return MultiDict(data)
 
-    def self_route_url(self, *elements, **kw):
+    @property
+    def current_route_name(self):
         if self.matched_route:
-            return self.route_url(self.matched_route.name, *elements, **kw)
+            return self.matched_route.name
+
+    def self_route_url(self, *elements, **kw):
+        if self.current_route_name:
+            return self.route_url(self.current_route_name, *elements, **kw)
         else:
             return self.url
 

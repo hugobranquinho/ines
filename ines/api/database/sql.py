@@ -325,7 +325,7 @@ class BaseSQLSession(BaseSession):
             if not_filter:
                 attribute = attribute[4:]
 
-            is_like = is_ilike = False
+            is_like = is_ilike = is_none = False
             is_not_none = attribute[-12:] == '_is_not_none'
             if is_not_none:
                 column = getattr(table, attribute[:-12], None)
@@ -338,7 +338,11 @@ class BaseSQLSession(BaseSession):
                     if is_ilike:
                         column = getattr(table, attribute[:-9], None)
                     else:
-                        column = getattr(table, attribute, None)
+                        is_none = attribute[-8:] == '_is_none'
+                        if is_none:
+                            column = getattr(table, attribute[:-8], None)
+                        else:
+                            column = getattr(table, attribute, None)
 
             if column is not None:
                 if is_not_none:
@@ -347,6 +351,8 @@ class BaseSQLSession(BaseSession):
                     sa_filter = like_maybe_with_none(column, value)
                 elif is_ilike:
                     sa_filter = ilike_maybe_with_none(column, value)
+                elif is_none:
+                    sa_filter = column.is_(None)
                 else:
                     sa_filter = create_filter_by(column, value)
 

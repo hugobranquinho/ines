@@ -23,10 +23,10 @@ from uuid import uuid4
 import warnings
 
 from colander import Invalid
+from colander import Sequence
 from pyramid.httpexceptions import HTTPError
 from six import PY3
 from six import u
-
 try:
     from deform import ValidationFailure
 except ImportError:
@@ -558,7 +558,6 @@ def validate_skype_username(username, validate_with_api=False):
                 method='get')
             if response['data']['markup'].lower() == 'skype name not available':
                 return True
-
     return False
 
 
@@ -683,9 +682,43 @@ def resolve_deform_error(form, error):
         message = error.message
 
     form_error = Invalid(form, message)
+
+    node = form
+    node_form_error = form_error
+    key_parts = key.split('.')
+    last_key_part = key_parts.pop()
+
+    for key_part in key_parts:
+        if isinstance(node.typ, Sequence):
+            position = maybe_integer(key_part)
+            if position is not None:
+                try:
+                    node = node.children[position]
+                except IndexError:
+                    pass
+                else:
+                    node_error = Invalid(node, '')
+                    node_form_error.add(node_error, position)
+                    node_form_error = node_error
+                    continue
+
+            form.hide_global_error = False
+            break
+        else:
+            for position, child in enumerate(node.children):
+                if child.name == key_part:
+                    node = child
+                    node_error = Invalid(node, '')
+                    node_form_error.add(node_error, position)
+                    node_form_error = node_error
+                    break
+            else:
+                form.hide_global_error = False
+                break
+
     try:
-        form_error[key] = message
-    except KeyError:
+        node_form_error[last_key_part] = message
+    except:
         form.hide_global_error = False
 
     form.widget.handle_error(form, form_error)

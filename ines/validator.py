@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from json import loads
+import re as REGEX
 from string import ascii_lowercase
 
 import colander
@@ -12,6 +13,8 @@ from six import text_type
 from six import u
 
 from ines.convert import maybe_list
+from ines.convert import maybe_unicode
+from ines.convert import to_string
 from ines.convert import to_unicode
 from ines.exceptions import Error
 from ines.i18n import _
@@ -25,6 +28,9 @@ CODES = {}
 
 PORTUGUESE_CC_LETTER_MAPPING = dict((text_type(D), D) for D in range(10))
 PORTUGUESE_CC_LETTER_MAPPING.update(dict((text_type(L), i) for i, L in enumerate(ascii_lowercase, 10)))
+
+
+GPS_REGEX = REGEX.compile('^N:[-]{0,1}[0-9.]{1,10} W:[-]{0,1}[0-9.]{1,10}$')
 
 
 def parse_and_validate_code(name, validation, value):
@@ -103,34 +109,51 @@ class isPhoneNumber(object):
 class codeValidation(object):
     def __init__(self, length, reverse=False, startswith=None):
         self.length = int(length)
-        self.prime = find_next_prime(self.length)
         self.reverse = reverse
         self.startswith = [str(n) for n in maybe_list(startswith)]
 
     def __call__(self, node, value):
-        number = to_unicode(value).lower()
-        if not number:
-            raise Invalid(node, _('Required'))
-        elif not number.isnumeric():
-            raise Invalid(node, _('Need to be a number'))
-        elif len(number) != self.length:
-            raise Invalid(node, _('Need to have ${length} digits', mapping={'length': self.length}))
-
-        if self.startswith and str(number[0]) not in self.startswith:
-            startswith_str = '"%s"' % '", "'.join(self.startswith)
-            raise Invalid(node, _('Need to start with ${chars}', mapping={'chars': startswith_str}))
-
-        last_number = int(number[-1])
-        number = number[:-1]
-
-        if self.reverse:
-            number_list = reversed(number)
+        try:
+            value = validate_code(node.name, value, self.length, reverse=self.reverse, startswith=self.startswith)
+        except Error as error:
+            raise Invalid(node, error.message)
         else:
-            number_list = list(number)
+            return value
 
-        check_digit = self.prime - (sum(i * int(d) for i, d in enumerate(number_list, 2)) % self.prime)
-        if last_number != check_digit:
-            raise Invalid(node, _('Invalid number'))
+
+def validate_code(key, value, length, reverse=False, startswith=None):
+    value = maybe_unicode(value)
+    if not value:
+        raise Error(key, _('Required'))
+
+    number = value.strip().lower()
+    if not number.isnumeric():
+        raise Error(key, _('Need to be a number'))
+    elif len(number) != length:
+        raise Error(key, _('Need to have ${length} digits', mapping={'length': length}))
+
+    if startswith and str(number[0]) not in startswith:
+        startswith_str = '"%s"' % '", "'.join(startswith)
+        raise Error(key, _('Need to start with ${chars}', mapping={'chars': startswith_str}))
+
+    last_number = int(number[-1])
+    number = number[:-1]
+
+    if reverse:
+        number_list = reversed(number)
+    else:
+        number_list = list(number)
+
+    prime = find_next_prime(length)
+    check_digit = prime - (sum(i * int(d) for i, d in enumerate(number_list, 2)) % prime)
+    if last_number != check_digit:
+        raise Error(key, _('Invalid number'))
+    else:
+        return value
+
+
+def validate_pt_nif(key, value):
+    return validate_code(key, value, length=9, reverse=True)
 
 
 def validate_pt_post_address(postal_address):
@@ -146,3 +169,26 @@ def validate_pt_post_address(postal_address):
         raise Error('postal_address', _('First number must be between 1000 and 9999'))
     elif len(cp3) != 3:
         raise Error('postal_address', _('Second number must have 3 digits'))
+
+
+URL_PROTOCOLS = ['http://', 'https://']
+
+
+def validate_url(key, value, required=False):
+    url = maybe_unicode(value)
+    if required and (not url or url in URL_PROTOCOLS):
+        raise Error(key, 'Obrigatório')
+
+    elif url and url not in URL_PROTOCOLS:
+        for protocol in URL_PROTOCOLS:
+            if url.startswith(protocol):
+                if len(url[len(protocol):]) < 2:
+                    raise Error(key, 'É necessário indicar um url')
+                return url
+
+        raise Error(key, 'O url tem de começar por "%s"' % '" ou "'.join(URL_PROTOCOLS))
+
+
+def validate_gps(value):
+    value = to_string(value)
+    return bool(GPS_REGEX.match(value))
