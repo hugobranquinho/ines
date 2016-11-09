@@ -15,6 +15,19 @@ from ines.convert import unicode_join
 from ines.convert.strings import maybe_unicode
 
 
+ES_COUNTRIES = [
+    'AD', 'AR', 'BO', 'BZ', 'CL', 'CO', 'CR', 'CU', 'DO', 'EC', 'EH', 'ES', 'GI', 'GQ', 'GT', 'HN', 'MX', 'NI', 'PA',
+    'PE', 'PR', 'PY', 'SV', 'UY', 'VE',
+]
+FR_COUNTRIES = [
+    'BE', 'BF', 'BI', 'CD', 'CF', 'CH', 'CI', 'CM', 'DJ', 'DZ', 'FR', 'GA', 'GP', 'HT', 'KM', 'LU', 'MA', 'MG', 'ML',
+    'MQ', 'MU', 'RW', 'SC', 'SN', 'TG', 'TN', 'VU',
+]
+PT_COUNTRIES = [
+    'AO', 'BR', 'CV', 'GW', 'MO', 'MZ', 'PT', 'ST', 'TL',
+]
+
+
 def InesTranslationStringFactory(factory_domain):
     def create(msgid, mapping=None, default=None, context=None):
         if isinstance(msgid, TranslationString):
