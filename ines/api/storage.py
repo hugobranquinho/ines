@@ -24,10 +24,10 @@ from sqlalchemy import Index
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Unicode
+from sqlalchemy import UnicodeText
 from sqlalchemy.orm import aliased
 
 from ines import OPEN_BLOCK_SIZE
-from ines import MARKER
 from ines.api.database.sql import BaseSQLSession
 from ines.api.database.sql import BaseSQLSessionManager
 from ines.api.database.sql import new_lightweight_named_tuple
@@ -146,11 +146,11 @@ class BaseStorageSession(BaseSQLSession):
             binary,
             application_code,
             code_key=None,
+            type_key=None,
+            data=None,
             filename=None,
             title=None,
-            parent_id=None,
-            type_key=None,
-            session=None):
+            parent_id=None):
 
         file_path = self.save_file_path(binary, filename)
 
@@ -166,9 +166,10 @@ class BaseStorageSession(BaseSQLSession):
             key=make_unique_hash(70),
             application_code=to_unicode(application_code),
             code_key=maybe_unicode(code_key),
+            type_key=maybe_unicode(type_key),
+            data=maybe_unicode(data),
             filename=maybe_unicode(filename),
             title=maybe_unicode(title),
-            type_key=maybe_unicode(type_key),
             session_type=session_type,
             session_id=session_id)
         self.session.add(new)
@@ -423,6 +424,13 @@ class BaseStorageSession(BaseSQLSession):
                 query = query.filter(File.type_key.is_(None))
             else:
                 query = query.filter(File.type_key == to_unicode(type_key))
+
+        if 'data' in kwargs:
+            data = kwargs['data']
+            if data is None:
+                query = query.filter(File.data.is_(None))
+            else:
+                query = query.filter(File.data == to_unicode(data))
 
         if 'parent_id' in kwargs:
             parent_id = kwargs['parent_id']
@@ -777,6 +785,7 @@ class File(FilesDeclarative):
     application_code = Column(Unicode(50), nullable=False)
     code_key = Column(Unicode(150))
     type_key = Column(Unicode(50))
+    data = Column(UnicodeText)
     filename = Column(Unicode(255))
     title = Column(Unicode(255))
 
