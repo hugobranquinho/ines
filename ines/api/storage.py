@@ -522,10 +522,8 @@ class BaseStorageWithImageSession(BaseStorageSession):
             return resized
 
         f = self.session.query(File.id, File.application_code).filter(File.key == key).first()
-        if (f
-                and f.application_code in self.api_session_manager.resizes
-                and resize_name in self.api_session_manager.resizes[f.application_code]
-                and self.resize_image(f.id, f.application_code, resize_name)):
+        if (f and resize_name in self.api_session_manager.resizes.get(f.application_code, [])
+              and self.resize_image(f.id, f.application_code, resize_name)):
             # Thumb created on the fly
             self.flush()
             return self.get_files(
@@ -722,7 +720,9 @@ class BaseStorageWithImageSession(BaseStorageSession):
             crop_upper=None,
             crop_right=None,
             crop_lower=None,
-            image_validation=None):
+            image_validation=None,
+            type_key=None,
+        ):
 
         im = self.verify_image(binary)
         if image_validation:
@@ -746,7 +746,15 @@ class BaseStorageWithImageSession(BaseStorageSession):
         temporary_path = save_temporary_image(im)
         binary = get_open_file(temporary_path)
 
-        f = self.save_file(binary, application_code, code_key, filename=filename, title=title)
+        f = self.save_file(
+            binary,
+            application_code,
+            code_key,
+            type_key=type_key,
+            filename=filename,
+            title=title,
+        )
+
         if asbool(self.settings.get('thumb.create_on_add')):
             self.create_image_resizes.run_job()
         if asbool(self.settings.get('compress_on_add')):
