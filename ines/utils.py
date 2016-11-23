@@ -244,9 +244,10 @@ def compare_values(first, second, method_name='__eq__'):
 
 
 def get_file_size(source_file):
+    current_position = source_file.tell()
     source_file.seek(0, SEEK_END)
     size = source_file.tell()
-    source_file.seek(0)
+    source_file.seek(current_position)
     return size
 
 
@@ -524,6 +525,8 @@ def path_unique_code(path, block_size=OPEN_BLOCK_SIZE):
 
 
 def file_unique_code(open_file, block_size=OPEN_BLOCK_SIZE):
+    current_position = open_file.tell()
+
     h = sha256()
     open_file.seek(0)
     block = open_file.read(block_size)
@@ -536,7 +539,7 @@ def file_unique_code(open_file, block_size=OPEN_BLOCK_SIZE):
         h.update(block)
         block = open_file.read(block_size)
 
-    open_file.seek(0)
+    open_file.seek(current_position)
     return to_unicode(h.hexdigest())
 
 
