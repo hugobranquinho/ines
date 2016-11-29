@@ -22,7 +22,7 @@ MAPPING.update({u('Ø'): u('O'), u('ø'): u('0'), u('þ'): u('b'), u(' '): u(' '
 MAPPING.update(STRING_TO_DICT(base_letters + base_digits))
 
 FILENAME_MAPPING = MAPPING.copy()
-FILENAME_MAPPING.update(STRING_TO_DICT('.-_ '))
+FILENAME_MAPPING.update(STRING_TO_DICT('.-_'))
 
 PHONE_MAPPING = STRING_TO_DICT('x+' + base_digits)
 
@@ -39,8 +39,7 @@ def clean_unicode(value, replace_case=None, mapping_dict=None):
 
 def clean_filename(filename):
     value = to_unicode(filename, errors='ignore')
-    cleaned = clean_unicode(value, replace_case='_', mapping_dict=FILENAME_MAPPING)
-    return cleaned.encode('utf-8')
+    return clean_unicode(value, replace_case='_', mapping_dict=FILENAME_MAPPING)
 
 
 def clean_phone_number(value):
