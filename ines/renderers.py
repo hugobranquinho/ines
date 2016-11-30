@@ -2,7 +2,10 @@
 
 import codecs
 from collections import defaultdict
+from csv import QUOTE_ALL
 from csv import QUOTE_MINIMAL
+from csv import QUOTE_NONNUMERIC
+from csv import QUOTE_NONE
 from csv import writer as csv_writer
 import datetime
 from os.path import basename
@@ -121,7 +124,7 @@ class CSV(object):
             delimiter = ';'
             quote_char = '"'
             line_terminator = '\r\n'
-            quoting = QUOTE_MINIMAL
+            quoting = QUOTE_ALL
             encoder = None
 
             if request is not None:
@@ -181,6 +184,17 @@ class CSV(object):
 
                 yes_text = to_string(request.translate(_('Yes')))
                 no_text = to_string(request.translate(_('No')))
+
+                csv_quoting = get_param('csv_quoting')
+                if csv_quoting:
+                    csv_quoting = to_string(csv_quoting).lower()
+                    if csv_quoting == 'minimal':
+                        quoting = QUOTE_MINIMAL
+                    elif csv_quoting == 'non_numeric':
+                        quoting = QUOTE_NONNUMERIC
+                    elif csv_quoting == 'none':
+                        quoting = QUOTE_NONE
+
             else:
                 yes_text = to_string('Yes')
                 no_text = to_string('No')
