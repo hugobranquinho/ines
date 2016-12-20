@@ -5,6 +5,7 @@ from collections import defaultdict
 import datetime
 import errno
 from hashlib import sha256
+from io import BytesIO
 from io import IOBase
 from json import loads as loads_json
 from math import ceil
@@ -530,7 +531,7 @@ def file_unique_code(open_file, block_size=OPEN_BLOCK_SIZE):
     h = sha256()
     open_file.seek(0)
     block = open_file.read(block_size)
-    convert_to_bytes = bool('b' not in open_file.mode)
+    convert_to_bytes = bool(not isinstance(open_file, BytesIO) and 'b' not in open_file.mode)
 
     while block:
         if convert_to_bytes:
