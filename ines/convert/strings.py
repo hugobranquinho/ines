@@ -96,12 +96,13 @@ def maybe_float(value):
 
 
 def maybe_decimal(value, scale=2):
-    try:
-        result = Decimal(value)
-    except InvalidOperation:
-        pass
-    else:
-        return result.quantize(Decimal(10) ** -scale)
+    if value is not None:
+        try:
+            result = Decimal(value)
+        except InvalidOperation:
+            pass
+        else:
+            return result.quantize(Decimal(10) ** -scale)
 
 
 def maybe_null(value):
