@@ -249,7 +249,11 @@ class BaseSQLSession(BaseSession):
 
             columns = []
             for attribute in maybe_list(attributes):
-                column = getattr(table, attribute, None)
+                if isinstance(attribute, str):
+                    column = getattr(table, attribute, None)
+                else:
+                    column = attribute
+
                 if column is not None:
                     relate_with.update(t.name for t in get_object_tables(column))
                     columns.append(column)
@@ -533,13 +537,20 @@ class BaseSQLSession(BaseSession):
         return response
 
     def fill_response_with_indexs(self, indexs, references, response):
-        named_tuple = lightweight_named_tuple('result', list(response[0]._real_fields))
-        for idx, value in enumerate(response):
-            new_value = list(value)
-            for key, index_list in indexs.items():
-                for i in index_list:
-                    new_value[i] = references[key][getattr(value, key)]
-            response[idx] = named_tuple(new_value)
+        return fill_response_with_indexs(indexs, references, response)
+
+
+def fill_response_with_indexs(replace_indexes, references, response):
+    named_tuple = lightweight_named_tuple('result', list(response[0]._real_fields))
+
+    for index, sqlobj in enumerate(response):
+        new_sqlobj = list(sqlobj)
+        for attribute, indexes in replace_indexes.items():
+            for i in indexes:
+                value = getattr(sqlobj, attribute)
+                new_sqlobj[i] = references[attribute][value]
+
+        response[index] = named_tuple(new_sqlobj)
 
 
 class LookupAtributes(list):
