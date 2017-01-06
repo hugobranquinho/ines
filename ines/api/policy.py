@@ -22,6 +22,7 @@ from ines.exceptions import HTTPTokenExpired
 from ines.exceptions import HTTPUnauthorized
 from ines.path import get_object_on_path
 from ines.path import join_paths
+from ines.utils import compare_digest
 from ines.utils import make_unique_hash
 from ines.utils import get_file_binary
 from ines.utils import last_read_file_time
@@ -143,7 +144,7 @@ class BaseTokenPolicySession(BaseSession):
                 expire = last_read_time + token_expire_seconds
                 end_date = info.get('end_date')
                 if expire > now and (not end_date or end_date > now):
-                    if info['lock_key'] == make_token_lock(self.request, token, info['session_id']):
+                    if compare_digest(info['lock_key'], make_token_lock(self.request, token, info['session_id'])):
                         return info['session_id']
 
                 # Compromised or ended! Force revalidation

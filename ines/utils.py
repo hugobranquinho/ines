@@ -20,6 +20,8 @@ from os import stat as os_stat
 from os.path import dirname
 from os.path import getmtime
 import re as REGEX
+from random import random
+from time import sleep
 from uuid import uuid4
 import warnings
 
@@ -727,3 +729,14 @@ def resolve_deform_error(form, error):
 
     form.widget.handle_error(form, form_error)
     return ValidationFailure(form, form_error.value, form_error)
+
+
+try:
+    from secrets import compare_digest
+except ImportError:
+    try:
+        from hmac import compare_digest
+    except ImportError:
+        def compare_digest(first, second):
+            sleep(random() / 1000)
+            return first == second
