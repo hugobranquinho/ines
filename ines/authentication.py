@@ -76,7 +76,7 @@ class ApplicationHeaderAuthenticationPolicy(object):
         authenticated = None
         authorization_string = self.unauthenticated_userid(request)
         if authorization_string:
-            authorization_info = authorization_string.split('-', 2)
+            authorization_info = authorization_string.split('-', 1)
             authorization_type = authorization_info[0].lower()
 
             if (len(authorization_info) == 2

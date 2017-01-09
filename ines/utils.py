@@ -738,5 +738,5 @@ except ImportError:
         from hmac import compare_digest
     except ImportError:
         def compare_digest(first, second):
-            sleep(random() / 1000)
+            sleep(random() / 10000)
             return first == second

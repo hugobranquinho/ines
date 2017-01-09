@@ -133,31 +133,37 @@ class BaseTokenPolicySession(BaseSession):
         pass
 
     def get_token_authorization(self, token):
-        token_256 = make_sha256(token)
-        file_path = self.get_token_file_path(token_256)
-        last_read_time = last_read_file_time(file_path)
-        if last_read_time:
-            info = self.get_token_info(token_256)
-            if info:
-                now = NOW_TIME()
-                token_expire_seconds = info.get('token_expire_seconds') or self.token_expire_seconds
-                expire = last_read_time + token_expire_seconds
-                end_date = info.get('end_date')
-                if expire > now and (not end_date or end_date > now):
-                    if compare_digest(info['lock_key'], make_token_lock(self.request, token, info['session_id'])):
-                        return info['session_id']
+        if token and '-' in token:
+            token_256 = make_sha256(token)
+            file_path = self.get_token_file_path(token_256)
+            last_read_time = last_read_file_time(file_path)
+            if last_read_time:
+                info = self.get_token_info(token_256)
+                if info:
+                    now = NOW_TIME()
+                    token_expire_seconds = info.get('token_expire_seconds') or self.token_expire_seconds
+                    expire = last_read_time + token_expire_seconds
+                    end_date = info.get('end_date')
+                    if expire > now and (not end_date or end_date > now):
+                        token_lock = make_token_lock(self.request, token, info['session_id'])
+                        valid_token = compare_digest(info['lock_key'], token_lock)
+                        valid_session_id = compare_digest(info['session_id'], token.split('-', 1)[0])
+                        if valid_token and valid_session_id:
+                            return info['session_id']
 
-                # Compromised or ended! Force revalidation
-                self.delete_session_key_tokens(info['session_key'])
+                    # Compromised or ended! Force revalidation
+                    self.delete_session_key_tokens(info['session_key'])
 
-    def create_new_session_key_token(self, session_id, session_key_256):
-        return self.create_token(session_id, session_key_256)
+    def create_new_session_key_token(self, session_id, session_key):
+        return self.create_token(session_id, session_key)
 
-    def create_token(self, session_id, session_key_256, end_date=None, token_expire_seconds=None):
+    def create_token(self, session_id, session_key, end_date=None, token_expire_seconds=None):
+        session_key_256 = make_sha256(session_key)
+
         # Delete all active tokens
         self.delete_session_key_tokens(session_key_256)
 
-        token = make_unique_hash(length=70)
+        token = '%s-%s' % (session_id, make_unique_hash(length=70))
         token_256 = make_sha256(token)
 
         data = {
@@ -191,8 +197,7 @@ class BaseTokenPolicySession(BaseSession):
 
     def create_authorization(self, session_id, token_expire_seconds=None):
         session_key = make_unique_hash(length=70)
-        session_key_256 = make_sha256(session_key)
-        token = self.create_token(session_id, session_key_256, token_expire_seconds=token_expire_seconds)
+        token = self.create_token(session_id, session_key, token_expire_seconds=token_expire_seconds)
         return session_key, token
 
     def session_is_alive(self, session_key_256):

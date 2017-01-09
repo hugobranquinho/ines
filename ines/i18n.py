@@ -26,6 +26,10 @@ FR_COUNTRIES = [
 PT_COUNTRIES = [
     'AO', 'BR', 'CV', 'GW', 'MO', 'MZ', 'PT', 'ST', 'TL',
 ]
+# TODO
+# https://en.wikipedia.org/wiki/List_of_official_languages
+# https://en.wikipedia.org/wiki/List_of_official_languages_by_country_and_territory
+# http://www.internetworldstats.com/languages.htm
 
 
 def InesTranslationStringFactory(factory_domain):
@@ -174,7 +178,12 @@ def translate_date(request, year=None, month=None, day=None, hour=None, minute=N
         mapping['day'] = day
     if hour or minute:
         points += 10
-        mapping['hour'] = '%s:%s' % (hour, minute)
+        if hour and minute:
+            mapping['hour'] = '%s:%s' % (hour, minute)
+        elif hour:
+            mapping['hour'] = '%sh' % hour
+        else:
+            mapping['hour'] = '%smin' % minute
     if weekday:
         points += 1
         mapping['week'] = translator(WEEKDAYS[weekday])
@@ -394,11 +403,6 @@ def metric_to_unicode(value, metric=METER, to_metric=None, round_to=None):
     .. note:: To speed things, cache :meth:`metric_to_unicode_factory`.
     """
     return metric_to_unicode_factory(metric, to_metric, round_to)(value)
-
-
-NUMBERS_MILL_I18N = [
-
-]
 
 
 class NumberDescription(object):
