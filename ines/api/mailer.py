@@ -5,8 +5,10 @@ from email.utils import formatdate
 from email.utils import make_msgid
 from os import linesep
 from os.path import basename
+from socket import getfqdn
 from smtplib import SMTPRecipientsRefused
 
+from pyramid.decorator import reify
 from six import _import_module
 from six import string_types
 from six import u
@@ -73,6 +75,10 @@ class BaseMailerSessionManager(BaseSessionManager):
             self.transaction = _import_module('transaction')
             self.__dict__.setdefault('__middlewares__', []).append(RepozeTMMiddleware)
 
+    @reify
+    def default_domain(self):
+        return getfqdn()
+
 
 class BaseMailerSession(BaseSession):
     __api_name__ = 'mailer'
@@ -122,7 +128,8 @@ class BaseMailerSession(BaseSession):
             recipients = [recipients]
 
         if not message_id:
-            message_id = make_msgid(make_unique_hash(10))
+            domain = self.settings.get('message_domain') or self.api_session_manager.default_domain
+            message_id = make_msgid(make_unique_hash(10), domain)
 
         extra_headers = {
             'Date': formatdate(localtime=True),
