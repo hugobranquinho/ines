@@ -195,10 +195,11 @@ def translate_date(request, year=None, month=None, day=None, hour=None, minute=N
     return translator(message)
 
 
-def translate_date_object(request, date):
+def translate_date_object(request, date, with_weekday=False):
     return translate_date(
         request,
-        year=date.year, month=date.month, day=date.day)
+        year=date.year, month=date.month, day=date.day,
+        weekday=with_weekday and date.weekday() or None)
 
 
 def translate_datetime(request, date):

@@ -34,7 +34,7 @@ NEW_LINE = u(linesep)
 HTML_NEW_LINE = u('<br/>')
 
 
-def format_email(email, encoding=None):
+def format_email(email, encoding=None, force_development_email=None):
     label = None
 
     if isinstance(email, dict):
@@ -48,7 +48,7 @@ def format_email(email, encoding=None):
     return to_unicode(
         formataddr((
             maybe_string(label, encoding=encoding),
-            to_string(email, encoding=encoding))))
+            to_string(force_development_email or email, encoding=encoding))))
 
 
 class BaseMailerSessionManager(BaseSessionManager):
@@ -97,6 +97,10 @@ class BaseMailerSession(BaseSession):
             attachments=None,
             message_id=None):
 
+        force_development_email = None
+        if not self.request.is_production_environ:
+            force_development_email = self.settings.get('force_development_email') or None
+
         if body:
             body = to_unicode(body, encoding=content_charset)
             if not html:
@@ -110,22 +114,26 @@ class BaseMailerSession(BaseSession):
         options = {}
         # FROM sender
         if sender:
-            options['sender'] = format_email(sender, encoding=content_charset)
+            options['sender'] = format_email(
+                sender,
+                encoding=content_charset,
+                force_development_email=force_development_email)
 
         # Envelope CC
         if cc:
             if isinstance(cc, dict):
                 cc = [cc]
-            options['cc'] = [format_email(e, content_charset) for e in maybe_list(cc)]
+            options['cc'] = [
+                format_email(e, content_charset, force_development_email=force_development_email)
+                for e in maybe_list(cc)]
 
         # Envelope BCC
         if bcc:
             if isinstance(bcc, dict):
                 bcc = [bcc]
-            options['bcc'] = [format_email(e, content_charset) for e in maybe_list(bcc)]
-
-        if not isinstance(recipients, list):
-            recipients = [recipients]
+            options['bcc'] = [
+                format_email(e, content_charset, force_development_email=force_development_email)
+                for e in maybe_list(bcc)]
 
         if not message_id:
             domain = self.settings.get('message_domain') or self.api_session_manager.default_domain
@@ -158,7 +166,9 @@ class BaseMailerSession(BaseSession):
             subject=to_unicode(subject, encoding=content_charset),
             html=html,
             body=body,
-            recipients=[format_email(e, content_charset) for e in recipients],
+            recipients=[
+                format_email(e, content_charset, force_development_email=force_development_email)
+                for e in maybe_list(recipients)],
             attachments=mime_attachments,
             extra_headers=extra_headers,
             **options)
