@@ -243,13 +243,13 @@ def pluralizing_key(key, only_last=True):
         return unicode_join('_', map(pluralizing_word, key.split('_')))
 
 
-def compact_dump(values):
-    return dumps(values, separators=(',', ':'))
+def compact_dump(values, **kwargs):
+    return dumps(values, separators=(',', ':'), **kwargs)
 
 
-def json_dumps(value, minify=False):
+def json_dumps(value, minify=False, **kwargs):
     value = prepare_for_json(value, minify)
-    return compact_dump(value)
+    return compact_dump(value, **kwargs)
 
 
 def prepare_for_json(value, minify=False):
