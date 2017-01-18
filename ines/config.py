@@ -361,7 +361,15 @@ class Configurator(PyramidConfigurator):
         self.set_authorization_policy(authorization_policy)
 
     @configuration_extensions('errors.interface')
-    def add_errors_interface(self, not_found=None, forbidden=None, global_error=None, error=None, browser_error=None):
+    def add_errors_interface(
+            self,
+            not_found=None,
+            forbidden=None,
+            global_error=None,
+            error=None,
+            browser_error=None,
+        ):
+
         if browser_error:
             self.add_view(
                 view=browser_error,

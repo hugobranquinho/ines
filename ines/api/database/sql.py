@@ -22,7 +22,7 @@ from sqlalchemy import not_
 from sqlalchemy import Numeric
 from sqlalchemy import or_
 from sqlalchemy import String
-from sqlalchemy import TEXT
+from sqlalchemy.exc import InternalError
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.declarative import declarative_base
@@ -30,7 +30,6 @@ from sqlalchemy.event import listen as sqlalchemy_listen
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.orm.descriptor_props import CompositeProperty
 from sqlalchemy.orm.util import AliasedClass
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import DDL
@@ -56,6 +55,14 @@ from ines.views.fields import OrderBy
 from ines.utils import compare_values
 from ines.utils import PaginationClass
 
+try:
+    import cymysql
+except ImportError:
+    pass
+else:
+    cymysql.FIELD_TYPE.JSON = 245
+    cymysql.converters.decoders[cymysql.FIELD_TYPE.JSON] = lambda data: maybe_unicode(data)
+
 
 SQL_ENGINES = {}
 SQL_DBS = defaultdict(dict)
@@ -67,11 +74,20 @@ POSTGRESQL_LOWER_AND_CLEAR = """
         LANGUAGE SQL""" % LOWER_MAPPING
 
 
-def postgresql_non_ascii_and_lower(column, as_text=True):
-    if not column_is_postgresql(column):
-        return column
+def table_is_postgresql(orm_table):
+    return orm_table.__table__.__connection_type__ == 'postgresql'
 
-    elif hasattr(column, 'property'):
+
+def compare_as_non_ascii_filter(table, column_name, value):
+    column = getattr(table, column_name)
+    if table_is_postgresql(table):
+        return postgresql_non_ascii_and_lower(column) == clean_unicode(value).lower()
+    else:
+        return column == value
+
+
+def postgresql_non_ascii_and_lower(column, as_text=True):
+    if hasattr(column, 'property'):
         columns = column.property.columns
         if len(columns) > 1:
             column = func.concat(*columns)
@@ -88,34 +104,6 @@ def postgresql_non_ascii_and_lower(column, as_text=True):
         return func.text(column)
     else:
         return column
-
-
-def column_is_postgresql(column):
-    bind = getattr(column, 'bind', None)
-    if bind is not None:
-        return bind.name == 'postgresql'
-
-    table = getattr(column, 'table', None)
-    if table is not None:
-        return column_is_postgresql(table)
-
-    clause = getattr(column, 'clause', None)
-    if clause is not None:
-        return column_is_postgresql(clause)
-
-    clauses = getattr(column, 'clauses', None)
-    if clauses is not None:
-        return column_is_postgresql(list(clauses)[0])
-
-    parent = getattr(column, 'parent', None)
-    if parent is not None:
-        return column_is_postgresql(parent.mapped_table.metadata)
-
-    from_objects = getattr(column, '_from_objects', None)
-    if from_objects:
-        return column_is_postgresql(from_objects[0])
-
-    raise ValueError('Missing bind on %s. Check `column_is_postgresql`' % column)
 
 
 class BaseSQLSessionManager(BaseSessionManager):
@@ -193,9 +181,6 @@ class BaseSQLSession(BaseSession):
 
     def table_instance_as_dict(self, instance):
         return dict((k, getattr(instance, k)) for k in instance.__table__.c.keys())
-
-    def set_filter_by_on_query(self, query, column, values):
-        return query.filter(create_filter_by(column, values))
 
     def set_active_filter_on_query(self, query, tables, active=None, active_query=None):
         if active:
@@ -332,33 +317,34 @@ class BaseSQLSession(BaseSession):
             is_like = is_ilike = is_none = False
             is_not_none = attribute[-12:] == '_is_not_none'
             if is_not_none:
-                column = getattr(table, attribute[:-12], None)
+                column_name = attribute[:-12]
             else:
                 is_like = attribute[-8:] == '_is_like'
                 if is_like:
-                    column = getattr(table, attribute[:-8], None)
+                    column_name = attribute[:-8]
                 else:
                     is_ilike = attribute[-9:] == '_is_ilike'
                     if is_ilike:
-                        column = getattr(table, attribute[:-9], None)
+                        column_name = attribute[:-9]
                     else:
                         is_none = attribute[-8:] == '_is_none'
                         if is_none:
-                            column = getattr(table, attribute[:-8], None)
+                            column_name = attribute[:-8]
                         else:
-                            column = getattr(table, attribute, None)
+                            column_name = attribute
 
+            column = getattr(table, column_name, None)
             if column is not None:
                 if is_not_none:
                     sa_filter = column.isnot(None)
                 elif is_like:
-                    sa_filter = like_maybe_with_none(column, value)
+                    sa_filter = like_maybe_with_none(table, column_name, value)
                 elif is_ilike:
-                    sa_filter = ilike_maybe_with_none(column, value)
+                    sa_filter = ilike_maybe_with_none(table, column_name, value)
                 elif is_none:
                     sa_filter = column.is_(None)
                 else:
-                    sa_filter = create_filter_by(column, value)
+                    sa_filter = create_filter_by(table, column_name, value)
 
                 if sa_filter is not None:
                     relate_with.update(t.name for t in get_object_tables(column))
@@ -423,10 +409,14 @@ class BaseSQLSession(BaseSession):
             column = getattr(table, attribute, None)
             if column is not None:
                 relate_with.update(t.name for t in get_object_tables(column))
+
+                if table_is_postgresql(table):
+                    column = postgresql_non_ascii_and_lower(column, as_text=False)
+
                 if as_desc:
-                    order_by.append(postgresql_non_ascii_and_lower(column, as_text=False).desc())
+                    order_by.append(column.desc())
                 else:
-                    order_by.append(postgresql_non_ascii_and_lower(column, as_text=False))
+                    order_by.append(column)
 
             elif active_tables and attribute == 'active':
                 if active is None:
@@ -486,53 +476,20 @@ class BaseSQLSession(BaseSession):
 
     def create_global_search_options(self, search, tables):
         response = []
-        search = clean_unicode(search)
-        search_list = search.split()
-
         for table in maybe_list(tables):
             ignore_columns = getattr(table, '__ignore_on_global_search__', None)
             ignore_ids = getattr(table, '__ignore_ids_on_global_search__', True)
 
             for column_name in table._sa_class_manager.local_attrs.keys():
-                if ((ignore_ids and (column_name == 'id' or column_name.endswith('_id')))
-                        or (ignore_columns and column_name in ignore_columns)):
+                if ignore_ids:
+                    if column_name == 'id' or column_name.endswith('_id'):
+                        continue
+                elif ignore_columns and column_name in ignore_columns:
                     continue
 
-                column = getattr(table, column_name)
-                if hasattr(column, 'type'):
-                    if isinstance(column.type, Enum):
-                        for value in column.type.enums:
-                            value_to_search = value
-                            for s in search_list:
-                                try:
-                                    idx = value_to_search.index(s)
-                                except ValueError:
-                                    break
-                                else:
-                                    value_to_search = value_to_search[idx + len(s):]
-                            else:
-                                response.append(column == value)
-
-                    elif isinstance(column.type, String):
-                        value = create_like_filter(column, search)
-                        if value is not None:
-                            response.append(value)
-
-                    elif isinstance(column.type, (Numeric, Integer, Date, DateTime)):
-                        value = create_like_filter(cast(column, String), search)
-                        if value is not None:
-                            response.append(value)
-
-                else:
-                    clauses = getattr(column, 'clauses', None)
-                    if clauses is not None:
-                        value = create_like_filter(func.concat(*clauses), search)
-                        if value is not None:
-                            response.append(value)
-                    else:
-                        value = create_like_filter(cast(column, String), search)
-                        if value is not None:
-                            response.append(value)
+                global_search_filter = create_like_filter(table, column_name, search)
+                if global_search_filter is not None:
+                    response.append(global_search_filter)
 
         return response
 
@@ -569,7 +526,7 @@ def initialize_sql(
 
     sql_path = '%s?charset=%s' % (sql_path, encoding)
     SQL_DBS[application_name]['sql_path'] = sql_path
-    is_mysql = sql_path.lower().startswith('mysql://')
+    is_mysql = sql_path.lower().startswith('mysql')
 
     if is_mysql:
         if 'bases' in SQL_DBS[application_name]:
@@ -578,15 +535,19 @@ def initialize_sql(
 
     metadata = SQL_DBS[application_name].get('metadata')
 
-    # Set defaults for MySQL tables
-    if is_mysql and metadata:
-        for table in metadata.sorted_tables:
-            append_arguments(table, 'mysql_engine', mysql_engine)
-            append_arguments(table, 'mysql_charset', encoding)
+    if metadata:
+        # Set defaults for MySQL tables
+        if is_mysql:
+            for table in metadata.sorted_tables:
+                table.__connection_type__ = 'mysql'
+                append_arguments(table, 'mysql_engine', mysql_engine)
+                append_arguments(table, 'mysql_charset', encoding)
 
-    # Add some postgresql functions
-    if sql_path.lower().startswith('postgresql') and metadata:
-        sqlalchemy_listen(metadata, 'before_create', DDL(POSTGRESQL_LOWER_AND_CLEAR))
+        # Add some postgresql functions
+        if sql_path.lower().startswith('postgresql'):
+            sqlalchemy_listen(metadata, 'before_create', DDL(POSTGRESQL_LOWER_AND_CLEAR))
+            for table in metadata.sorted_tables:
+                table.__connection_type__ = 'postgresql'
 
     engine_pattern = '%s-%s' % (sql_path, encoding)
     if engine_pattern in SQL_ENGINES:
@@ -626,6 +587,11 @@ def initialize_sql(
                         index.create()
                     except (ProgrammingError, OperationalError):
                         pass
+                    except InternalError as error:
+                        if error.orig.errno == 1061:
+                            # Duplicated key
+                            continue
+                        raise
 
     return session
 
@@ -702,64 +668,75 @@ def maybe_with_none(column, values, query=None):
     return filter_query_with_queries(queries, query)
 
 
-def like_maybe_with_none(column, values, query=None):
+def like_maybe_with_none(table, column_name, values, query=None):
     queries = []
     values = maybe_set(values)
+    column = getattr(table, column_name)
 
     if None in values:
         values.remove(None)
         queries.append(column.is_(None))
+
     for value in values:
-        like_filter = create_like_filter(column, value)
+        like_filter = create_like_filter(table, column, value)
         if like_filter is not None:
             queries.append(like_filter)
 
     return filter_query_with_queries(queries, query)
 
 
-def ilike_maybe_with_none(column, values, query=None):
+def ilike_maybe_with_none(table, column_name, values, query=None):
     queries = []
     values = maybe_set(values)
+    column = getattr(table, column_name)
 
     if None in values:
         values.remove(None)
         queries.append(column.is_(None))
+
     for value in values:
-        like_filter = create_ilike_filter(column, value)
+        like_filter = create_ilike_filter(table, column_name, value)
         if like_filter is not None:
             queries.append(like_filter)
 
     return filter_query_with_queries(queries, query)
 
 
-def create_like_filter(column, value):
-    value = maybe_unicode(value)
-    if value:
-        words = value.split()
-        if words:
-            like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
+def prepare_column_for_filter(table, column_name, search_value, filter_name):
+    search_value = maybe_unicode(search_value)
+    if search_value:
+        column = getattr(table, column_name)
+        if not hasattr(column, 'type'):
+            clauses = getattr(column, 'clauses', None)
+            if clauses is not None:
+                column = func.concat(*clauses)
+            else:
+                column = cast(column, String)
+        elif isinstance(column.type, (Numeric, Integer, Date, DateTime)):
+            column = cast(column, String)
+
+        if table_is_postgresql(table):
+            search_value = clean_unicode(search_value).lower()
             column = postgresql_non_ascii_and_lower(column)
-            return column.like(like_str.lower())
+
+        if filter_name in ('like', 'ilike'):
+            search_value = u('%{like}%').format(like='%'.join(search_value.split()))
+        elif filter_name == 'rlike':
+            search_value = u('(%s)') % unicode_join('|', search_value.split())
+
+        return column.op(filter_name)(search_value)
 
 
-def create_ilike_filter(column, value):
-    value = maybe_unicode(value)
-    if value:
-        words = value.split()
-        if words:
-            like_str = u('%%%s%%') % '%'.join(clean_unicode(w) for w in words)
-            column = postgresql_non_ascii_and_lower(column)
-            return column.ilike(like_str.lower())
+def create_like_filter(table, column_name, search_value):
+    return prepare_column_for_filter(table, column_name, search_value, filter_name='like')
 
 
-def create_rlike_filter(column, value):
-    value = maybe_unicode(value)
-    if value:
-        words = value.split()
-        if words:
-            rlike_str = u('(%s)') % unicode_join('|', words)
-            column = postgresql_non_ascii_and_lower(column)
-            return column.op('rlike')(rlike_str.lower())
+def create_ilike_filter(table, column_name, search_value):
+    return prepare_column_for_filter(table, column_name, search_value, filter_name='ilike')
+
+
+def create_rlike_filter(table, column_name, search_value):
+    return prepare_column_for_filter(table, column_name, search_value, filter_name='rlike')
 
 
 class Pagination(PaginationClass):
@@ -998,17 +975,8 @@ def get_active_filter(tables, active=True):
         return inactive_filter(tables)
 
 
-def query_filter_by(query, column, values):
-    filter_query = create_filter_by(column, values)
-    if filter_query is not None:
-        return query.filter(filter_query)
-    else:
-        return query
-
-
-def create_filter_by(column, values):
-    if hasattr(column, 'property') and isinstance(column.property, CompositeProperty):
-        column = func.concat(*column.property.columns)
+def create_filter_by(table, column_name, values):
+    column = getattr(table, column_name)
 
     if isinstance(values, FilterBy):
         filter_type = values.filter_type.lower()
@@ -1016,7 +984,7 @@ def create_filter_by(column, values):
         if filter_type == 'or':
             or_queries = []
             for value in values.value:
-                query = create_filter_by(column, value)
+                query = create_filter_by(table, column_name, value)
                 if query is not None:
                     or_queries.append(query)
 
@@ -1028,7 +996,7 @@ def create_filter_by(column, values):
         elif filter_type == 'and':
             and_queries = []
             for value in values.value:
-                query = create_filter_by(column, value)
+                query = create_filter_by(table, column_name, value)
                 if query is not None:
                     and_queries.append(query)
 
@@ -1038,7 +1006,7 @@ def create_filter_by(column, values):
                 return and_(*and_queries)
 
         elif filter_type in ('like', 'contém'):
-            return like_maybe_with_none(column, values.value)
+            return like_maybe_with_none(table, column_name, values.value)
 
         elif filter_type == '>':
             return column > values.value
@@ -1072,7 +1040,7 @@ def create_filter_by(column, values):
         noniter_values = set()
         for value in values:
             if isinstance(value, FilterBy) or is_nonstr_iter(value):
-                query = create_filter_by(column, value)
+                query = create_filter_by(table, column_name, value)
                 if query is not None:
                     or_queries.append(query)
             elif value is not drop:

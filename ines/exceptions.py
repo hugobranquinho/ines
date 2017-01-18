@@ -8,7 +8,7 @@ from six import u
 
 class Error(Exception):
     def __init__(self, key, message, exception=None, title=None):
-        super(Exception, self).__init__(message)
+        super(Error, self).__init__(message)
 
         self.key = key
         self.message = message
