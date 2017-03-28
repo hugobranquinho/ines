@@ -6,11 +6,8 @@
 from calendar import monthrange
 import datetime
 
-from pyramid.compat import is_nonstr_iter
-
 from ines import NOW
-from ines.convert import to_string
-from ines.convert import maybe_integer
+from ines.convert import maybe_integer, maybe_set, to_string
 from ines.exceptions import NoMoreDates
 from ines.utils import last_day_of_month_for_weekday
 from ines.utils import replace_month
@@ -165,17 +162,14 @@ def format_crontab_options(**kwargs):
 
     options = {}
     for key, (start_range, end_range) in DATES_RANGES.items():
-        values = kwargs.get(key)
+        values = maybe_set(kwargs.get(key))
         if values is None:
             continue
-
-        if not is_nonstr_iter(values):
-            values = [values]
-        if '*' in values:
+        elif '*' in values:
             continue
 
         key_options = set()
-        for value in set(values):
+        for value in values:
             value = to_string(value)
 
             if key == 'day' and value.lower() == 'l':

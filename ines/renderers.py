@@ -2,37 +2,20 @@
 
 import codecs
 from collections import defaultdict
-from csv import QUOTE_ALL
-from csv import QUOTE_MINIMAL
-from csv import QUOTE_NONNUMERIC
-from csv import QUOTE_NONE
-from csv import writer as csv_writer
+from csv import QUOTE_ALL, QUOTE_MINIMAL, QUOTE_NONNUMERIC, QUOTE_NONE, writer as csv_writer
 import datetime
+from io import StringIO
 from os.path import basename
 
-from colander import Mapping
-from colander import Sequence
+from colander import Mapping, Sequence
 from pyramid.renderers import json_renderer_factory
-from six import binary_type
-from six import integer_types
-from six import moves
-from six import PY3
-from six import string_types
-from six import u
 
 from ines import DEFAULT_RENDERERS
-from ines.convert import camelcase
-from ines.convert import encode_and_decode
-from ines.convert import to_bytes
-from ines.convert import to_string
-from ines.convert import to_unicode
-from ines.convert import json_dumps
-from ines.convert import maybe_string
+from ines.convert import camelcase, encode_and_decode, maybe_string, to_string
 from ines.exceptions import Error
 from ines.i18n import _
 
 
-StringIO = moves.StringIO
 DATE = datetime.date
 DATETIME = datetime.datetime
 
@@ -165,11 +148,11 @@ class CSV(object):
 
                 csv_line_terminator = get_param('csv_line_terminator')
                 if csv_line_terminator:
-                    if csv_line_terminator == u('\\n\\r'):
+                    if csv_line_terminator == '\\n\\r':
                         line_terminator = '\n\r'
-                    elif csv_line_terminator == u('\\n'):
+                    elif csv_line_terminator == '\\n':
                         line_terminator = '\n'
-                    elif csv_line_terminator == u('\\r'):
+                    elif csv_line_terminator == '\\r':
                         line_terminator = '\r'
 
                 csv_encoding = get_param('csv_encoding')
@@ -182,8 +165,8 @@ class CSV(object):
                         if encoder.name != 'utf-8':
                             request.response.charset = encoder.name
 
-                yes_text = to_string(request.translate(_('Yes')))
-                no_text = to_string(request.translate(_('No')))
+                yes_text = request.translate(_('Yes'))
+                no_text = request.translate(_('No'))
 
                 csv_quoting = get_param('csv_quoting')
                 if csv_quoting:
@@ -196,8 +179,8 @@ class CSV(object):
                         quoting = QUOTE_NONE
 
             else:
-                yes_text = to_string('Yes')
-                no_text = to_string('No')
+                yes_text = 'Yes'
+                no_text = 'No'
 
             if not value:
                 return ''
@@ -215,14 +198,15 @@ class CSV(object):
                 for item in value_items:
                     if item is None:
                         item = ''
-                    elif isinstance(item, bool):
-                        item = item and yes_text or no_text
-                    elif isinstance(item, (string_types, integer_types)):
-                        item = to_string(item)
-                    elif isinstance(item, (DATE, DATETIME)):
-                        item = to_string(item.isoformat())
-                    else:
-                        item = to_string(item or '')
+                    elif not isinstance(item, str):
+                        if isinstance(item, bool):
+                            item = item and yes_text or no_text
+                        elif isinstance(item, (float, int)):
+                            item = str(item)
+                        elif isinstance(item, (DATE, DATETIME)):
+                            item = item.isoformat()
+                        elif not isinstance(item, str):
+                            item = to_string(item)
                     row.append(item)
                 csvfile.writerow(row)
 
@@ -231,12 +215,9 @@ class CSV(object):
             f.close()
 
             if encoder:
-                if PY3:
-                    response = encoder.decode(encoder.encode(response)[0])[0]
-                else:
-                    response = encoder.decode(response)[0]
+                response = encoder.decode(encoder.encode(response)[0])[0]
             else:
-                response = to_unicode(response)
+                response = to_string(response)
 
             return response
 
@@ -279,7 +260,7 @@ DEFAULT_RENDERERS['file'] = file_renderer_factory
 
 def html_renderer_factory(info):
     def _render(value, system):
-        value = to_unicode(value)
+        value = to_string(value)
         request = system.get('request')
         if request is not None:
             response = request.response

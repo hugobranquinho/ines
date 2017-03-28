@@ -3,42 +3,27 @@
 from cgi import FieldStorage
 from io import BufferedReader
 from os.path import isabs
+from urllib.parse import unquote, urljoin, urlparse, urlunparse
 
-from pyramid.compat import url_quote
-from pyramid.compat import WIN
+from pyramid.compat import url_quote, WIN
 from pyramid.decorator import reify
 from pyramid.httpexceptions import HTTPFound
-from pyramid.interfaces import IAuthenticationPolicy
-from pyramid.interfaces import IAuthorizationPolicy
-from pyramid.interfaces import IRequestFactory
-from pyramid.interfaces import IStaticURLInfo
+from pyramid.interfaces import IAuthenticationPolicy, IAuthorizationPolicy, IRequestFactory, IStaticURLInfo
 from pyramid.path import caller_package
 from pyramid.renderers import render_to_response
 from pyramid.request import Request
-from pyramid.settings import asbool
 from pyramid.threadlocal import get_current_registry
 from pyramid.url import parse_url_overrides
-from six import moves
-from six import u
 from webob.compat import parse_qsl_text
-from webob.multidict import MultiDict
-from webob.multidict import NoVars
+from webob.multidict import MultiDict, NoVars
 from webob.request import FakeCGIBody
 
 from ines import APPLICATIONS
 from ines.convert import to_string
-from ines.convert import to_unicode
 from ines.exceptions import Error
 from ines.i18n import translate_factory
 from ines.interfaces import IBaseSessionManager
-from ines.utils import infinitedict
-from ines.utils import user_agent_is_mobile
-
-
-unquote = moves.urllib.parse.unquote
-urlparse = moves.urllib.parse.urlparse
-urlunparse = moves.urllib.parse.urlunparse
-urljoin = moves.urllib.parse.urljoin
+from ines.utils import infinitedict, user_agent_is_mobile
 
 
 class InesRequest(Request):
@@ -110,10 +95,9 @@ class InesRequest(Request):
     def ip_address(self):
         value = self.environ.get('HTTP_X_FORWARDED_FOR') or self.environ.get('REMOTE_ADDR')
         if value:
-            return to_unicode(value)
-
-        message = u('Missing IP Address')
-        raise Error('ip_address', message)
+            return to_string(value)
+        else:
+            raise Error('ip_address', 'Missing IP Address')
 
     @reify
     def authentication(self):
@@ -193,7 +177,7 @@ class InesRequest(Request):
     def referer_path_url(self):
         if self.referer:
             url = urlparse(self.referer)._replace(query=None).geturl()
-            return to_unicode(url)
+            return to_string(url)
 
     def static_url(self, path, **kw):
         if not isabs(path) and ':' not in path:
@@ -263,7 +247,7 @@ class ApplicationsConnector(object):
         return attribute
 
     def asdict(self):
-        return dict((k, getattr(self, k)) for k in self.names())
+        return {k: getattr(self, k) for k in self.names()}
 
     def names(self):
         return list(APPLICATIONS.keys())

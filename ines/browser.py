@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 
 from distutils.version import LooseVersion
-from functools import lru_cache
-from functools import wraps
+from functools import lru_cache, wraps
 
-from pyramid.decorator import reify
 from pyramid.settings import asbool
 
 from ines.exceptions import HTTPBrowserUpgrade
@@ -33,7 +31,7 @@ class BrowserDecorator(object):
         if asbool(settings.pop('html5.support', True)):
             versions.update(HTML5_SUPPORT)
         versions.update(settings)
-        self.versions = dict((k, LooseVersion(v)) for k, v in versions.items())
+        self.versions = {k: LooseVersion(v) for k, v in versions.items()}
 
         import httpagentparser as hap
         self.hap = hap

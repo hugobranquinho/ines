@@ -1,45 +1,21 @@
 # -*- coding: utf-8 -*-
 
 from collections import defaultdict
+from urllib.parse import unquote
 
-from colander import All
-from colander import Boolean as BaseBoolean
-from colander import drop
-from colander import Length
-from colander import Mapping
-from colander import null
-from colander import Number
-from colander import OneOf
-from colander import required
-from colander import Sequence
-from colander import Tuple
+from colander import All, Boolean as BaseBoolean, drop, Length, Mapping, null, Number, OneOf, required, Sequence, Tuple
 from pyramid.compat import is_nonstr_iter
 from pyramid.settings import asbool
-from six import print_
-from six import moves
-from six import u
 from translationstring import TranslationString
 from zope.interface import implementer
 
-from ines import DEFAULT_METHODS
-from ines import MARKER
-from ines.authorization import Everyone
-from ines.authorization import NotAuthenticated
-from ines.convert import camelcase
-from ines.convert import to_unicode
-from ines.convert import maybe_list
+from ines import DEFAULT_METHODS, MARKER
+from ines.authorization import Everyone, NotAuthenticated
+from ines.convert import camelcase, to_string, maybe_list
 from ines.interfaces import ISchemaView
-from ines.route import lookup_for_route_params
-from ines.route import lookup_for_route_permissions
-from ines.views.fields import FilterByType
-from ines.views.fields import OneOfWithDescription
+from ines.route import lookup_for_route_params, lookup_for_route_permissions
+from ines.views.fields import FilterByType, OneOfWithDescription
 from ines.utils import different_values
-
-
-unquote = moves.urllib.parse.unquote
-EMPTY_STRING = u('')
-UNDERSCORE = u('_')
-SPACE = u(' ')
 
 
 @implementer(ISchemaView)
@@ -249,7 +225,7 @@ class SchemaView(object):
                     text_value = value.get(key)
                     if text_value:
                         value[key] = translator(text_value)
-                        print_(text_value, value[key])
+                        print(text_value, value[key])
 
         return nodes
 
@@ -257,7 +233,7 @@ class SchemaView(object):
         intr_route = request.registry.introspector.get('routes', route_name)
         if intr_route is not None:
             route = intr_route['object']
-            params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
+            params = {k: '{{%s}}' % camelcase(k) for k in lookup_for_route_params(route)}
             url = '%s%s' % (request.application_url, unquote(route.generate(params)))
             return intr_route, url, params.keys()
 
@@ -272,7 +248,7 @@ class SchemaView(object):
                 'model': name,
                 'type': 'sequence',
                 'title': schema.title,
-                'description': schema.description or EMPTY_STRING}
+                'description': schema.description or ''}
             models[name].append(details)
 
             if isinstance(schema.title, TranslationString):
@@ -324,7 +300,7 @@ class SchemaView(object):
             details = {
                 'type': 'model',
                 'title': schema.title,
-                'description': schema.description or EMPTY_STRING,
+                'description': schema.description or '',
                 'fields': fields,
                 'model': name}
             models[name].append(details)
@@ -341,7 +317,7 @@ class SchemaView(object):
             details = {
                 'fieldType': name,
                 'title': schema.title,
-                'description': schema.description or EMPTY_STRING}
+                'description': schema.description or ''}
 
             if isinstance(schema.title, TranslationString):
                 to_translate['title'].append(details)
@@ -399,7 +375,7 @@ class SchemaView(object):
                         for choice in validator.choices:
                             add_option({
                                 'value': choice,
-                                'text': to_unicode(choice).replace(UNDERSCORE, SPACE).title()})
+                                'text': choice.replace('_', ' ').title()})
 
                     else:
                         if isinstance(validator, Length):
@@ -414,7 +390,7 @@ class SchemaView(object):
                         request_validation.append((validator, validation_option))
 
             if hasattr(schema, 'use_when'):
-                details['useWhen'] = dict((camelcase(k), v) for k, v in schema.use_when.items())
+                details['useWhen'] = {camelcase(k): v for k, v in schema.use_when.items()}
 
             if schema_type == 'request':
                 validation = {}

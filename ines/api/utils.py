@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from six import wraps
+from functools import wraps
 
 from ines.exceptions import Error
 from ines.i18n import _

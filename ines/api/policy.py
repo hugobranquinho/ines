@@ -1,34 +1,18 @@
 # -*- coding: utf-8 -*-
 
 from json import loads
-from os import linesep
-from os.path import isfile
-from os.path import normpath
+from os.path import isfile, join as join_paths, normpath
 
 from pyramid.decorator import reify
 
-from ines import NOW_TIME
-from ines.api import BaseSessionManager
-from ines.api import BaseSession
+from ines import NEW_LINE, NOW_TIME
+from ines.api import BaseSession, BaseSessionManager
 from ines.authentication import AuthenticatedSession
-from ines.convert import bytes_join
-from ines.convert import compact_dump
-from ines.convert import date_to_timestamp
-from ines.convert import to_unicode
-from ines.convert import make_sha256
-from ines.convert import maybe_integer
-from ines.convert import to_string
-from ines.exceptions import HTTPTokenExpired
-from ines.exceptions import HTTPUnauthorized
+from ines.convert import compact_dump, date_to_timestamp, make_sha256, maybe_integer
 from ines.path import get_object_on_path
-from ines.path import join_paths
-from ines.utils import compare_digest
-from ines.utils import make_unique_hash
-from ines.utils import get_file_binary
-from ines.utils import last_read_file_time
-from ines.utils import move_file
-from ines.utils import put_binary_on_file
-from ines.utils import remove_file_quietly
+from ines.utils import (
+    compare_digest, get_file_binary, last_read_file_time, make_unique_hash, move_file, put_binary_on_file,
+    remove_file_quietly)
 
 
 class BasePolicySessionManager(BaseSessionManager):
@@ -72,26 +56,13 @@ class BaseTokenPolicySession(BaseSession):
                     **kwargs)
 
     def get_token_file_path(self, token_256):
-        token_256 = to_string(token_256)
-        return normpath(
-            join_paths(
-                self.settings['token.path'],
-                token_256[0],
-                token_256))
+        return normpath(join_paths(self.settings['token.path'], token_256[0], token_256))
 
     def get_token_folder_path(self, token_256):
-        token_256 = to_string(token_256)
-        return normpath(
-            join_paths(
-                self.settings['token.path'],
-                token_256[0]))
+        return normpath(join_paths(self.settings['token.path'], token_256[0]))
 
     def get_reference_file_path(self, session_key_256):
-        session_key_256 = to_string(session_key_256)
-        return normpath(
-            join_paths(
-                self.settings['token.session_reference_path'],
-                session_key_256))
+        return normpath(join_paths(self.settings['token.session_reference_path'], session_key_256))
 
     def get_token_info(self, token_256):
         file_path = self.get_token_file_path(token_256)
@@ -184,7 +155,7 @@ class BaseTokenPolicySession(BaseSession):
 
         # Save reference
         reference_path = self.get_reference_file_path(session_key_256)
-        put_binary_on_file(reference_path, token_256 + linesep, mode='ab')
+        put_binary_on_file(reference_path, token_256 + NEW_LINE, mode='ab')
 
         return token
 
@@ -225,10 +196,4 @@ class BaseTokenPolicySession(BaseSession):
 
 
 def make_token_lock(request, token, session_id):
-    return make_sha256(
-        bytes_join(
-            '-',
-            [to_unicode(request.user_agent or ''),
-             to_unicode(request.ip_address),
-             to_unicode(token),
-             to_unicode(session_id)]))
+    return make_sha256('-'.join((request.user_agent or '', request.ip_address, token, session_id)))

@@ -11,7 +11,7 @@ from ines.authorization import Everyone
 from ines.authorization import NotAuthenticated
 from ines.authorization import User
 from ines.convert import to_bytes
-from ines.convert import to_unicode
+from ines.convert import to_string
 
 
 class AuthenticatedSession(object):
@@ -131,7 +131,7 @@ class ApplicationHeaderAuthenticationPolicy(object):
 
 class SimpleSerializer(object):
     def loads(self, bstruct):
-        return to_unicode(bstruct)
+        return to_string(bstruct)
 
     def dumps(self, appstruct):
         return to_bytes(appstruct)

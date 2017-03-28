@@ -4,53 +4,34 @@ from calendar import monthrange
 from collections import defaultdict
 import datetime
 import errno
+from functools import wraps
 from hashlib import sha256
 from io import BytesIO
 from io import IOBase
 from json import loads as loads_json
 from math import ceil
-from os import getpid
-from os import listdir
-from os import makedirs
-from os import mkdir
-from os import remove as _remove_file
-from os import rename as _rename_file
-from os import SEEK_END
-from os import stat as os_stat
-from os.path import dirname
-from os.path import getmtime
+from os import (
+    getpid, listdir, makedirs, mkdir, remove as os_remove_file, rename as os_rename_file, SEEK_END, stat as os_stat)
+from os.path import dirname, getmtime
 import re as REGEX
 from random import random
+import sys
 from time import sleep
 from uuid import uuid4
 import warnings
 
-from colander import Invalid
-from colander import Sequence
+from colander import Invalid, Sequence
 from pyramid.httpexceptions import HTTPError
-from six import PY3
-from six import u
 try:
     from deform import ValidationFailure
 except ImportError:
     pass
 
-from ines import DOMAIN_NAME
-from ines import DEFAULT_RETRY_ERRNO
-from ines import NOW
-from ines import OPEN_BLOCK_SIZE
-from ines.cleaner import clean_phone_number
-from ines.cleaner import normalize_full_name
-from ines.convert import bytes_join
-from ines.convert import camelcase
-from ines.convert import compact_dump
-from ines.convert import to_bytes
-from ines.convert import to_string
-from ines.convert import to_unicode
-from ines.convert import maybe_integer
+from ines import DEFAULT_RETRY_ERRNO, DOMAIN_NAME, NOW, OPEN_BLOCK_SIZE
+from ines.cleaner import clean_phone_number, normalize_full_name
+from ines.convert import camelcase, compact_dump, maybe_integer, to_bytes, to_string, to_string
 from ines.convert.codes import make_sha256_no_cache
-from ines.i18n import _
-from ines.i18n import translate_factory
+from ines.i18n import _, translate_factory
 from ines.url import open_json_url
 
 
@@ -98,23 +79,18 @@ class WarningDict(dict):
 
 
 def infinitedict():
-    return defaultdict(defaultdict)
+    return defaultdict(infinitedict)
 
 
 def make_uuid_hash():
-    return to_unicode(uuid4().hex)
+    return uuid4().hex
 
 
 def make_unique_hash(length=64):
-    code = u('')
+    code = ''
+    end_pattern = '.'.join(map(str, (NOW(), PROCESS_ID, DOMAIN_NAME)))
     while len(code) < length:
-        code += make_sha256_no_cache(
-            bytes_join(
-                '.',
-                (uuid4().hex,
-                 str(NOW()),
-                 str(PROCESS_ID),
-                 str(DOMAIN_NAME))))
+        code += make_sha256_no_cache('%s.%s' % (make_uuid_hash(), end_pattern))
     return code[:length]
 
 
@@ -172,7 +148,7 @@ def format_error_to_json_values(error, kwargs=None, request=None):
         status = getattr(error, 'code', 400)
         key = camelcase(getattr(error, 'key', 'undefined'))
         title = getattr(error, 'title', None)
-        message = getattr(error, 'msg', getattr(error, 'message', u('Undefined')))
+        message = getattr(error, 'msg', getattr(error, 'message', 'Undefined'))
 
     values = {
         'status': status,
@@ -211,13 +187,13 @@ def file_modified_time(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
 
 
 def validate_email(value):
-    value = to_string(value)
     return bool(EMAIL_REGEX.match(value))
 
 
 def maybe_email(value):
+    value = to_string(value)
     if validate_email(value):
-        return to_unicode(value)
+        return value
 
 
 def get_content_type(value):
@@ -364,7 +340,7 @@ def last_day_of_month_for_weekday(year, month, weekday):
 
 def remove_file(path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     try:
-        _remove_file(path)
+        os_remove_file(path)
     except OSError as error:
         if error.errno is errno.ENOENT:
             # Already deleted!
@@ -402,7 +378,7 @@ def make_dir(path, mode=0o777, make_dir_recursively=False):
 
 def move_file(path, new_path, retries=3, retry_errno=DEFAULT_RETRY_ERRNO):
     try:
-        _rename_file(path, new_path)
+        os_rename_file(path, new_path)
     except OSError as error:
         if error.errno in retry_errno:
             # Try again, or not!
@@ -543,12 +519,11 @@ def file_unique_code(open_file, block_size=OPEN_BLOCK_SIZE):
         block = open_file.read(block_size)
 
     open_file.seek(current_position)
-    return to_unicode(h.hexdigest())
+    return h.hexdigest()
 
 
 def string_unique_code(value):
-    value = to_bytes(value)
-    return to_unicode(sha256(value).hexdigest())
+    return sha256(to_bytes(value)).hexdigest()
 
 
 def validate_skype_username(username, validate_with_api=False):
@@ -569,7 +544,8 @@ def validate_skype_username(username, validate_with_api=False):
 
 def maybe_phone_number(number):
     if number:
-        number = clean_phone_number(to_unicode(number))
+        number = to_string(number)
+        number = clean_phone_number(number)
         if 21 > len(number or '') > 3:
             return number
 
@@ -623,10 +599,7 @@ class PaginationClass(list):
 
 
 def is_file_type(value):
-    if PY3:
-        return isinstance(value, IOBase)
-    else:
-        return isinstance(value, file)
+    return isinstance(value, IOBase)
 
 
 def sort_with_none(iterable, key, reverse=False):
@@ -731,6 +704,12 @@ def resolve_deform_error(form, error):
     return ValidationFailure(form, form_error.value, form_error)
 
 
+def get_from_breadcrumbs(item, breadcrumbs):
+    for breadcrumb in breadcrumbs:
+        item = getattr(item, breadcrumb)
+    return item
+
+
 try:
     from secrets import compare_digest
 except ImportError:
@@ -740,3 +719,25 @@ except ImportError:
         def compare_digest(first, second):
             sleep(random() / 10000)
             return first == second
+
+
+class WrapperClass(object):
+    def __init__(self, wrapped):
+        self.wrapped = wrapped
+
+
+def set_class_decorator(class_):
+    def replacer(*args, **kwargs):
+        def decorator(wrapped):
+            set_class = class_(wrapped, *args, **kwargs)
+            @wraps(wrapped)
+            def wrapper(cls, *wrapped_args, **wrapped_kwargs):
+                return set_class(cls, *wrapped_args, **wrapped_kwargs)
+            return wrapper
+        return decorator
+    return replacer
+
+
+class NoneMaskObject(object):
+    def __getattr__(self, key):
+        return None

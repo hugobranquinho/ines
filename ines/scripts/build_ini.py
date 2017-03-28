@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from configparser import RawConfigParser
 import optparse
 import os
 import sys
-
-from six import moves
-from six import print_
 
 
 def main(argv=sys.argv):
@@ -20,7 +18,7 @@ class BuildINICommand(object):
     def run(self, argv):
         options, args = self.parser.parse_args(argv[1:])
         if not args:
-            print_('You must provide at least one config file')
+            print('You must provide at least one config file')
             return 0
 
         HERE = os.getcwd()
@@ -30,10 +28,10 @@ class BuildINICommand(object):
             if not configuration_path.startswith(os.sep):
                 configuration_path = os.path.join(HERE, configuration_path)
             if not os.path.isfile(configuration_path):
-                print_('Invalid configuration path `%s`' % configuration_path)
+                print('Invalid configuration path `%s`' % configuration_path)
                 return 0
 
-            config = moves.configparser.RawConfigParser(allow_no_value=True)
+            config = RawConfigParser(allow_no_value=True)
             config.read(configuration_path)
 
             # Get and update DEFAULT options
@@ -49,18 +47,18 @@ class BuildINICommand(object):
                 # Find input INI file(s)
                 template_inputs = section_settings.get('template_input')
                 if not template_inputs:
-                    print_((
+                    print((
                         '`template_input` option required in section `DEFAULT` or `%s` of `%s`')
                         % (output_path, configuration_path))
                     return 0
 
                 # Extend input template(s)
-                template = moves.configparser.RawConfigParser(allow_no_value=True)
+                template = RawConfigParser(allow_no_value=True)
                 for input_template_path in template_inputs.split(','):
                     if not input_template_path.startswith(os.sep):
                         input_template_path = os.path.join(HERE, input_template_path)
                     if not os.path.isfile(input_template_path):
-                        print_('Invalid input template path `%s`' % input_template_path)
+                        print('Invalid input template path `%s`' % input_template_path)
                         return 0
                     template.read(input_template_path)
 

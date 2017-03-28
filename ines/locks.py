@@ -1,40 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import errno
-from os import getpgid
-from os import linesep
-from os import walk as walk_on_path
-from os.path import isfile
+from functools import lru_cache
+from os import getpgid, walk as walk_on_path
+from os.path import isfile, join as join_paths
 from time import sleep
 
-from six import _import_module
-from six import u
-
-from ines import DEFAULT_RETRY_ERRNO
-from ines import DOMAIN_NAME
-from ines import lru_cache
-from ines import MARKER
-from ines import NOW_TIME
-from ines import PROCESS_ID
-from ines.convert import make_sha256
-from ines.convert import maybe_integer
-from ines.convert import maybe_set
-from ines.convert import string_join
-from ines.convert import to_bytes
-from ines.convert import to_string
-from ines.convert import to_unicode
+from ines import DEFAULT_RETRY_ERRNO, DOMAIN_NAME, lazy_import_module, MARKER, NEW_LINE, NOW_TIME, PROCESS_ID
+from ines.convert import make_sha256, maybe_integer, maybe_set, to_bytes, to_string
 from ines.exceptions import LockTimeout
-from ines.path import join_paths
-from ines.system import start_system_thread
-from ines.system import thread_is_running
-from ines.utils import file_modified_time
-from ines.utils import get_dir_filenames
-from ines.utils import get_file_binary
-from ines.utils import make_dir
-from ines.utils import make_uuid_hash
-from ines.utils import put_binary_on_file
-from ines.utils import remove_file
-from ines.utils import remove_file_quietly
+from ines.system import start_system_thread, thread_is_running
+from ines.utils import (
+    file_modified_time, get_dir_filenames, get_file_binary, make_dir, make_uuid_hash, put_binary_on_file, remove_file,
+    remove_file_quietly)
 
 
 class LockMe(object):
@@ -72,8 +50,7 @@ class LockMe(object):
         path = self.get_file_path(name)
         lock_code = make_uuid_hash()
         lock_name = '%s %s %s' % (DOMAIN_NAME, PROCESS_ID, lock_code)
-        lock_name_to_file = to_string(lock_name) + linesep
-        compare_lock_code = to_string(lock_code)
+        lock_name_to_file = lock_name + NEW_LINE
 
         position = None
         while position is None:
@@ -84,7 +61,7 @@ class LockMe(object):
             binary = get_file_binary(path, mode='r', retries=self.retries, retry_errno=self.retry_errno)
             if binary:
                 for i, code in enumerate(binary.splitlines()):
-                    if code.split()[-1] == compare_lock_code:
+                    if code.split()[-1] == lock_code:
                         position = i
                         break
 
@@ -168,7 +145,7 @@ class LockMe(object):
                         filenames.append(join_paths(dirname, filename))
 
             for filename in filenames:
-                filename = to_unicode(filename)
+                filename = to_string(filename)
                 if filename.startswith('.'):
                     continue
 
@@ -214,7 +191,7 @@ class LockMe(object):
                                     remove_file_quietly(file_path)
                                 else:
                                     with open(file_path, 'w') as f:
-                                        f.write(string_join(linesep, keep_codes))
+                                        f.write(NEW_LINE.join(keep_codes))
 
     def clean_junk_locks_as_daemon(self):
         if not thread_is_running('clean_junk_locks'):
@@ -230,17 +207,15 @@ class LockMeMemcached(object):
             delete_lock_on_timeout=False,
             **settings):
 
-        memcache_module = _import_module('memcache')
-        self.memcache = memcache_module.Client(url.split(';'), **settings)
+        self.memcache = lazy_import_module('memcache').Client(url.split(';'), **settings)
         self.timeout = int(timeout)
         self.delete_lock_on_timeout = delete_lock_on_timeout
 
     def format_name(self, name):
-        name = u('locks %s') % to_unicode(name)
-        return to_bytes(make_sha256(name))
+        return to_bytes(make_sha256('locks %s' % name))
 
     def format_position_name(self, name_256, position):
-        name = u('%s.%s') % (name_256, position)
+        name = '%s.%s' % (name_256, position)
         return to_bytes(make_sha256(name))
 
     def _contains(self, name_256):

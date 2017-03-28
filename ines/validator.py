@@ -5,37 +5,25 @@ import re as REGEX
 from string import ascii_lowercase
 
 import colander
-from colander import SchemaNode
-from colander import String
-from colander import Invalid
-from six import string_types
-from six import text_type
-from six import u
+from colander import Invalid, SchemaNode, String
 
-from ines.convert import maybe_list
-from ines.convert import maybe_unicode
-from ines.convert import to_string
-from ines.convert import to_unicode
+from ines.convert import maybe_list, maybe_string, to_string
 from ines.exceptions import Error
 from ines.i18n import _
-from ines.url import get_url_body
-from ines.utils import find_next_prime
-from ines.utils import maybe_phone_number
-from ines.utils import validate_skype_username
+from ines.utils import find_next_prime, maybe_phone_number, validate_skype_username
 
 
 CODES = {}
 
-PORTUGUESE_CC_LETTER_MAPPING = dict((text_type(D), D) for D in range(10))
-PORTUGUESE_CC_LETTER_MAPPING.update(dict((text_type(L), i) for i, L in enumerate(ascii_lowercase, 10)))
-
+PORTUGUESE_CC_LETTER_MAPPING = {str(D): D for D in range(10)}
+PORTUGUESE_CC_LETTER_MAPPING.update((str(L), i) for i, L in enumerate(ascii_lowercase, 10))
 
 GPS_REGEX = REGEX.compile('^N:[-]{0,1}[0-9.]{1,10} W:[-]{0,1}[0-9.]{1,10}$')
 
 
 def parse_and_validate_code(name, validation, value):
     if validation:
-        if isinstance(validation, string_types):
+        if isinstance(validation, str):
             validation = loads(validation)
 
         node = SchemaNode(String(), name=name)
@@ -56,7 +44,7 @@ def register_code(class_):
 @register_code
 class isInteger(object):
     def __call__(self, node, value):
-        if not to_unicode(value).isnumeric():
+        if not to_string(value).isnumeric():
             raise Invalid(node, _('Invalid number'))
 
 
@@ -66,7 +54,7 @@ class isPortugueseCC(object):
     length = 12
 
     def __call__(self, node, value):
-        number = to_unicode(value).lower()
+        number = to_string(value).lower()
         if len(number) != self.length:
             raise Invalid(node, _('Need to have ${length} chars', mapping={'length': self.length}))
 
@@ -122,7 +110,7 @@ class codeValidation(object):
 
 
 def validate_code(key, value, length, reverse=False, startswith=None):
-    value = maybe_unicode(value)
+    value = maybe_string(value)
     if not value:
         raise Error(key, _('Required'))
 
@@ -157,10 +145,10 @@ def validate_pt_nif(key, value):
 
 
 def validate_pt_post_address(postal_address):
-    if u('-') not in postal_address:
+    if '-' not in postal_address:
         raise Error('postal_address', _('Invalid postal address'))
 
-    cp4, cp3 = postal_address.split(u('-'), 1)
+    cp4, cp3 = postal_address.split('-', 1)
     if not cp4.isnumeric() or not cp3.isnumeric():
         raise Error('postal_address', _('Invalid postal address'))
 
@@ -175,7 +163,7 @@ URL_PROTOCOLS = ['http://', 'https://']
 
 
 def validate_url(key, value, required=False):
-    url = maybe_unicode(value)
+    url = maybe_string(value)
     if required and (not url or url in URL_PROTOCOLS):
         raise Error(key, 'Obrigatório')
 
@@ -187,8 +175,3 @@ def validate_url(key, value, required=False):
                 return url
 
         raise Error(key, 'O url tem de começar por "%s"' % '" ou "'.join(URL_PROTOCOLS))
-
-
-def validate_gps(value):
-    value = to_string(value)
-    return bool(GPS_REGEX.match(value))

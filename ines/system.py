@@ -6,8 +6,7 @@ from os import getpid
 from time import sleep
 from threading import Thread
 
-from six import _import_module
-from six import print_
+from ines import lazy_import_module
 
 
 PROCESS_RUNNING = set()
@@ -92,14 +91,14 @@ def exit_system():
         clean_dead_threads()
 
         if count and not count % 10:
-            print_('Cant stop threads after %s tries...' % count)
+            print('Cant stop threads after %s tries...' % count)
             for name, thread in ALIVE_THREADS[process_id].items():
-                print_(' ' * 4, name, thread)
+                print(' ' * 4, name, thread)
 
         sleep(0.5)
         count += 1
 
-    print_('Process %s stopped!' % process_id)
+    print('Process %s stopped!' % process_id)
 
 
 def register_thread(name, thread):
@@ -119,7 +118,7 @@ atexit.register(exit_system)
 
 # Register uwsgi if exists
 try:
-    uwsgi = _import_module('uwsgi')
+    uwsgi = lazy_import_module('uwsgi')
 except ImportError:
     pass
 else:

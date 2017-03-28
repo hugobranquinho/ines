@@ -1,16 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from os import linesep
 import sys
 from traceback import format_exception
 
-from six import print_
-
-from ines import NOW
-from ines.api import BaseSessionManager
-from ines.api import BaseSession
-from ines.convert import string_join
-from ines.convert import to_unicode
+from ines import NEW_LINE, NOW
+from ines.api import BaseSession, BaseSessionManager
+from ines.convert import to_string
 from ines.middlewares.logs import LoggingMiddleware
 
 
@@ -25,7 +20,7 @@ class BaseLogSession(BaseSession):
     def log(self, code, message, level='INFO', extra=None):
         level = level.upper()
         header = ('-' * 30) + ' ' + level + ' ' + ('-' * 30)
-        print_(header)
+        print(header)
 
         arguments = [
             ('Application', self.request.application_name),
@@ -48,23 +43,22 @@ class BaseLogSession(BaseSession):
 
         bigger = max(len(k) for k, v in arguments)
         for key, value in arguments:
-            print_(key, ' ' * (bigger - len(key)), ':', to_unicode(value))
+            print(key, ' ' * (bigger - len(key)), ':', to_string(value))
 
         if level == 'CRITICAL':
             sys_exc_info = sys.exc_info()  # type, value, traceback
             if sys_exc_info[2] is not None:
-                print_()
-                print_(string_join('', format_exception(*sys_exc_info)))
+                print()
+                print(''.join(format_exception(*sys_exc_info)))
 
-        print_()
+        print()
         try:
-            message = to_unicode(message)
-            for line in message.split(linesep):
-                print_('  %s' % line)
+            for line in to_string(message).split(NEW_LINE):
+                print('  %s' % line)
         except UnicodeEncodeError:
             pass
 
-        print_('-' * len(header))
+        print('-' * len(header))
 
     def log_debug(self, code, message, **kwargs):
         if self.config.debug:

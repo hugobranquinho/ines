@@ -24,14 +24,10 @@ from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.settings import asbool
 from pyramid.static import static_view
 from pyramid.threadlocal import get_current_request
-from six import _import_module
-from six import string_types
 
-from ines import API_CONFIGURATION_EXTENSIONS
-from ines import APPLICATIONS
-from ines import DEFAULT_METHODS
-from ines import DEFAULT_RENDERERS
-from ines import DEFAULT_CACHE_DIRPATH
+from ines import (
+    API_CONFIGURATION_EXTENSIONS, APPLICATIONS, DEFAULT_METHODS, DEFAULT_RENDERERS, DEFAULT_CACHE_DIRPATH,
+    lazy_import_module)
 from ines.api import BaseSession
 from ines.api import BaseSessionManager
 from ines.api.jobs import BaseJobsManager
@@ -41,9 +37,7 @@ from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import Everyone
 from ines.authorization import INES_POLICY
 from ines.authorization import TokenAuthorizationPolicy
-from ines.cache import SaveMe
-from ines.cache import SaveMeMemcached
-from ines.convert import string_join
+from ines.cache import SaveMe, SaveMeMemcached
 from ines.convert import maybe_list
 from ines.exceptions import Error
 from ines.exceptions import HTTPBrowserUpgrade
@@ -129,10 +123,10 @@ class Configurator(PyramidConfigurator):
         self.registry.application_name = self.application_name
 
         # Define global cache
-        cache_settings = dict(
-            (key[6:], value)
+        cache_settings = {
+            key[6:]: value
             for key, value in self.settings.items()
-            if key.startswith('cache.'))
+            if key.startswith('cache.')}
 
         cache_type = cache_settings.pop('type', None)
         if cache_type == 'memcached':
@@ -153,12 +147,12 @@ class Configurator(PyramidConfigurator):
                 else:
                     name, option = options
                 if option == 'session_path':
-                    if isinstance(value, string_types):
+                    if isinstance(value, str):
                         sessions[name] = get_object_on_path(value)
                     else:
                         sessions[name] = value
                 elif option == 'class_path':
-                    if isinstance(value, string_types):
+                    if isinstance(value, str):
                         bases[name] = get_object_on_path(value)
                     else:
                         bases[name] = value
@@ -266,10 +260,10 @@ class Configurator(PyramidConfigurator):
         for method_name, settings in found_settings.items():
             method = getattr(self, method_name, None)
             if method is not None:
-                method_settings = dict(
-                    (argument, settings[argument])
+                method_settings = {
+                    argument: settings[argument]
                     for argument in getargspec(method).args
-                    if argument in settings)
+                    if argument in settings}
                 method(**method_settings)
 
     def install_middleware(self, name, middleware, settings=None):
@@ -319,7 +313,7 @@ class Configurator(PyramidConfigurator):
                     if '.' in maybe_name:
                         parts = maybe_name.split('.')
                         setting_key = parts[-1]
-                        name = string_join('.', parts[:-1])
+                        name = '.'.join(parts[:-1])
                         middlewares_settings[name][setting_key] = value
                     else:
                         # Install settings middlewares
@@ -374,40 +368,46 @@ class Configurator(PyramidConfigurator):
             self.add_view(
                 view=browser_error,
                 context=HTTPBrowserUpgrade,
-                permission=NO_PERMISSION_REQUIRED)
+                permission=NO_PERMISSION_REQUIRED,
+                exception_only=True)
         if not_found:
             self.add_view(
                 view=not_found,
                 context=NotFound,
-                permission=NO_PERMISSION_REQUIRED)
+                permission=NO_PERMISSION_REQUIRED,
+                exception_only=True)
         if forbidden:
             self.add_view(
                 view=forbidden,
                 context=Forbidden,
-                permission=NO_PERMISSION_REQUIRED)
+                permission=NO_PERMISSION_REQUIRED,
+                exception_only=True)
         if global_error:
             self.settings['errors.interface.global_error_view'] = global_error_view = self.maybe_dotted(global_error)
             self.add_view(
                 view=global_error_view,
                 context=IExceptionResponse,
-                permission=NO_PERMISSION_REQUIRED)
+                permission=NO_PERMISSION_REQUIRED,
+                exception_only=True)
         if error:
             self.settings['errors.interface.error_view'] = error_view = self.maybe_dotted(error)
             self.add_view(
                 view=error_view,
                 context=Error,
-                permission=NO_PERMISSION_REQUIRED)
+                permission=NO_PERMISSION_REQUIRED,
+                exception_only=True)
             self.add_view(
                 view=error_view,
                 context=Invalid,
-                permission=NO_PERMISSION_REQUIRED)
+                permission=NO_PERMISSION_REQUIRED,
+                exception_only=True)
 
     @configuration_extensions('deform')
     def set_deform_translation(self, path=None, production_path=None, base_static_path=None):
         def translator(term):
             return get_localizer(get_current_request()).translate(term)
 
-        deform = _import_module('deform')
+        deform = lazy_import_module('deform')
 
         path = self.is_production_environ and production_path or path
         if path:

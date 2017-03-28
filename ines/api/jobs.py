@@ -3,30 +3,19 @@
 import datetime
 import errno
 from os import getpgid
-from os.path import isfile
+from os.path import isfile, join as join_paths
 from tempfile import gettempdir
 
 from pyramid.settings import asbool
-from six import _import_module
-from six import print_
-from six import u
 from sqlalchemy.util._collections import lightweight_named_tuple
 import venusian
 
-from ines import DOMAIN_NAME
-from ines import NOW
-from ines import PROCESS_ID
-from ines import SYSTEM_VERSION
-from ines.api import BaseSession
-from ines.api import BaseSessionManager
-from ines.convert import maybe_list
-from ines.convert import to_unicode
-from ines.cron import Cron
-from ines.cron import DATES_RANGES
-from ines.exceptions import LockTimeout
-from ines.exceptions import NoMoreDates
+from ines import DOMAIN_NAME, lazy_import_module, NOW, PROCESS_ID, SYSTEM_VERSION
+from ines.api import BaseSession, BaseSessionManager
+from ines.convert import maybe_list, to_string
+from ines.cron import Cron, DATES_RANGES
+from ines.exceptions import LockTimeout, NoMoreDates
 from ines.interfaces import IBaseSessionManager
-from ines.path import join_paths
 from ines.request import make_request
 from ines.system import start_system_thread
 from ines.utils import sort_with_none
@@ -68,14 +57,13 @@ class BaseJobsManager(BaseSessionManager):
         self.domain_names.add(DOMAIN_NAME)
 
         try:
-            self.transaction = _import_module('transaction')
+            self.transaction = lazy_import_module('transaction')
         except ImportError:
             self.transaction = None
 
         if self.active:
             temporary_dir = gettempdir()
-            domain_start_filename = 'jobs domain %s started' % DOMAIN_NAME
-            domain_start_file_path = join_paths(temporary_dir, domain_start_filename)
+            domain_start_file_path = join_paths(temporary_dir, 'jobs domain %s started' % DOMAIN_NAME)
 
             lock_key = 'jobs monitor start check'
             self.config.cache.lock(lock_key, timeout=10)
@@ -106,7 +94,7 @@ class BaseJobsManager(BaseSessionManager):
             # Start only one Thread for each domain
             if start_thread:
                 start_system_thread('jobs_monitor', self.run_monitor)
-                print_('Running jobs monitor on PID %s' % PROCESS_ID)
+                print('Running jobs monitor on PID %s' % PROCESS_ID)
 
     def system_session(self, apijob=None):
         environ = {
@@ -144,7 +132,7 @@ class BaseJobsManager(BaseSessionManager):
             self.validate_daemons()
 
             immediate_jobs = set(
-                to_unicode(k)
+                to_string(k)
                 for k in self.config.cache.get_values(JOBS_IMMEDIATE_KEY, expire=None))
 
             for apijob in list(JOBS):
@@ -378,7 +366,7 @@ class APIJob(object):
                 try:
                     self.api_session_manager.config.cache.lock(lock_key, timeout=1)
                 except LockTimeout:
-                    api_session.logging.log_error('job_locked', u('Job already running.'))
+                    api_session.logging.log_error('job_locked', 'Job already running.')
                 else:
                     self.updating = True
                     self.last_called_date = NOW()

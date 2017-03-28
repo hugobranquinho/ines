@@ -2,11 +2,9 @@
 
 from pyramid.decorator import reify
 from pyramid.interfaces import IRoutesMapper
-from pyramid.url import _join_elements
-from pyramid.url import parse_url_overrides
+from pyramid.url import _join_elements, parse_url_overrides
 from zope.interface import implementer
 
-from ines.convert import string_join
 from ines.interfaces import IBaseSessionManager
 
 
@@ -20,10 +18,10 @@ class BaseSessionManager(object):
         self.session = session
 
         pattern = 'api.%s.' % self.__api_name__
-        self.settings = dict(
-            (key.replace(pattern, '', 1), value)
+        self.settings = {
+            key.replace(pattern, '', 1): value
             for key, value in config.settings.items()
-            if key.startswith(pattern))
+            if key.startswith(pattern)}
 
     def __call__(self, request):
         return self.session(self, request)
@@ -89,7 +87,7 @@ class BaseSession(object):
                 app_url = self.request.host_url
                 application_path_url = (self.config.settings.get('application_path_url') or '').strip('/')
                 if application_path_url:
-                    app_url = string_join('/', (app_url.strip('/'), application_path_url))
+                    app_url = '/'.join((app_url.strip('/'), application_path_url))
 
         path = route.generate(kw)  # raises KeyError if generate fails
 
@@ -106,6 +104,13 @@ class BaseSession(object):
         headers = kw.pop('headers', None)
         url = self.route_url(route_name, *elements, **kw)
         return self.request.redirect_to_url(url, headers)
+
+    @reify
+    def _activity_api(self):
+        return getattr(self.applications, self.settings['activity_application_name'])
+
+    def add_activity(self, *args, **kwargs):
+        return self._activity_api.add(*args, **kwargs)
 
 
 class BaseAPISession(BaseSession):

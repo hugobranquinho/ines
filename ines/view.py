@@ -38,10 +38,10 @@ class view_config(pyramid_view_config):
             if route_name:
                 browser_constructor = config.registry.settings.get('browser_constructor')
                 if not browser_constructor:
-                    browser_settings = dict(
-                        (key[8:], value)
+                    browser_settings = {
+                        key[8:]: value
                         for key, value in config.registry.settings.items()
-                        if key.startswith('browser.') and value)
+                        if key.startswith('browser.') and value}
 
                     if browser_settings:
                         browser_constructor = BrowserDecorator(browser_settings)

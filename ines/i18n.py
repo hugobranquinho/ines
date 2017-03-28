@@ -1,18 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from math import ceil
-
-from pyramid.i18n import get_localizer as base_get_localizer
-from pyramid.i18n import make_localizer
-from pyramid.interfaces import ILocalizer
-from pyramid.interfaces import ITranslationDirectories
+from pyramid.i18n import get_localizer as base_get_localizer, make_localizer
+from pyramid.interfaces import ILocalizer, ITranslationDirectories
 from pyramid.threadlocal import get_current_request
-from six import u
 from translationstring import TranslationString
 
-from ines.convert import clear_price
-from ines.convert import unicode_join
-from ines.convert.strings import maybe_unicode
+from ines.convert import clear_price, maybe_string
 
 
 ES_COUNTRIES = [
@@ -37,7 +30,7 @@ def InesTranslationStringFactory(factory_domain):
         if isinstance(msgid, TranslationString):
             domain = msgid.domain or factory_domain
         else:
-            msgid = maybe_unicode(msgid)
+            msgid = maybe_string(msgid)
             domain = factory_domain
         return TranslationString(msgid, domain=domain, default=default, mapping=mapping, context=context)
     return create
@@ -101,35 +94,35 @@ DATE_POINTS = {
     0: _('No data')}
 
 # Metric options
-METER = u('m')
+METER = 'm'
 METRICS = [
-    (u('ym'), _('yoctometre')),
-    (u('zm'), _('zeptometre')),
-    (u('am'), _('attometre')),
-    (u('fm'), _('femtometre')),
-    (u('pm'), _('picometre')),
-    (u('nm'), _('nanometre')),
-    (u('µm'), _('micrometre')),
-    (u('mm'), _('millimetre')),
-    (u('cm'), _('centimetre')),
-    (u('dm'), _('decimetre')),
+    ('ym', _('yoctometre')),
+    ('zm', _('zeptometre')),
+    ('am', _('attometre')),
+    ('fm', _('femtometre')),
+    ('pm', _('picometre')),
+    ('nm', _('nanometre')),
+    ('µm', _('micrometre')),
+    ('mm', _('millimetre')),
+    ('cm', _('centimetre')),
+    ('dm', _('decimetre')),
     (METER, _('metre')),
-    (u('dam'), _('decametre')),
-    (u('hm'), _('hectometre')),
-    (u('km'), _('kilometre')),
-    (u('Mm'), _('megametre')),
-    (u('Gm'), _('gigametre')),
-    (u('Tm'), _('terametre')),
-    (u('Pm'), _('petametre')),
-    (u('Em'), _('exametre')),
-    (u('Zm'), _('zettametre')),
-    (u('Ym'), _('yottametre'))]
+    ('dam', _('decametre')),
+    ('hm', _('hectometre')),
+    ('km', _('kilometre')),
+    ('Mm', _('megametre')),
+    ('Gm', _('gigametre')),
+    ('Tm', _('terametre')),
+    ('Pm', _('petametre')),
+    ('Em', _('exametre')),
+    ('Zm', _('zettametre')),
+    ('Ym', _('yottametre'))]
 
 METRIC_I18N = dict(METRICS)
 METRIC_KEYS = METRIC_I18N.keys()
 
 METRIC_NUMBERS = dict(enumerate(METRIC_KEYS))
-METRIC_TYPES = dict((v, k) for k, v in METRIC_NUMBERS.items())
+METRIC_TYPES = {v: k for k, v in METRIC_NUMBERS.items()}
 
 
 def get_localizer(registry, locale_name):
@@ -232,7 +225,7 @@ def translate_metric_factory(request, metric=METER, to_metric=None, round_to=Non
 
         def method(value):
             number = metric_format(value)
-            return unicode_join(' ', [number, title])
+            return ' '.join([number, title])
 
     else:
         def method(value):
@@ -244,7 +237,7 @@ def translate_metric_factory(request, metric=METER, to_metric=None, round_to=Non
             else:
                 title = key
 
-            return unicode_join(' ', [number, title])
+            return ' '.join([number, title])
 
     return method
 
@@ -285,13 +278,13 @@ def format_metric_factory(metric=METER, to_metric=None, round_to=None):
     get_number = METRIC_TYPES.get
     number = get_number(metric)
     if number is None:
-        raise ValueError(u('Invalid metric type: %s') % metric)
+        raise ValueError('Invalid metric type: %s' % metric)
 
     get_type = METRIC_NUMBERS.get
     if to_metric:
         to_number = get_number(to_metric)
         if to_number is None:
-            raise ValueError(u('Invalid metric type: %s') % to_metric)
+            raise ValueError('Invalid metric type: %s' % to_metric)
 
         elif to_number == number:
             method = lambda value: value
@@ -381,29 +374,29 @@ def format_metric(value, metric=METER, to_metric=None, round_to=None):
     return format_metric_factory(metric, to_metric, round_to)(value)
 
 
-def metric_to_unicode_factory(metric=METER, to_metric=None, round_to=None):
-    """ Return function to convert metric value to ``unicode`` string.
+def metric_to_string_factory(metric=METER, to_metric=None, round_to=None):
+    """ Return function to convert metric value to ``str`` string.
     Check :meth:`format_metric_factory` for more details.
 
     The returned function receives a number, and the result of this is a
-    ``unicode`` value with number and metric type, for example ``10 km``.
+    ``str`` value with number and metric type, for example ``10 km``.
     """
     factory = format_metric_factory(metric, to_metric, round_to)
 
     if to_metric:
-        pattern_value = u('%s %s') % (u('%s'), to_metric)
+        pattern_value = '%s {0}'.format(to_metric)
         return lambda value: pattern_value % str(factory(value))
     else:
-        return lambda value: u('%s %s') % factory(value)
+        return lambda value: '%s %s' % factory(value)
 
 
-def metric_to_unicode(value, metric=METER, to_metric=None, round_to=None):
-    """ Convert metric value to ``unicode`` string.
-    Check :meth:`metric_to_unicode_factory` for more details.
+def metric_to_string(value, metric=METER, to_metric=None, round_to=None):
+    """ Convert metric value to ``str`` string.
+    Check :meth:`metric_to_string_factory` for more details.
 
-    .. note:: To speed things, cache :meth:`metric_to_unicode_factory`.
+    .. note:: To speed things, cache :meth:`metric_to_string_factory`.
     """
-    return metric_to_unicode_factory(metric, to_metric, round_to)(value)
+    return metric_to_string_factory(metric, to_metric, round_to)(value)
 
 
 class NumberDescription(object):

@@ -1,47 +1,21 @@
 # -*- coding: utf-8 -*-
 
 from collections import defaultdict
-import datetime
+from urllib.parse import quote, unquote
 from uuid import uuid4
 
-from colander import Boolean
-from colander import Date
-from colander import DateTime
-from colander import drop
-from colander import Mapping
-from colander import null
-from colander import OneOf
-from colander import required
-from colander import Sequence
-from colander import String
-from colander import Tuple
+from colander import Boolean, Date, DateTime, drop, Mapping, null, OneOf, required, Sequence, String, Tuple
 from pyramid.authorization import Everyone
 from pyramid.compat import is_nonstr_iter
 from pyramid.interfaces import IAuthenticationPolicy
-from six import moves
-from six import u
 
-from ines import DEFAULT_METHODS
-from ines import NOW
-from ines import NOW_TIME
+from ines import DEFAULT_METHODS, NOW, NOW_TIME, TODAY_DATE
 from ines.authentication import ApplicationHeaderAuthenticationPolicy
 from ines.authorization import NotAuthenticated
-from ines.convert import camelcase
-from ines.convert import maybe_list
-from ines.convert import string_join
+from ines.convert import camelcase, maybe_list
 from ines.interfaces import ISchemaView
-from ines.route import lookup_for_route_params
-from ines.route import lookup_for_route_permissions
+from ines.route import lookup_for_route_params, lookup_for_route_permissions
 from ines.views.fields import File
-
-
-quote = moves.urllib.parse.quote
-unquote = moves.urllib.parse.unquote
-
-TODAY_DATE = datetime.date.today
-
-GET_STRING = u('GET')
-SCHEMA_TITLE = u('SCHEMA: %s')
 
 
 class PostmanCollection(object):
@@ -88,11 +62,11 @@ class PostmanCollection(object):
                 request_id = self.new_unique_id()
                 requests.append({
                     'id': request_id,
-                    'headers': string_join('\n', headers),
+                    'headers': '\n'.join(headers),
                     'url': request.route_url(schema_view.schema_route_name),
                     'preRequestScript': '',
                     'pathVariables': {},
-                    'method': GET_STRING,
+                    'method': 'GET',
                     'data': [],
                     'dataMode': 'params',
                     'version': 2,
@@ -100,7 +74,7 @@ class PostmanCollection(object):
                     'currentHelper': 'normal',
                     'helperAttributes': {},
                     'time': self.collection_time,
-                    'name': SCHEMA_TITLE % schema_view.title,
+                    'name': 'SCHEMA: %s' % schema_view.title,
                     'description': schema_view.description or '',
                     'collectionId': self.collection_id,
                     'responses': [],
@@ -119,7 +93,7 @@ class PostmanCollection(object):
                 if authentication:
                     permissions = lookup_for_route_permissions(request.registry, intr_route)
 
-                params = dict((k, '{{%s}}' % camelcase(k)) for k in lookup_for_route_params(route))
+                params = {k: '{{%s}}' % camelcase(k) for k in lookup_for_route_params(route)}
                 url = '%s%s' % (request.application_url, unquote(route.generate(params)))
 
                 schemas_by_methods = defaultdict(list)
@@ -182,7 +156,7 @@ class PostmanCollection(object):
                             else:
                                 queries.append(quote(url_param['key']))
                         if queries:
-                            method_url = '%s?%s' % (method_url, string_join('&', queries))
+                            method_url = '%s?%s' % (method_url, '&'.join(queries))
                     else:
                         request_schema_data = schema_data
 
@@ -196,7 +170,7 @@ class PostmanCollection(object):
                     request_id = self.new_unique_id()
                     requests.append({
                         'id': request_id,
-                        'headers': string_join('\n', headers),
+                        'headers': '\n'.join(headers),
                         'url': method_url,
                         'preRequestScript': '',
                         'pathVariables': {},
@@ -204,7 +178,7 @@ class PostmanCollection(object):
                         'data': request_schema_data,
                         'dataMode': 'params',
                         'version': 2,
-                        'tests': string_join('\n', tests),
+                        'tests': '\n'.join(tests),
                         'currentHelper': 'normal',
                         'helperAttributes': {},
                         'time': self.collection_time,

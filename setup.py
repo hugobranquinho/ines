@@ -24,22 +24,19 @@
 #
 ###############################################################################
 
-__version__ = '0.1a2'
+__version__ = '0.1'
 
 from distutils.version import StrictVersion
-import os
-from setuptools import find_packages
-from setuptools import setup
+from os.path import abspath, dirname, join as join_paths
+from setuptools import find_packages, setup
 import sys
 
 
-PY3 = sys.version_info[0] == 3
-
-here = os.path.abspath(os.path.dirname(__file__))
-with open(os.path.join(here, 'README.rst')) as f:
+here = abspath(dirname(__file__))
+with open(join_paths(here, 'README.rst')) as f:
     DESCRIPTION = f.read()
 
-with open(os.path.join(here, 'HISTORY.rst')) as f:
+with open(join_paths(here, 'HISTORY.rst')) as f:
     history_lines = f.read().splitlines()
     for i, line in enumerate(history_lines):
         if line.startswith(__version__):
@@ -67,11 +64,7 @@ requires = [
     'PasteDeploy',
     'colander >= 1.0',
     'SQLAlchemy >= 1.0.0',
-    'venusian',
-    'six']
-
-if not PY3:
-    requires.append('repoze.lru')
+    'venusian']
 
 
 setupkw = dict(
@@ -80,14 +73,13 @@ setupkw = dict(
     description='Web applications manager for pyramid packages',
     long_description=DESCRIPTION,
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 0.1',
         'Intended Audience :: Developers',
         'Natural Language :: English',
         'Framework :: Pyramid',
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: Unix',
-        'Programming Language :: Python :: 2.6',
-        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',
         'Topic :: Internet :: WWW/HTTP',
         'Topic :: Internet :: WWW/HTTP :: WSGI',

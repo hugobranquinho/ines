@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from io import BytesIO
 from gzip import compress as gzip_compress
 
 from pyramid.decorator import reify
-from six import BytesIO
 
 from ines.middlewares import Middleware
 

@@ -3,13 +3,10 @@
 from inspect import getmembers
 from inspect import isclass
 from inspect import ismodule
-from os.path import join as os_join
 from pkgutil import iter_modules
 import sys
 
 from pkg_resources import EntryPoint
-
-from ines.convert import to_string
 
 
 def find_class_on_module(module, class_to_find):
@@ -37,7 +34,3 @@ def find_class_on_module(module, class_to_find):
 
 def get_object_on_path(path):
     return EntryPoint.parse('x=' + path).load(False)
-
-
-def join_paths(*paths):
-    return os_join(*map(to_string, paths))

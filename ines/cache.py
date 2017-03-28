@@ -1,38 +1,15 @@
 # -*- coding: utf-8 -*-
 
-from os import linesep
-from os.path import isfile
-from pickle import dumps as pickle_dumps
-from pickle import loads as pickle_loads
+from functools import lru_cache, wraps
+from os.path import isfile, join as join_paths
+from pickle import dumps as pickle_dumps, loads as pickle_loads
 
-from six import _import_module
-from six import wraps
-from six import string_types
-
-from ines import DEFAULT_RETRY_ERRNO
-from ines import lru_cache
-from ines import MARKER
-from ines import NOW_TIME
-from ines.convert import bytes_join
-from ines.convert import make_sha256
-from ines.convert import maybe_integer
-from ines.convert import maybe_list
-from ines.convert import maybe_set
-from ines.convert import string_join
-from ines.convert import to_bytes
-from ines.locks import LockMe
-from ines.locks import LockMeMemcached
-from ines.path import join_paths
-from ines.utils import file_modified_time
-from ines.utils import get_file_binary
-from ines.utils import make_dir
-from ines.utils import make_uuid_hash
-from ines.utils import move_file
-from ines.utils import put_binary_on_file
-from ines.utils import remove_file_quietly
-
-
-b_linesep = to_bytes(linesep)
+from ines import DEFAULT_RETRY_ERRNO, lazy_import_module, MARKER, NEW_LINE_AS_BYTES, NOW_TIME
+from ines.cleaner import clean_string
+from ines.convert import make_sha256, maybe_integer, maybe_list, maybe_set, to_bytes
+from ines.locks import LockMe, LockMeMemcached
+from ines.utils import (
+    file_modified_time, get_file_binary, make_dir, make_uuid_hash, move_file, put_binary_on_file, remove_file_quietly)
 
 
 class _SaveMe(object):
@@ -60,22 +37,20 @@ class _SaveMe(object):
         if not values:
             raise ValueError('Define some values')
 
-        binary = b_linesep.join(to_bytes(v) for v in values) + b_linesep
+        binary = NEW_LINE_AS_BYTES.join(map(to_bytes, values)) + NEW_LINE_AS_BYTES
         self.put_binary(name, binary, mode='append', expire=expire)
 
     def append_value(self, name, value, expire=MARKER):
         self.extend_values(name, [value], expire=expire)
 
     def replace_values(self, name, values, expire=MARKER):
+        values = maybe_list(values)
         if not values:
             self.remove(name)
         else:
-            values = maybe_list(values)
-            values.append(b_linesep)
-
             self.put_binary(
                 name,
-                binary=bytes_join(b_linesep, values),
+                binary=NEW_LINE_AS_BYTES.join(values) + NEW_LINE_AS_BYTES,
                 expire=expire)
 
     def __getitem__(self, name):
@@ -230,7 +205,7 @@ class SaveMeWithReference(SaveMe):
         if name not in self.get_references(name):
             put_binary_on_file(
                 self.get_reference_path(name),
-                bytes_join(b_linesep, [name, '']),
+                NEW_LINE_AS_BYTES.join([to_bytes(name), b'']),
                 mode='ab',
                 retries=self.retries,
                 retry_errno=self.retry_errno)
@@ -256,11 +231,11 @@ class SaveMeWithReference(SaveMe):
 
             if references:
                 references = maybe_list(references)
-                references.append(b_linesep)
+                references.append(NEW_LINE_AS_BYTES)
 
                 put_binary_on_file(
                     file_path,
-                    binary=bytes_join(b_linesep, references),
+                    binary=NEW_LINE_AS_BYTES.join(map(to_bytes, references)),
                     mode='ab',
                     retries=self.retries,
                     retry_errno=self.retry_errno)
@@ -309,7 +284,7 @@ class SaveMeMemcached(_SaveMe):
                 lock_settings[key.split('lock_', 1)[1]] = settings.pop(key)
         lock_settings.update(settings)
 
-        self.memcache_module = _import_module('memcache')
+        self.memcache_module = lazy_import_module('memcache')
         self.memcache = self.memcache_module.Client(url.split(';'), **settings)
         self.expire = maybe_integer(expire)
         self.lockme = LockMeMemcached(url, **lock_settings)
@@ -406,20 +381,35 @@ class api_cache_decorator(object):
         return False
 
 
-class api_lock_decorator(object):
-    def __init__(self, lock_name=None):
-        self.lock_name = lock_name
+def clear_lock_key(key):
+    return clean_string(key).lower().strip().replace(' ', '')
 
-    def __call__(self, wrapped):
-        if not self.lock_name:
-            self.lock_name = 'ines.api_lock_decorator %s %s' % (wrapped.__module__, wrapped.__qualname__)
+
+def api_lock_decorator(prefix=None, args_indexes=None, kwargs_names=None, clear_keys_method=None):
+    def decorator(wrapped):
+        pre_name = prefix and prefix or 'ines.api_lock_decorator %s %s' % (wrapped.__module__, wrapped.__qualname__)
+        clear_method = clear_keys_method or clear_lock_key
 
         @wraps(wrapped)
         def wrapper(cls, *args, **kwargs):
+            names = []
+
+            if args_indexes:
+                for index in args_indexes:
+                    names.append(clear_method(args[index]))
+
+            if kwargs_names:
+                for name in kwargs_names:
+                    names.append(clear_method(kwargs[name]))
+
+            lock_name = names and ('%s %s' % (pre_name, ' '.join(names))) or pre_name
+            print(111, lock_name, type(lock_name))
+
             try:
-                cls.config.cache.lock(self.lock_name)
+                cls.config.cache.lock(lock_name)
                 return wrapped(cls, *args, **kwargs)
             finally:
-                cls.config.cache.unlock(self.lock_name)
+                cls.config.cache.unlock(lock_name)
 
         return wrapper
+    return decorator

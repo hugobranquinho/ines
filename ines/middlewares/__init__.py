@@ -2,8 +2,8 @@
 
 
 # lower position, comes first in request
-DEFAULT_MIDDLEWARE_POSITION = dict(
-    (k, i - 100)
+DEFAULT_MIDDLEWARE_POSITION = {
+    k: i - 100
     for i, k in enumerate([
         'payload',
         'cors',
@@ -11,7 +11,7 @@ DEFAULT_MIDDLEWARE_POSITION = dict(
         'repoze.tm',
         'browser',
         'gzip',
-    ]))
+    ])}
 
 
 class Middleware(object):

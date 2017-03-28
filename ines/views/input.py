@@ -1,18 +1,13 @@
 # -*- coding: utf-8 -*-
 
 from collections import defaultdict
-from colander import Mapping
-from colander import Sequence
-from colander import Tuple
+from functools import wraps
+
+from colander import Mapping, Sequence, Tuple
 from pyramid.compat import is_nonstr_iter
-from six import wraps
 from zope.interface import implementer
 
-from ines.convert import camelcase
-from ines.convert import maybe_integer
-from ines.convert import maybe_list
-from ines.convert import string_join
-from ines.convert import uncamelcase
+from ines.convert import camelcase, maybe_integer, maybe_list, uncamelcase
 from ines.interfaces import IInputSchemaView
 from ines.views.fields import SearchFields
 
@@ -138,10 +133,10 @@ def construct_sequence_items(name, values):
 
         value = maybe_list(value)
         if '.' in key_first:
-            maybe_number, key_second = key_first.split('.', 1)
+            maybe_number, second_key = key_first.split('.', 1)
             maybe_number = maybe_integer(maybe_number)
             if maybe_number is not None:
-                key = string_join('.', [name, key_second])
+                key = '%s.%s' % (name, second_key)
                 result_sequence[maybe_number][key] = value[0]
                 continue
 

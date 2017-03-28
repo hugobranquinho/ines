@@ -4,35 +4,14 @@ from cgi import FieldStorage
 from json import loads
 from os.path import basename
 
-from colander import _ as COLANDER_I18N
-from colander import _SchemaMeta
-from colander import _SchemaNode
-from colander import Boolean as BaseBoolean
-from colander import drop
-from colander import Date
-from colander import DateTime as BaseDateTime
-from colander import Integer
-from colander import Invalid
-from colander import MappingSchema
-from colander import null
-from colander import OneOf
-from colander import SchemaNode
-from colander import SchemaType
-from colander import Sequence
-from colander import SequenceSchema
-from colander import String
+from colander import (
+    _SchemaMeta, _SchemaNode, Boolean as BaseBoolean, drop, Date, DateTime as BaseDateTime, Integer, Invalid,
+    MappingSchema, null, OneOf, SchemaNode, SchemaType, Sequence, SequenceSchema, String)
 from colander.compat import is_nonstr_iter
-from deform.widget import DateInputWidget
-from deform.widget import DateTimeInputWidget
-from deform.widget import SelectWidget
+from deform.widget import DateInputWidget, DateTimeInputWidget, SelectWidget
 from pyramid.decorator import reify
-from six import string_types
-from six import u
 
-from ines.convert import compact_dump
-from ines.convert import to_string
-from ines.convert import to_unicode
-from ines.convert import uncamelcase
+from ines.convert import compact_dump, uncamelcase
 from ines.i18n import _
 from ines.utils import is_file_type
 
@@ -42,9 +21,7 @@ def datetinput_serialize(self, field, cstruct, **kw):
         cstruct = ''
     readonly = kw.get('readonly', self.readonly)
     template = readonly and self.readonly_template or self.template
-    options = dict(
-        kw.get('options') or self.options or self.default_options
-        )
+    options = dict(kw.get('options') or self.options or self.default_options)
     options['submitFormat'] = 'yyyy-mm-dd'
 
     if callable(options.get('max')):
@@ -241,7 +218,7 @@ class Image(File):
 
 
 class SplitValues(object):
-    def __init__(self, break_with=u(','), break_limit=-1):
+    def __init__(self, break_with=',', break_limit=-1):
         self.break_with = break_with
         self.break_limit = break_limit
 
@@ -249,7 +226,7 @@ class SplitValues(object):
         result = []
         if appstruct is not null:
             for value in appstruct:
-                if isinstance(value, string_types) and not value.startswith(u('{"')):
+                if isinstance(value, str) and not value.startswith('{"'):
                     result.extend(value.split(self.break_with, self.break_limit))
         return result
 
@@ -401,7 +378,7 @@ class LimitPerPageInteger(Integer):
     schema_type_name = 'integer'
 
     def num(self, value):
-        if isinstance(value, string_types) and value.lower() == 'all':
+        if isinstance(value, str) and value.lower() == 'all':
             return 'all'
         else:
             return int(value)
@@ -430,23 +407,23 @@ class PaginationInput(OrderByInput):
 
 
 CSV_DELIMITER = {
-    u(','): _('Comma (,)'),
-    u(';'): _('Semicolon (;)'),
-    u('\\t'): _('TAB (\\t)')}
+    ',': _('Comma (,)'),
+    ';': _('Semicolon (;)'),
+    '\\t': _('TAB (\\t)')}
 
 CSV_QUOTE_CHAR = {
-    u('"'): _('Double quote'),
-    u('\''): _('Single quote')}
+    '"': _('Double quote'),
+    '\'': _('Single quote')}
 
 CSV_LINE_TERMINATOR = {
-    u('\\r\\n'): _('Windows (CR+LF)'),
-    u('\\n'): _('Linux and MacOS (LF)'),
-    u('\\r'): _('Old MacOS (CR)'),
-    u('\\n\\r'): _('Other (LF+CR)')}
+    '\\r\\n': _('Windows (CR+LF)'),
+    '\\n': _('Linux and MacOS (LF)'),
+    '\\r': _('Old MacOS (CR)'),
+    '\\n\\r': _('Other (LF+CR)')}
 
 CSV_ENCODING = {
-    u('utf-8'): _('All languages'),
-    u('latin-1'): _('West Europe')}
+    'utf-8': _('All languages'),
+    'latin-1': _('West Europe')}
 
 
 class CSVInput(MappingSchema):
@@ -503,7 +480,7 @@ class FilterBy(object):
 
 class FilterByType(SchemaType):
     def deserialize(self, node, cstruct):
-        if cstruct and isinstance(cstruct, string_types):
+        if cstruct and isinstance(cstruct, str):
             try:
                 json_cstruct = loads(cstruct)
             except (ValueError, UnicodeEncodeError):
@@ -538,7 +515,7 @@ class FilterByType(SchemaType):
 
             filter_type = (filter_type or 'and').lower()
             if filter_type not in ('and', 'or'):
-                message = u('Invalid filter type %s for %s') % (filter_type, json_value)
+                message = 'Invalid filter type %s for %s' % (filter_type, json_value)
                 raise Invalid('filter_type', message)
             else:
                 return FilterBy(filter_type, queries)

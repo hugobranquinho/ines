@@ -15,8 +15,7 @@ from ines.convert.dates import (calculate_age,
                                 total_seconds,
                                 total_time_seconds)
 
-from ines.convert.strings import (bytes_join,
-                                  bytes_to_unicode,
+from ines.convert.strings import (bytes_to_string,
                                   camelcase,
                                   clear_spaces,
                                   compact_dump,
@@ -28,16 +27,13 @@ from ines.convert.strings import (bytes_join,
                                   maybe_integer,
                                   maybe_null,
                                   maybe_string,
-                                  maybe_unicode,
+                                  maybe_string,
                                   pluralizing_key,
                                   pluralizing_word,
                                   prepare_for_json,
-                                  string_join,
                                   to_bytes,
                                   to_string,
-                                  to_unicode,
-                                  uncamelcase,
-                                  unicode_join)
+                                  uncamelcase)
 
 
 def maybe_list(value):

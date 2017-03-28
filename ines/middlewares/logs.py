@@ -4,10 +4,8 @@ import sys
 from traceback import format_exception
 
 from pyramid.httpexceptions import HTTPInternalServerError
-from six import print_
 
 from ines.config import APIConfigurator
-from ines.convert import string_join
 from ines.convert import to_string
 from ines.middlewares import Middleware
 from ines.request import make_request
@@ -48,7 +46,7 @@ class LoggingMiddleware(Middleware):
                     print_message = False
 
             if print_message:
-                print_(string_join('', format_exception(*sys.exc_info())))
+                print(''.join(format_exception(*sys.exc_info())))
 
             if isinstance(request.registry.config, APIConfigurator):
                 headers = [('Content-type', 'application/json')]

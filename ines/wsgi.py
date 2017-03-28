@@ -3,17 +3,13 @@
 from os import getpid
 
 from paste.deploy.loadwsgi import loadapp
-from paste.urlmap import parse_path_expression
-from paste.urlmap import URLMap
+from paste.urlmap import parse_path_expression, URLMap
 from pyramid.httpexceptions import HTTPNotFound
-from pyramid.paster import get_app
-from pyramid.paster import get_appsettings
-from six import print_
+from pyramid.paster import get_app, get_appsettings
 
 from ines.convert import maybe_integer
 from ines.system import start_system_thread
-from ines.utils import file_modified_time
-from ines.utils import format_error_response_to_json
+from ines.utils import file_modified_time, format_error_response_to_json
 
 
 class NotFoundApplication(object):
@@ -91,4 +87,4 @@ class OnTheFly(URLMap):
             self[path] = get_app(self.config_path, app_name)
 
             if debug:
-                print_('Application %s reloaded on pid %s' % (app_name, getpid()))
+                print('Application %s reloaded on pid %s' % (app_name, getpid()))

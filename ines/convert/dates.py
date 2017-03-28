@@ -15,34 +15,36 @@ EMPTY_TIME = datetime.time()
 
 
 def maybe_datetime(value, date_format='%Y-%m-%d %H:%M:%S'):
-    if isinstance(value, DATETIME):
-        return value
-    elif isinstance(value, DATE):
-        return COMBINE_DATETIME(value, EMPTY_TIME)
+    if value is not None:
+        if isinstance(value, DATETIME):
+            return value
+        elif isinstance(value, DATE):
+            return COMBINE_DATETIME(value, EMPTY_TIME)
 
-    value = to_string(value)
-    try:
-        result = STRING_TO_DATETIME(value, date_format)
-    except (TypeError, ValueError):
-        date_value = maybe_date(value)
-        if date_value:
-            return COMBINE_DATETIME(date_value, EMPTY_TIME)
-    else:
-        return result
+        value = to_string(value)
+        try:
+            result = STRING_TO_DATETIME(value, date_format)
+        except (TypeError, ValueError):
+            date_value = maybe_date(value)
+            if date_value:
+                return COMBINE_DATETIME(date_value, EMPTY_TIME)
+        else:
+            return result
 
 
 def maybe_date(value, date_format='%Y-%m-%d'):
-    if isinstance(value, DATETIME):
-        return value.date()
-    elif isinstance(value, DATE):
-        return value
+    if value is not None:
+        if isinstance(value, DATETIME):
+            return value.date()
+        elif isinstance(value, DATE):
+            return value
 
-    try:
-        result = STRING_TO_DATETIME(value, date_format)
-    except (TypeError, ValueError):
-        pass
-    else:
-        return result.date()
+        try:
+            result = STRING_TO_DATETIME(value, date_format)
+        except (TypeError, ValueError):
+            pass
+        else:
+            return result.date()
 
 
 def date_to_timestamp(value):

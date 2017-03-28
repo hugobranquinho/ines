@@ -1,35 +1,19 @@
 # -*- coding: utf-8 -*-
 
 from collections import defaultdict
+from http.client import HTTPConnection, HTTPSConnection
+from http.cookies import SimpleCookie
 from json import loads
 import ssl
 from socket import create_connection
+from urllib.parse import urlencode
+from urllib.request import build_opener, HTTPCookieProcessor, HTTPError, HTTPRedirectHandler, HTTPSHandler, Request
 
-from six import string_types
-from six import moves
-from six import u
 from webob.multidict import MultiDict
 
-from ines.convert import to_bytes
-from ines.convert import to_string
-from ines.convert import to_unicode
-from ines.convert import guess_datetime
-from ines.convert import maybe_integer
-from ines.convert import maybe_unicode
-from ines.convert import string_join
+from ines.convert import guess_datetime, maybe_integer, maybe_string, to_bytes, to_string
 from ines.exceptions import Error
 
-
-urlencode = moves.urllib.parse.urlencode
-build_opener = moves.urllib.request.build_opener
-HTTPCookieProcessor = moves.urllib.request.HTTPCookieProcessor
-HTTPRedirectHandler = moves.urllib.request.HTTPRedirectHandler
-HTTPSHandler = moves.urllib.request.HTTPSHandler
-Request = moves.urllib.request.Request
-HTTPError = moves.urllib.error.HTTPError
-HTTPConnection = moves.http_client.HTTPConnection
-HTTPSConnection = moves.http_client.HTTPSConnection
-SimpleCookie = moves.http_cookies.SimpleCookie
 
 PROTOCOLS = [
     getattr(ssl, 'PROTOCOL_%s' % k)
@@ -67,7 +51,7 @@ class inesHTTPSConnection(HTTPSConnection):
                 to_try = TRY_SSL_PROTOCOLS[self.host]
                 if not to_try:
                     TRY_SSL_PROTOCOLS.pop(self.host, None)
-                    message = u('Could not open ssl url: %s') % self.host
+                    message = 'Could not open ssl url: %s' % self.host
                     raise Error('url', message)
                 ssl_version = to_try.pop(0)
 
@@ -132,12 +116,11 @@ URL_OPENER = build_opener(
 def parse_request_type(content_type):
     if content_type is None:
         return 'text/plain'
-
-    content_type = to_string(content_type)
-    if ';' in content_type:
-        content_type = content_type.split(';', 1)[0]
-
-    return string_join('/', (c.strip().lower() for c in content_type.split('/')))
+    else:
+        content_type = to_string(content_type)
+        if ';' in content_type:
+            content_type = content_type.split(';', 1)[0]
+        return '/'.join(map(str.strip, content_type.lower().split('/')))
 
 
 def open_url(url, data=None, timeout=None, headers=None, method='get'):
@@ -149,13 +132,13 @@ def open_url(url, data=None, timeout=None, headers=None, method='get'):
         url = url.replace(' ', '%20')
 
     if data:
-        if isinstance(data, string_types):
+        if isinstance(data, str):
             data = to_string(data)
         elif isinstance(data, (dict, MultiDict)):
             data = list(data.items())
 
         if isinstance(data, (dict, tuple, list)):
-            data = dict((to_string(k), to_string(v)) for k, v in data)
+            data = {to_string(k): to_string(v) for k, v in data}
             data = urlencode(data)
 
         if method.lower() == 'get':
@@ -170,7 +153,7 @@ def open_url(url, data=None, timeout=None, headers=None, method='get'):
     try:
         response = URL_OPENER.open(req, timeout=timeout)
     except Exception as error:
-        message = u('Could not open the url: %s') % to_unicode(url)
+        message = 'Could not open the url: %s' % url
         raise Error('url', message, exception=error)
 
     if isinstance(response, inesHTTPError):
@@ -190,7 +173,7 @@ def get_url_info(*args, **kwargs):
     headers = get_url_headers(*args, **kwargs)
     return {
         'size': maybe_integer(headers.get('Content-Length')) or 0,
-        'type': maybe_unicode(headers.get('Content-Type')),
+        'type': maybe_string(headers.get('Content-Type')),
         'updated': guess_datetime(headers.get('Last-Modified'))}
 
 
@@ -202,7 +185,7 @@ def get_url_file(*args, **kwargs):
 
 
 def get_url_body(*args, **kwargs):
-    return to_unicode(get_url_file(*args, **kwargs))
+    return to_string(get_url_file(*args, **kwargs))
 
 
 def open_json_url(*args, **kwargs):
@@ -220,7 +203,7 @@ def open_json_url(*args, **kwargs):
     try:
         json_response = loads(body)
     except Exception as error:
-        raise Error('url', u('Could not decode json response.'), exception=error)
+        raise Error('url', 'Could not decode json response.', exception=error)
     else:
         return json_response
 
@@ -241,7 +224,7 @@ def ping_url(protocol, url):
     elif protocol == 'http':
         connection = HTTPConnection(host)
     else:
-        raise ValueError('url', u('Invalid protocol %s. Use only http or https.') % protocol)
+        raise ValueError('url', 'Invalid protocol %s. Use only http or https.' % protocol)
 
     valid_url = False
     try:

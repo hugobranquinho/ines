@@ -1,22 +1,14 @@
 # -*- coding: utf-8 -*-
 
 from json import loads
+from urllib.parse import quote
 
-from six import moves
-from six import string_types
 from webob.request import environ_add_POST
 
-from ines.convert import compact_dump
-from ines.convert import maybe_list
-from ines.convert import string_join
-from ines.convert import to_string
+from ines.convert import compact_dump, maybe_list, to_string
 from ines.exceptions import HTTPInvalidJSONPayload
 from ines.middlewares import Middleware
-from ines.utils import get_content_type
-from ines.utils import format_error_response_to_json
-
-
-quote = moves.urllib.parse.quote
+from ines.utils import get_content_type, format_error_response_to_json
 
 
 class Payload(Middleware):
@@ -32,14 +24,13 @@ class Payload(Middleware):
                 try:
                     body_json = loads(body)
                     for key, values in dict(body_json).items():
-                        key = to_string(key)
                         values = maybe_list(values)
                         for value in values:
                             if value is None:
                                 arguments.append('%s=' % key)
                             else:
                                 arguments.append('%s=%s' % (key, quote(dump_query_value(value))))
-                    body = string_join('&', arguments)
+                    body = '&'.join(arguments)
                 except (ValueError, UnicodeEncodeError):
                     headers = [('Content-type', 'application/json')]
                     error = HTTPInvalidJSONPayload()
@@ -52,7 +43,7 @@ class Payload(Middleware):
 
 
 def dump_query_value(value):
-    if isinstance(value, string_types):
-        return to_string(value)
+    if isinstance(value, str):
+        return value
     else:
-        return to_string(compact_dump(value))
+        return compact_dump(value)

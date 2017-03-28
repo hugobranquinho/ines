@@ -1,54 +1,35 @@
 # -*- coding: utf-8 -*-
 
-from email.utils import formataddr
-from email.utils import formatdate
-from email.utils import make_msgid
-from os import linesep
-from os.path import basename
+from email.utils import formataddr, formatdate, make_msgid
+from os.path import basename, join as join_paths
 from socket import getfqdn
 from smtplib import SMTPRecipientsRefused
 
 from pyramid.decorator import reify
-from six import _import_module
-from six import string_types
-from six import u
 
-from ines.api import BaseSessionManager
-from ines.api import BaseSession
+from ines import HTML_NEW_LINE, lazy_import_module, NEW_LINE
+from ines.api import BaseSession, BaseSessionManager
 from ines.api.jobs import job
-from ines.convert import to_string
-from ines.convert import to_unicode
-from ines.convert import maybe_list
-from ines.convert import maybe_string
+from ines.convert import maybe_list, maybe_string, to_string
 from ines.exceptions import Error
 from ines.i18n import _
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.mimetype import find_mimetype
-from ines.path import join_paths
-from ines.utils import get_dir_filenames
-from ines.utils import make_dir
-from ines.utils import make_unique_hash
-
-
-NEW_LINE = u(linesep)
-HTML_NEW_LINE = u('<br/>')
+from ines.utils import get_dir_filenames, make_dir, make_unique_hash
 
 
 def format_email(email, encoding=None, force_development_email=None):
     label = None
-
     if isinstance(email, dict):
+        email = to_string(email['email'], encoding=encoding)
         if 'label' in email:
-            label = email['label']
-        email = email['email']
-
-    elif not isinstance(email, string_types):
-        label, email = email
-
-    return to_unicode(
-        formataddr((
-            maybe_string(label, encoding=encoding),
-            to_string(force_development_email or email, encoding=encoding))))
+            label = to_string(email['label'], encoding=encoding)
+    elif not isinstance(email, str):
+        label = to_string(email[0], encoding=encoding)
+        email = to_string(email[1], encoding=encoding)
+    else:
+        email = to_string(email, encoding=encoding)
+    return formataddr((label, force_development_email and to_string(force_development_email) or email))
 
 
 class BaseMailerSessionManager(BaseSessionManager):
@@ -57,9 +38,9 @@ class BaseMailerSessionManager(BaseSessionManager):
     def __init__(self, *args, **kwargs):
         super(BaseMailerSessionManager, self).__init__(*args, **kwargs)
 
-        pyramid_mailer = _import_module('pyramid_mailer')
+        pyramid_mailer = lazy_import_module('pyramid_mailer')
         self.mailer = pyramid_mailer.mailer_factory_from_settings(self.settings, prefix='')
-        pyramid_mailer_message = _import_module('pyramid_mailer.message')
+        pyramid_mailer_message = lazy_import_module('pyramid_mailer.message')
         self.message_cls = pyramid_mailer_message.Message
         self.attachment_cls = pyramid_mailer_message.Attachment
 
@@ -69,10 +50,10 @@ class BaseMailerSessionManager(BaseSessionManager):
             make_dir(join_paths(self.settings['queue_path'], 'tmp'))
             make_dir(join_paths(self.settings['queue_path'], 'new'))
 
-            sendmail_queue = _import_module('repoze.sendmail.queue')
+            sendmail_queue = lazy_import_module('repoze.sendmail.queue')
             self.queue_processor = sendmail_queue.QueueProcessor
 
-            self.transaction = _import_module('transaction')
+            self.transaction = lazy_import_module('transaction')
             self.__dict__.setdefault('__middlewares__', []).append(RepozeTMMiddleware)
 
     @reify
@@ -102,12 +83,12 @@ class BaseMailerSession(BaseSession):
             force_development_email = self.settings.get('force_development_email') or None
 
         if body:
-            body = to_unicode(body, encoding=content_charset)
+            body = to_string(body, encoding=content_charset)
             if not html:
                 html = body.replace(NEW_LINE, HTML_NEW_LINE)
 
         if html:
-            html = to_unicode(html, encoding=content_charset)
+            html = to_string(html, encoding=content_charset)
             if not html.lower().startswith('<html'):
                 html = '<html><body>%s</body></html>' % html
 
@@ -163,7 +144,7 @@ class BaseMailerSession(BaseSession):
                     content_type=mimetype))
 
         return self.api_session_manager.message_cls(
-            subject=to_unicode(subject, encoding=content_charset),
+            subject=to_string(subject, encoding=content_charset),
             html=html,
             body=body,
             recipients=[
@@ -218,9 +199,9 @@ class BaseMailerSession(BaseSession):
                 for email, error_message in error.args[0].items():
                     code = error_message[0]
                     if code == 554:
-                        raise Error('email', u('Invalid email "%s"') % to_unicode(email))
+                        raise Error('email', 'Invalid email "%s"' % to_string(email))
                     elif code == 450:
-                        raise Error('email', u('Invalid email domain "%s"') % to_unicode(email))
+                        raise Error('email', 'Invalid email domain "%s"' % to_string(email))
             raise
         else:
             return True

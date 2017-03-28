@@ -1,59 +1,44 @@
 # -*- coding: utf-8 -*-
 
-from colander import drop
 from collections import defaultdict
+from json import loads
 
-from pyramid.compat import is_nonstr_iter
 from pyramid.decorator import reify
 from pyramid.settings import asbool
-from six import u
-from six import _import_module
-from sqlalchemy import and_
-from sqlalchemy import cast
-from sqlalchemy import Column
-from sqlalchemy import create_engine
-from sqlalchemy import Date
-from sqlalchemy import DateTime
-from sqlalchemy import Enum
-from sqlalchemy import func
-from sqlalchemy import Integer
-from sqlalchemy import MetaData
-from sqlalchemy import not_
-from sqlalchemy import Numeric
-from sqlalchemy import or_
-from sqlalchemy import String
-from sqlalchemy.exc import InternalError
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy import (
+    and_, BigInteger, Boolean, create_engine, Date, DateTime, Enum, func, Integer, MetaData, not_, or_, SmallInteger,
+    Unicode, UnicodeText)
+from sqlalchemy.dialects.mysql import TINYINT
+from sqlalchemy.exc import InternalError, OperationalError, ProgrammingError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.event import listen as sqlalchemy_listen
-from sqlalchemy.orm import scoped_session
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.orm.util import AliasedClass
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import DDL
-from sqlalchemy.sql.expression import false
-from sqlalchemy.sql.expression import true
 from sqlalchemy.sql.selectable import Alias
 from sqlalchemy.util._collections import lightweight_named_tuple
 
-from ines import NOW
+from ines import lazy_import_module, NOW
 from ines.api import BaseSessionManager
 from ines.api import BaseSession
-from ines.cleaner import clean_unicode
-from ines.cleaner import LOWER_MAPPING
-from ines.convert import maybe_list
-from ines.convert import maybe_set
-from ines.convert import maybe_unicode
-from ines.convert import unicode_join
+from ines.api.database import SQL_DBS
+from ines.api.database import SQL_ENGINES
+from ines.api.database.filters import lookup_filter_builder
+from ines.api.database.postgresql import POSTGRESQL_LOWER_AND_CLEAR
+from ines.api.database.postgresql import postgresql_non_ascii_and_lower
+from ines.api.database.postgresql import table_is_postgresql
+from ines.api.database.utils import (
+    build_sql_relations, get_active_column, get_active_filter, get_api_first_method, get_api_all_method,
+    get_column_table_relations, get_inactive_filter, get_recursively_active_filters, get_recursively_tables,
+    get_schema_table, get_table_backrefs, get_table_column, get_table_columns, maybe_table_schema,
+    replace_response_columns, SQLPagination, table_entry_as_dict)
+from ines.convert import maybe_date, maybe_datetime, maybe_integer, maybe_list, maybe_set, maybe_string
 from ines.exceptions import Error
 from ines.middlewares.repozetm import RepozeTMMiddleware
 from ines.path import get_object_on_path
-from ines.views.fields import FilterBy
+from ines.utils import NoneMaskObject, set_class_decorator, WrapperClass
 from ines.views.fields import OrderBy
-from ines.utils import compare_values
-from ines.utils import PaginationClass
 
 try:
     import cymysql
@@ -61,49 +46,25 @@ except ImportError:
     pass
 else:
     cymysql.FIELD_TYPE.JSON = 245
-    cymysql.converters.decoders[cymysql.FIELD_TYPE.JSON] = lambda data: maybe_unicode(data)
+    cymysql.converters.decoders[cymysql.FIELD_TYPE.JSON] = lambda data: maybe_string(data)
 
 
-SQL_ENGINES = {}
-SQL_DBS = defaultdict(dict)
 SQLALCHEMY_NOW_TYPE = type(func.now())
-
-POSTGRESQL_LOWER_AND_CLEAR = """
-    CREATE OR REPLACE FUNCTION lower_and_clear(VARCHAR)
-        RETURNS VARCHAR AS $$ SELECT translate(lower($1), '%s', '%s') $$
-        LANGUAGE SQL""" % LOWER_MAPPING
-
-
-def table_is_postgresql(orm_table):
-    return orm_table.__table__.__connection_type__ == 'postgresql'
-
-
-def compare_as_non_ascii_filter(table, column_name, value):
-    column = getattr(table, column_name)
-    if table_is_postgresql(table):
-        return postgresql_non_ascii_and_lower(column) == clean_unicode(value).lower()
-    else:
-        return column == value
-
-
-def postgresql_non_ascii_and_lower(column, as_text=True):
-    if hasattr(column, 'property'):
-        columns = column.property.columns
-        if len(columns) > 1:
-            column = func.concat(*columns)
-        else:
-            column = column.property.columns[0]
-
-    if isinstance(column.type, Enum):
-        return column
-    elif isinstance(column.type, String):
-        return func.lower_and_clear(column)
-    elif isinstance(column.type, Numeric):
-        return column
-    elif as_text:
-        return func.text(column)
-    else:
-        return column
+SQLALCHEMY_INT_LIMITS = {
+    BigInteger: (-2**63, 2**63-1),
+    Integer: (-2**31, 2**31-1),
+    SmallInteger: (-2**15, 2**15-1),
+    TINYINT: (0, 255),
+}
+SQLALCHEMY_CONVERT = {
+    Boolean: asbool,
+    Date: maybe_date,
+    DateTime: maybe_datetime,
+    Enum: maybe_string,
+    Integer: maybe_integer,
+    Unicode: maybe_string,
+    UnicodeText: maybe_string,
+}
 
 
 class BaseSQLSessionManager(BaseSessionManager):
@@ -117,7 +78,7 @@ class BaseSQLSessionManager(BaseSessionManager):
     def __init__(self, *args, **kwargs):
         super(BaseSQLSessionManager, self).__init__(*args, **kwargs)
 
-        self.transaction = _import_module('transaction')
+        self.transaction = lazy_import_module('transaction')
 
         session_extension = self.settings.get('session_extension')
         if session_extension is not None:
@@ -129,7 +90,8 @@ class BaseSQLSessionManager(BaseSessionManager):
             encoding=self.settings.get('encoding', 'utf8'),
             mysql_engine=self.settings.get('mysql_engine') or 'InnoDB',
             session_extension=session_extension,
-            debug=asbool(self.settings.get('debug', False)))
+            debug=asbool(self.settings.get('debug', False)),
+            json_strict_decoder=asbool(self.settings.get('json_strict_decoder', True)))
 
 
 class BaseSQLSession(BaseSession):
@@ -148,7 +110,7 @@ class BaseSQLSession(BaseSession):
 
     def direct_insert(self, obj):
         values = {}
-        for key, column in obj.__table__.c.items():
+        for key, column in get_schema_table(obj).columns.items():
             value = getattr(obj, key, None)
             if value is None and column.default:
                 value = column.default.execute()
@@ -157,64 +119,52 @@ class BaseSQLSession(BaseSession):
                 values[key] = value
 
         return (
-            obj.__table__
+            get_schema_table(obj)
             .insert(values)
             .execute(autocommit=True))
 
     def direct_delete(self, obj, query):
         return bool(
-            obj.__table__
+            get_schema_table(obj)
             .delete(query)
             .execute(autocommit=True)
             .rowcount)
 
     def direct_update(self, obj, query, values):
-        for key, column in obj.__table__.c.items():
+        for key, column in get_schema_table(obj).columns.items():
             if key not in values and column.onupdate:
                 values[key] = column.onupdate.execute()
 
         return (
-            obj.__table__
+            get_schema_table(obj)
             .update(query)
             .values(values)
             .execute(autocommit=True))
 
+    # TODO move to static
     def table_instance_as_dict(self, instance):
-        return dict((k, getattr(instance, k)) for k in instance.__table__.c.keys())
+        return {k: getattr(instance, k) for k in get_schema_table(instance).columns.keys()}
 
-    def set_active_filter_on_query(self, query, tables, active=None, active_query=None):
+    # TODO delete
+    def set_active_filter_on_query(self, query, table, active):
         if active:
-            query_filter = active_filter(tables)
+            return query.filter(get_active_filter(table))
         else:
-            query_filter = inactive_filter(tables)
+            return query.filter(get_inactive_filter(table))
 
-        if active_query is not None:
-            query_filter = and_(query_filter, active_query)
-
-        return query.filter(query_filter)
-
-    def get_active_attribute(self, tables, active=None, active_query=None):
-        if active is None:
-            attribute = active_filter(tables)
-            if active_query is not None:
-                attribute = and_(active_query, attribute)
-        elif active:
-            attribute = true()
-        else:
-            attribute = false()
-
-        return attribute.label('active')
-
+    # TODO delete
     def _lookup_columns(self, table, attributes, active=None, active_tables=None, external=None, active_query=None):
         relate_with = set()
         if not attributes:
-            columns = list(table.__table__.c.values())
+            columns = list(get_schema_table(table).columns.values())
 
             if active_tables:
                 if active is None:
                     relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
 
-                column = self.get_active_attribute(active_tables, active=active, active_query=active_query)
+                column = get_active_column(table, active=active)[0]
+                if active_query:
+                    column = and_(active_query, column)
                 relate_with.update(t.name for t in get_object_tables(column))
                 columns.append(column)
         else:
@@ -247,7 +197,9 @@ class BaseSQLSession(BaseSession):
                     if active is None:
                         relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
 
-                    column = self.get_active_attribute(active_tables, active=active, active_query=active_query)
+                    column = get_active_column(table, active=active)[0]
+                    if active_query:
+                        column = and_(active_query, column)
                     relate_with.update(t.name for t in get_object_tables(column))
                     columns.append(column)
 
@@ -275,6 +227,7 @@ class BaseSQLSession(BaseSession):
 
         return LookupAtributes(columns, relate_with)
 
+    # TODO delete
     def _lookup_filters(self, table, filters, external=None, ignore_external_names=None):
         sa_filters = []
         relate_with = set()
@@ -338,13 +291,16 @@ class BaseSQLSession(BaseSession):
                 if is_not_none:
                     sa_filter = column.isnot(None)
                 elif is_like:
-                    sa_filter = like_maybe_with_none(table, column_name, value)
+                    from ines.api.database.filters import like_maybe_with_none
+                    sa_filter, xxx = like_maybe_with_none(table, column_name, value)
                 elif is_ilike:
-                    sa_filter = ilike_maybe_with_none(table, column_name, value)
+                    from ines.api.database.filters import ilike_maybe_with_none
+                    sa_filter, xxx = ilike_maybe_with_none(table, column_name, value)
                 elif is_none:
                     sa_filter = column.is_(None)
                 else:
-                    sa_filter = create_filter_by(table, column_name, value)
+                    from ines.api.database.filters import default_filter_builder
+                    sa_filter, xxx = default_filter_builder(table, column_name, value)
 
                 if sa_filter is not None:
                     relate_with.update(t.name for t in get_object_tables(column))
@@ -375,6 +331,7 @@ class BaseSQLSession(BaseSession):
 
         return LookupAtributes(sa_filters, relate_with)
 
+    # TODO delete
     def _lookup_order_by(self, table, attributes, active=None, active_tables=None, external=None, active_query=None):
         order_by = []
         relate_with = set()
@@ -422,7 +379,9 @@ class BaseSQLSession(BaseSession):
                 if active is None:
                     relate_with.update(t.__tablename__ for t in maybe_list(active_tables))
 
-                column = self.get_active_attribute(active_tables, active=active, active_query=active_query)
+                column = get_active_column(table, active=active)[0]
+                if active_query:
+                    column = and_(active_query, column)
                 relate_with.update(t.name for t in get_object_tables(column))
                 if as_desc:
                     order_by.append(column.desc())
@@ -461,6 +420,7 @@ class BaseSQLSession(BaseSession):
 
         return LookupAtributes(order_by, relate_with)
 
+    # TODO move to static
     def table_in_lookups(self, table, *lookups):
         if isinstance(table, AliasedClass):
             tablename = table._aliased_insp.name
@@ -474,6 +434,7 @@ class BaseSQLSession(BaseSession):
                 return True
         return False
 
+    # TODO static?
     def create_global_search_options(self, search, tables):
         response = []
         for table in maybe_list(tables):
@@ -487,14 +448,834 @@ class BaseSQLSession(BaseSession):
                 elif ignore_columns and column_name in ignore_columns:
                     continue
 
-                global_search_filter = create_like_filter(table, column_name, search)
+                from ines.api.database.filters import create_like_filter
+                global_search_filter, xxx = create_like_filter(table, column_name, search)
                 if global_search_filter is not None:
                     response.append(global_search_filter)
 
         return response
 
+    # TODO move to static
     def fill_response_with_indexs(self, indexs, references, response):
         return fill_response_with_indexs(indexs, references, response)
+
+
+class SetSQLPosColumns(WrapperClass):
+    def __call__(self, cls, **kwargs):
+        kwargs['return_pos_columns_index'] = True
+        response, pos_columns_index = self.wrapped(cls, **kwargs)
+        if not pos_columns_index or not response:
+            return response
+
+        unique_pos_columns_index = defaultdict(lambda: defaultdict(list))
+        for i, (pos_columns_type, column) in pos_columns_index.items():
+            unique_pos_columns_index[pos_columns_type][column].append(i)
+
+        references = {}
+        indexes = defaultdict(list)
+
+        for pos_columns_type, columns in unique_pos_columns_index.items():
+            for column, column_indexes in columns.items():
+                response_ids = set(r[i] for i in column_indexes for r in response)
+                if None in response_ids:
+                    response_ids.remove(None)
+                if not response_ids:
+                    continue
+
+                if pos_columns_type == 'length':
+                    indexes[column].extend(column_indexes)
+                    references[column] = defaultdict(int)
+                    references[column].update(cls.api.session
+                        .query(column, func.count(column.table.columns['id']))
+                        .filter(column.in_(response_ids))
+                        .group_by(column)
+                        .all())
+                else:
+                    raise AttributeError('Invalid pos column index type "%s"' % pos_columns_type)
+
+        replace_response_columns(indexes, references, response)
+        return response
+
+
+class SetSQLPagination(WrapperClass):
+    def __init__(self, wrapped, count_column):
+        super(SetSQLPagination, self).__init__(wrapped)
+        self.count_column = count_column
+
+    def __call__(self, *args, **kwargs):
+        page = kwargs.pop('page', None)
+        limit_per_page = kwargs.pop('limit_per_page', None)
+        return_query = kwargs.pop('return_query', False)
+        only_one = kwargs.pop('only_one', False)
+        return_pos_columns_index = kwargs.get('return_pos_columns_index', False)
+
+        if return_pos_columns_index:
+            query, flat_positions, pos_columns_index = self.wrapped(*args, **kwargs)
+        else:
+            query, flat_positions = self.wrapped(*args, **kwargs)
+
+        if return_query:
+            response = query
+        elif only_one:
+            response = query.first()
+        elif page is not None:
+            response = SQLPagination(query, page, limit_per_page or 20, count_column=self.count_column)
+        elif limit_per_page:
+            response = query.slice(0, limit_per_page).all()
+        else:
+            response = query.all()
+
+        if response and not return_query:
+            if only_one:
+                response = [response]
+
+            named_tuples = {}
+            fields = list(response[0]._real_fields)
+            for name, start, end in reversed(flat_positions):
+                named_tuples[name] = lightweight_named_tuple('result', fields[start:end])
+                fields[start:end] = [name]
+
+            named_tuple = lightweight_named_tuple('result', fields)
+
+            for i, value in enumerate(response):
+                new_value = list(value)
+                for name, start, end in reversed(flat_positions):
+                    child_value = named_tuples[name](new_value[start:end])
+                    new_value[start:end] = [child_value.id is not None and child_value or None]
+                response[i] = named_tuple(new_value)
+
+            if only_one:
+                response = response[0]
+
+        if return_pos_columns_index:
+            return response, pos_columns_index
+        else:
+            return response
+
+
+class ParseSQLOrm(WrapperClass):
+    def __init__(self, wrapped, orm_table, default_order_by=None):
+        super(ParseSQLOrm, self).__init__(wrapped)
+        self.orm_table = orm_table
+        self.default_order_by = default_order_by
+
+    def __call__(self, cls, **kwargs):
+        kwargs['active'] = kwargs.get('active', True)
+        filters = kwargs.copy()
+        attributes = filters.pop('attributes', None)
+        order_by = filters.pop('order_by', self.default_order_by)
+        group_by = filters.pop('group_by', None)
+        return_pos_columns_index = filters.pop('return_pos_columns_index', False)
+
+        columns, related_tables, pos_columns_index, flat_positions = lookup_sql_columns(
+            table=self.orm_table,
+            attributes=attributes,
+            active=kwargs['active'])
+
+        sa_filters, filters_related_tables = lookup_sql_filters(self.orm_table, filters)
+        related_tables.update(filters_related_tables)
+
+        sa_order_by, order_by_related_tables = lookup_sql_order_by(self.orm_table, order_by, kwargs['active'])
+        related_tables.update(order_by_related_tables)
+
+        # Build query
+        query = cls.api.session.query(*columns)
+
+        # Set relations
+        related_tables.remove(self.orm_table.__table__)
+        if related_tables:
+            related_filters, outer_joins = build_sql_relations(self.orm_table, related_tables)
+            if related_tables:
+                raise ValueError(
+                    'Cant find relations for tables %s on table %s'
+                    % ([t.name for t in related_tables], self.orm_table.__tablename__))
+
+            if outer_joins:
+                import pdb; pdb.set_trace()
+                query = query.select_from(outer_joins[0])
+                for outer_join_table, outer_join_on in outer_joins[1:]:
+                    query = query.outerjoin(outer_join_table, outer_join_on)
+
+            if related_filters:
+                query = query.filter(*related_filters)
+
+        if sa_filters:
+            query = query.filter(*sa_filters)
+
+        if sa_order_by:
+            query = query.order_by(*sa_order_by)
+
+        if group_by is not None:
+            query = query.group_by(*maybe_list(group_by))
+
+        query = self.wrapped(
+            cls,
+            query,
+            columns=columns,
+            filters=sa_filters,
+            order_by=sa_order_by,
+            related_tables=related_tables,
+            pos_columns_index=pos_columns_index,
+            kwargs=kwargs)
+
+        print(query)
+
+        if return_pos_columns_index:
+            return query, flat_positions, pos_columns_index
+        else:
+            return query, flat_positions
+
+
+class SetCount(WrapperClass):
+    def __init__(self, wrapped, group_by, count_by, count_attribute='length'):
+        super(SetCount, self).__init__(wrapped)
+        self.group_by = group_by
+        self.count_by = count_by
+        self.count_attribute = count_attribute
+
+    def __call__(self, cls, *args, **kwargs):
+        sent_attributes = 'attributes' in kwargs
+        attributes = maybe_list(kwargs.pop('attributes', None))
+        attributes.append(func.count(self.count_by).label(self.count_attribute))
+
+        response = self.wrapped(cls, attributes=attributes, group_by=self.group_by, **kwargs)
+        if sent_attributes:
+            return response
+        elif isinstance(response, list):
+            return response and sum(r[-1] for r in response) or 0
+        else:
+            return response and response[-1] or 0
+
+
+class SetSQLBase(WrapperClass):
+    activity_action = None
+    missing_message = 'O item que não existe'
+
+    def __init__(self, wrapped, orm_table, activity_tables=None):
+        super(SetSQLBase, self).__init__(wrapped)
+        self.orm_table = orm_table
+        self.activity_tables = maybe_set(activity_tables)
+
+    @reify
+    def table(self):
+        return get_schema_table(self.orm_table)
+
+    @reify
+    def activity_tables_as_set(self):
+        return set(get_schema_table(t) for t in maybe_set(self.activity_tables))
+
+    @reify
+    def related_tables(self):
+        return get_recursively_tables(self.table)
+
+    @reify
+    def related_tables_names(self):
+        return ['%s_id' % t.name for t in self.related_tables if t not in self.activity_tables_as_set]
+
+    @reify
+    def attributes(self):
+        response = list(get_table_columns(self.table))
+        response.append('active')
+        response.extend(self.activity_tables_as_set)
+        response.extend(
+            t.columns['id'].label('%s_id' % t.name)
+            for t in self.related_tables
+            if t not in self.activity_tables_as_set)
+        return response
+
+    def build_activity_info(self, response):
+        activity_ids = {}
+
+        if hasattr(response, '_asdict'):
+            data = response._asdict()
+        else:
+            data = table_entry_as_dict(response)
+            for key in getattr(response, '_activity_fields', []):
+                data[key] = getattr(response, key)
+
+        for activity_table in self.activity_tables_as_set:
+            activity_item = data.pop(activity_table.name)
+            if activity_item is None:
+                data[activity_table.name] = None
+            else:
+                data[activity_table.name] = activity_item._asdict()
+                activity_ids['%s_id' % activity_table.name] = activity_item.id
+
+        for related_table_name_id in self.related_tables_names:
+            activity_ids[related_table_name_id] = getattr(response, related_table_name_id)
+
+        return activity_ids, data, response
+
+    def before_wrapped(self, cls, key, **kwargs):
+        response = get_api_first_method(cls.api, self.orm_table)(key=key, attributes=self.attributes)
+        if not response:
+            raise Error('key', self.missing_message)
+        else:
+            return response
+
+    def call_wrapped(self, cls, response, kwargs):
+        method_kwargs = kwargs.copy()
+        method_kwargs.update((t.name, getattr(response, t.name)) for t in self.activity_tables_as_set)
+        method_kwargs.update({self.table.name: response})
+        return self.wrapped(cls, **method_kwargs)
+
+    def after_wrapped(self, cls, response):
+        raise NotImplemented
+
+    def sql_action(self, cls, response):
+        raise NotImplemented
+
+    def __call__(self, cls, *args, **kwargs):
+        response = self.before_wrapped(cls, *args, **kwargs)
+        callback = self.call_wrapped(cls, response, kwargs)
+        if self.after_wrapped(cls, response):
+            return callback()
+
+        self.sql_action(cls, response)
+        cls.api.session.flush()
+
+        activity_kwargs, data, item = self.build_activity_info(response)
+        activity_kwargs[self.activity_action == 'delete' and 'previous_data' or 'data'] = data
+        cls.api.add_activity(self.table, action=self.activity_action, type_id=item.id, **activity_kwargs)
+
+        return callback()
+
+
+class SetDelete(SetSQLBase):
+    activity_action = 'delete'
+    missing_message = 'O item que pretende apagar não existe'
+
+    def __init__(self, wrapped, orm_table, activity_tables=None, primary_order_by=None):
+        super(SetDelete, self).__init__(wrapped, orm_table, activity_tables)
+        self.primary_order_by = primary_order_by
+
+    def after_wrapped(self, cls, item):
+        for backref_foreign_key in get_table_backrefs(self.table):
+            backref = (
+                cls.api.session
+                .query(func.count(backref_foreign_key.parent.table.columns['id']).label('length'))
+                .filter(backref_foreign_key.parent == item.id)
+                .group_by(backref_foreign_key.parent)
+                .first())
+            if backref and backref.length:
+                if backref.length == 1:
+                    message = 'Não pode eliminar o item porque tem %s filho associado'
+                else:
+                    message = 'Não pode eliminar o item porque tem %s filhos associados'
+                raise Error('key', message % backref.length)
+
+    def sql_action(self, cls, item):
+        if self.primary_order_by:
+            # Need to set another item as primary
+            if item.is_primary:
+                method = get_api_first_method(cls.api, self.orm_table)
+                primary_kwargs = {
+                    foreign_key: getattr(item, foreign_key)
+                    for foreign_key in get_primary_relations(self.orm_table).keys()}
+
+                first_item = method(
+                    id_is_different=item.id,
+                    attributes=['id'],
+                    active=None,
+                    order_by=self.primary_order_by,
+                    **primary_kwargs)
+
+                if first_item:
+                    (cls.api.session
+                        .query(self.orm_table.id)
+                        .filter(self.orm_table.id == first_item.id)
+                        .update({self.orm_table.is_primary: True}, synchronize_session=False))
+
+        (cls.api.session
+            .query(self.table.columns['id'])
+            .filter(self.table.columns['id'] == item.id)
+            .delete(synchronize_session=False))
+
+
+class SetPrimary(SetSQLBase):
+    activity_action = 'set_primary'
+    missing_message = 'O item que pretende definir como primário não existe'
+
+    def after_wrapped(self, cls, item):
+        if item.is_primary:
+            return True
+
+    def sql_action(self, cls, item):
+        # Set all of same relation as non primary
+        clear_primary_relations(cls.api.session, self.orm_table, item)
+
+        # Set as primary
+        (cls.api.session
+            .query(self.orm_table.id)
+            .filter(self.orm_table.id == item.id)
+            .update({self.orm_table.is_primary: True}, synchronize_session=False))
+
+
+class SetAdd(SetSQLBase):
+    activity_action = 'add'
+
+    def __init__(self, wrapped, orm_table, columns, activity_tables=None, **kwargs):
+        super(SetAdd, self).__init__(wrapped, orm_table, activity_tables)
+        self.primary_attribute = kwargs.get('primary_attribute')
+        self.primary_existing_message = kwargs.get('primary_existing_message', 'O valor está registado noutro tipo')
+
+        self.columns = {}
+        if not isinstance(columns, dict):
+            columns = {k: None for k in columns}
+
+        # pre validations
+        for key, options in columns.items():
+            column = getattr(orm_table, key)
+            self.columns[key] = options = options or {}
+
+            options.update({
+                'column': column,
+                'convert': SQLALCHEMY_CONVERT[type(column.type)],
+                'nullable': options.get('nullable', column.nullable),
+            })
+
+            if isinstance(column.type, (Unicode, UnicodeText)):
+                self.set_limit('length_limit', options, 1, column.type.length)
+            elif isinstance(column.type, Integer):
+                self.set_limit('integer_limit', options, *SQLALCHEMY_INT_LIMITS[type(column.type)])
+            elif isinstance(column.type, Enum):
+                options['in'] = options.get('in', column.type.enums)
+
+    def set_limit(self, key, options, min_limit, max_limit):
+        if key not in options:
+            min_defined, max_defined = min_limit, max_limit
+        else:
+            min_defined, max_defined = options[key]
+            if min_defined is None:
+                min_defined = min_limit
+            elif min_defined < min_limit:
+                raise ValueError('Invalid min integer for %s (max:%s)' % (key, min_limit))
+
+            if max_defined is None:
+                max_defined = max_limit
+            elif max_defined > max_limit:
+                raise ValueError('Invalid max integer for %s (max:%s)' % (key, max_limit))
+
+        options[key] = (min_defined, max_defined)
+
+    @reify
+    def foreign_related_tables(self):
+        response = {}
+        for foreign_key in self.table.foreign_keys:
+            foreign_table = foreign_key.column.table
+            response[foreign_table] = get_recursively_tables(foreign_table)
+        return response
+
+    def validate_limits(self, key, type_message, value, min_limit, max_limit):
+        if min_limit is not None and value < min_limit:
+            raise Error(key, '%s deve ser maior ou igual a %s' % (type_message, min_limit))
+        elif max_limit is not None and value > max_limit:
+            raise Error(key, '%s deve ser menor ou igual a %s' % (type_message, max_limit))
+
+    def validate_if_null(self, options, key, value, kwargs):
+        if value is None:
+            if kwargs.get(key) is not None:
+                raise Error(key, 'Inválido')
+            elif not options['nullable']:
+                raise Error(key, 'Obrigatório')
+            else:
+                return True
+
+    def validate(self, options, key, value, kwargs):
+        # if returns False, value is None
+        if self.validate_if_null(options, key, value, kwargs):
+            return False
+
+        allowed = options.get('in')
+        if allowed and value not in allowed:
+            raise Error(key, 'Valor "%s" inválido. Deve escolher entre "%s"' % (value, '", "'.join(allowed)))
+        if 'integer_limit' in options:
+            self.validate_limits(key, 'O valor', value, *options['integer_limit'])
+        if 'length_limit' in options:
+            self.validate_limits(key, 'O tamanho', len(value), *options['length_limit'])
+
+        return True
+
+    def before_wrapped(self, cls, **kwargs):
+        item = self.orm_table()
+        item._activity_fields = set()
+
+        # Validate
+        foreign_tables_to_validate = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
+        for key, options in self.columns.items():
+            column = options['column']
+            value = kwargs.get(key)
+
+            if column.foreign_keys:
+                for foreign_key in column.foreign_keys:
+                    foreign_table = foreign_key.column.table
+                    foreign_column_key = '%s_key' % foreign_table.name
+                    foreign_value = kwargs.get(foreign_column_key)
+                    if foreign_value is not None:
+                        if value is not None:
+                            raise KeyError('Envie apenas uma chave "%s" ou "%s"' % (foreign_column_key, key))
+                        self.validate_if_null(options, foreign_column_key, foreign_value, kwargs)
+                        foreign_tables_to_validate[foreign_table]['key'][foreign_value].add(key)
+                    else:
+                        self.validate(options, key, value, kwargs)
+                        foreign_tables_to_validate[foreign_table]['id'][value].add(key)
+
+            elif self.validate(options, key, value, kwargs):
+                setattr(item, key, value)
+
+        # Validate foreign keys
+        for foreign_table, foreign_columns in foreign_tables_to_validate.items():
+            attributes = []
+            foreign_related_tables = set(self.foreign_related_tables[foreign_table])
+            foreign_related_tables.add(foreign_table)
+            for foreign_related_table in foreign_related_tables:
+                if foreign_related_table in self.activity_tables_as_set:
+                    attributes.append(foreign_related_table)
+                else:
+                    attributes.append(foreign_related_table.columns['id'].label('%s_id' % foreign_related_table.name))
+
+            method = get_api_all_method(cls.api, foreign_table)
+            for foreign_column_key, foreign_keys in foreign_columns.items():
+                foreign_column_keys = set(foreign_keys.keys())
+                with_none_in_keys = None in foreign_column_keys
+                if with_none_in_keys:
+                    foreign_column_keys.remove(None)
+
+                if foreign_column_keys:
+                    foreign_items = method(
+                        attributes=[foreign_table.columns['id'].label('id'), foreign_column_key] + attributes,
+                        **{foreign_column_key: foreign_column_keys})
+                else:
+                    foreign_items = [NoneMaskObject()]
+
+                references = {}
+                for foreign_item in foreign_items:
+                    references[getattr(foreign_item, foreign_column_key)] = foreign_item.id
+
+                    for attribute in attributes:
+                        if not isinstance(attribute, str):
+                            setattr(item, attribute.name, getattr(foreign_item, attribute.name))
+                            item._activity_fields.add(attribute.name)
+                        else:
+                            setattr(item, attribute, getattr(foreign_item, attribute))
+                            item._activity_fields.add(attribute)
+
+                for value, keys in foreign_keys.items():
+                    if value is not None:
+                        relation_item_id = references.get(value)
+                        if relation_item_id is None:
+                            raise Error(list(keys)[0], 'O valor não existe')
+                    else:
+                        relation_item_id = None
+
+                    for inner_key in keys:
+                        setattr(item, inner_key, relation_item_id)
+                        item._activity_fields.add(inner_key)
+
+        return item
+
+    def sql_action(self, cls, item):
+        cls.api.session.add(item)
+
+    def after_wrapped(self, cls, item):
+        if self.primary_attribute:
+            method = get_api_all_method(cls.api, self.orm_table)
+            primary_kwargs = {
+                foreign_key: getattr(item, foreign_key)
+                for foreign_key in get_primary_relations(self.orm_table).keys()}
+
+            existing_primaries = set(
+                getattr(c, self.primary_attribute)
+                for c in method(attributes=[self.primary_attribute], active=None, **primary_kwargs))
+            if getattr(item, self.primary_attribute) in existing_primaries:
+                raise Error(self.primary_attribute, self.primary_existing_message)
+
+            if not existing_primaries:
+                item.is_primary = True
+            elif item.is_primary:
+                clear_primary_relations(cls.api.session, self.orm_table, item)
+
+
+def get_primary_relations(table):
+    return {foreign_key.parent.name: foreign_key.parent for foreign_key in get_schema_table(table).foreign_keys}
+
+
+def clear_primary_relations(session, orm_table, item, getattribute=None):
+    if getattribute is None:
+        getattribute = isinstance(item, dict) and '__getitem__' or '__getattribute__'
+
+    query = session.query(orm_table.id)
+    for foreign_key, foreign_column in get_primary_relations(orm_table).items():
+        query = query.filter(foreign_column == getattr(item, getattribute)(foreign_key))
+    return query.update({orm_table.is_primary: False}, synchronize_session=False)
+
+
+set_sql_pos_columns = set_class_decorator(SetSQLPosColumns)
+set_sql_pagination = set_class_decorator(SetSQLPagination)
+parse_sql_orm = set_class_decorator(ParseSQLOrm)
+set_count = set_class_decorator(SetCount)
+set_add = set_class_decorator(SetAdd)
+set_primary = set_class_decorator(SetPrimary)
+set_delete = set_class_decorator(SetDelete)
+
+
+def lookup_sql_columns(table, attributes, active, ignore_label_definition=False):
+    columns = []
+    related_tables = set()
+    pos_columns_index = {}
+    table = get_schema_table(table)
+    flat_positions = []
+
+    if not attributes:
+        columns.extend(get_table_columns(table))
+        related_tables.add(table)
+
+        active_column, related_active_tables = get_active_column(table, active)
+        related_tables.update(related_active_tables)
+        columns.append(active_column)
+    else:
+        missing_attributes_index = {}
+        backrefs = {b.parent.table.name: b for b in get_table_backrefs(table)}
+
+        for columns_index, attribute in enumerate(maybe_list(attributes)):
+            if not isinstance(attribute, str):
+                attribute_table = maybe_table_schema(attribute)
+                if attribute_table is not None:
+                    # We can have tables defined, lets extend table columns
+                    current_position = len(columns)
+                    columns.extend(get_table_columns(attribute_table))
+                    flat_positions.append((attribute_table.name, current_position, len(columns)))
+                    related_tables.add(attribute_table)
+                else:
+                    columns.append(attribute)
+                    related_tables.update(get_column_table_relations(attribute))
+            elif attribute == 'active':
+                active_column, related_active_tables = get_active_column(table, active)
+                related_tables.update(related_active_tables)
+                columns.append(active_column)
+            else:
+                column = get_table_column(table, attribute, None)
+                if column is not None:
+                    columns.append(column)
+                    related_tables.add(table)
+                else:
+                    length_parts = attribute.rsplit('_length', 1)
+                    backref_foreign_key = len(length_parts) == 2 and backrefs.get(length_parts[0]) or None
+                    if backref_foreign_key is not None:
+                        columns.append(backref_foreign_key.column.label(attribute))
+                        pos_columns_index[columns_index] = ('length', backref_foreign_key.parent)
+                    else:
+                        columns.append(attribute)
+                        missing_attributes_index[columns_index] = attribute
+
+        # TODO add table alias
+
+        for foreign_column in table.foreign_keys:
+            if not missing_attributes_index:
+                break
+
+            foreign_table = foreign_column.column.table
+            if foreign_table == table:
+                continue
+
+            foreign_table_name_patterns = ['%s_' % foreign_table.name]
+
+            foreign_attributes = []
+            for columns_index, attribute in missing_attributes_index.items():
+                for pattern in foreign_table_name_patterns:
+                    if attribute.startswith(pattern):
+                        foreign_attributes.append((columns_index, attribute.split(pattern, 1)[1]))
+
+            if foreign_attributes:
+                (foreign_columns,
+                 foreign_related_tables,
+                 foreign_pos_columns_index,
+                 foreign_flat_positions) = lookup_sql_columns(
+                    table=foreign_table,
+                    attributes=[k[1] for k in foreign_attributes],
+                    active=active,
+                    ignore_label_definition=ignore_label_definition)
+
+                pos_columns_index.update(foreign_pos_columns_index)
+                flat_positions.extend(foreign_flat_positions)
+
+                if foreign_columns:
+                    related_tables.update(foreign_related_tables)
+
+                    for i, maybe_foreign_column in enumerate(foreign_columns):
+                        if not isinstance(maybe_foreign_column, str):
+                            columns_index = foreign_attributes[i][0]
+                            attribute = missing_attributes_index.pop(columns_index)
+                            if not ignore_label_definition:
+                                columns[columns_index] = maybe_foreign_column.label(attribute)
+                            else:
+                                columns[columns_index] = maybe_foreign_column
+
+    return columns, related_tables, pos_columns_index, flat_positions
+
+
+def lookup_sql_filters(table, filters_dict):
+    filters = []
+    related_tables = set()
+    table = get_schema_table(table)
+
+    for attribute, value in list(filters_dict.items()):
+        as_not_filter = attribute.startswith('not_')
+        column_name = not as_not_filter and attribute or attribute.split('not_', 1)[1]
+
+        sa_filter = None
+        if column_name == 'active':
+            filters_dict.pop(attribute)
+            if value is not None:
+                active_tables, active_filters = get_recursively_active_filters(table)
+                if active_filters:
+                    related_tables.update(active_tables)
+                    sa_filter = and_(*active_filters)
+        else:
+            column_name, builder = lookup_filter_builder(column_name)
+            column = get_table_column(table, column_name, None)
+            if column is not None:
+                filters_dict.pop(attribute)
+                sa_filter, filter_related_tables = builder(table, column_name, value)
+                related_tables.update(filter_related_tables)
+
+        if sa_filter is not None:
+            if as_not_filter:
+                filters.append(not_(sa_filter))
+            else:
+                filters.append(sa_filter)
+
+    # TODO add table alias
+
+    for foreign_column in table.foreign_keys:
+        if not filters_dict:
+            break
+
+        foreign_table = foreign_column.column.table
+        foreign_table_name_patterns = ['%s_' % foreign_table.name]
+
+        foreign_filters = {}
+        foreign_filters_references = {}
+        for attribute, value in filters_dict.items():
+            for pattern in foreign_table_name_patterns:
+                if attribute.startswith(pattern):
+                    foreign_attribute = attribute.split(pattern, 1)[1]
+                    foreign_filters[foreign_attribute] = value
+                    foreign_filters_references[foreign_attribute] = attribute
+
+        if foreign_filters:
+            foreign_filters, foreign_related_tables = lookup_sql_filters(
+                table=foreign_table,
+                filters_dict=foreign_filters)
+
+            if foreign_filters:
+                filters.extend(foreign_filters)
+                related_tables.update(foreign_related_tables)
+
+                for foreign_attribute, attribute in foreign_filters_references.items():
+                    if foreign_attribute not in foreign_filters:
+                        filters_dict.pop(attribute)
+
+    if filters_dict:
+        raise AttributeError('Missing filters keys "%s"' % '", "'.join(filters_dict.keys()))
+    else:
+        return filters, related_tables
+
+
+def lookup_sql_order_by(table, attributes, active):
+    columns = []
+    related_tables = set()
+    table = get_schema_table(table)
+    missing_attributes_index = {}
+
+    for columns_index, attribute in enumerate(maybe_list(attributes)):
+        if not isinstance(attribute, str):
+            columns.append(attribute)
+            related_tables.update(get_column_table_relations(attribute))
+        else:
+            if isinstance(attribute, OrderBy):
+                as_descendant = attribute.descendant
+                column_name = attribute.column_name
+                attribute = as_descendant and ('%s desc' % column_name) or column_name
+            elif attribute.lower().endswith(' desc'):
+                as_descendant = True
+                column_name = attribute[:-5]
+            elif attribute.lower().endswith(' asc'):
+                as_descendant = False
+                column_name = attribute[:-4]
+            else:
+                as_descendant = False
+                column_name = attribute
+
+            if column_name == 'active':
+                active_column, related_active_tables = get_active_column(table, active)
+                related_tables.update(related_active_tables)
+                if as_descendant:
+                    columns.append(active_column.desc())
+                else:
+                    columns.append(active_column)
+            else:
+                column = get_table_column(table, column_name, None)
+                if column is not None:
+                    related_tables.add(table)
+                    if table_is_postgresql(table):
+                        column = postgresql_non_ascii_and_lower(column, as_text=False)
+                    if as_descendant:
+                        columns.append(column.desc())
+                    else:
+                        columns.append(column)
+                else:
+                    columns.append(attribute)
+                    missing_attributes_index[columns_index] = attribute
+
+    # TODO add table alias
+
+    for foreign_column in table.foreign_keys:
+        if not missing_attributes_index:
+            break
+
+        foreign_table = foreign_column.column.table
+        if foreign_table == table:
+            continue
+
+        foreign_table_name_patterns = ['%s_' % foreign_table.name]
+
+        foreign_attributes = []
+        for columns_index, attribute in missing_attributes_index.items():
+            for pattern in foreign_table_name_patterns:
+                if attribute.startswith(pattern):
+                    foreign_attributes.append((columns_index, attribute.split(pattern, 1)[1]))
+
+        if foreign_attributes:
+            foreign_columns, foreign_related_tables = lookup_sql_order_by(
+                table=foreign_table,
+                attributes=[k[1] for k in foreign_attributes],
+                active=active)
+
+            if foreign_columns:
+                related_tables.update(foreign_related_tables)
+
+                for i, maybe_foreign_column in enumerate(foreign_columns):
+                    if not isinstance(maybe_foreign_column, str):
+                        columns_index = foreign_attributes[i][0]
+                        missing_attributes_index.pop(columns_index)
+                        columns[columns_index] = maybe_foreign_column
+
+    return columns, related_tables
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def fill_response_with_indexs(replace_indexes, references, response):
@@ -522,7 +1303,9 @@ def initialize_sql(
         encoding='utf8',
         mysql_engine='InnoDB',
         session_extension=None,
-        debug=False):
+        debug=False,
+        json_strict_decoder=True,
+    ):
 
     sql_path = '%s?charset=%s' % (sql_path, encoding)
     SQL_DBS[application_name]['sql_path'] = sql_path
@@ -536,20 +1319,29 @@ def initialize_sql(
     metadata = SQL_DBS[application_name].get('metadata')
 
     if metadata:
+        connection_type = None
+
         # Set defaults for MySQL tables
         if is_mysql:
+            connection_type = 'mysql'
             for table in metadata.sorted_tables:
-                table.__connection_type__ = 'mysql'
                 append_arguments(table, 'mysql_engine', mysql_engine)
                 append_arguments(table, 'mysql_charset', encoding)
 
         # Add some postgresql functions
         if sql_path.lower().startswith('postgresql'):
+            connection_type = 'postgresql'
             sqlalchemy_listen(metadata, 'before_create', DDL(POSTGRESQL_LOWER_AND_CLEAR))
-            for table in metadata.sorted_tables:
-                table.__connection_type__ = 'postgresql'
 
+        for table in metadata.sorted_tables:
+            table.__connection_type__ = connection_type
+
+    engine_kwargs = {}
     engine_pattern = '%s-%s' % (sql_path, encoding)
+    if not json_strict_decoder:
+        engine_kwargs['json_deserializer'] = lambda value: loads(value, strict=False)
+        engine_pattern += '-json-decoder'
+
     if engine_pattern in SQL_ENGINES:
         engine = SQL_ENGINES[engine_pattern]
     else:
@@ -557,7 +1349,8 @@ def initialize_sql(
             sql_path,
             echo=debug,
             poolclass=NullPool,
-            encoding=encoding)
+            encoding=encoding,
+            **engine_kwargs)
     SQL_DBS[application_name]['engine'] = engine
 
     if session_extension:
@@ -635,252 +1428,6 @@ def sql_declarative_base(application_name, **kwargs):
     return base
 
 
-def filter_query_with_queries(queries, query=None):
-    """Filter 'query' with none/single/multiple OR'ed queries"""
-    queries = [q for q in queries if q is not None]
-    if len(queries) == 1:
-        query_filter = queries[0]
-    elif queries:
-        query_filter = or_(*queries)
-    else:
-        return query
-
-    if query is None:
-        return query_filter
-    elif query_filter is not None:
-        return query.filter(query_filter)
-    else:
-        return query
-
-
-def maybe_with_none(column, values, query=None):
-    queries = []
-    values = maybe_set(values)
-
-    if None in values:
-        values.remove(None)
-        queries.append(column.is_(None))
-    if len(values) == 1:
-        queries.append(column == values.pop())
-    elif values:
-        queries.append(column.in_(values))
-
-    return filter_query_with_queries(queries, query)
-
-
-def like_maybe_with_none(table, column_name, values, query=None):
-    queries = []
-    values = maybe_set(values)
-    column = getattr(table, column_name)
-
-    if None in values:
-        values.remove(None)
-        queries.append(column.is_(None))
-
-    for value in values:
-        like_filter = create_like_filter(table, column, value)
-        if like_filter is not None:
-            queries.append(like_filter)
-
-    return filter_query_with_queries(queries, query)
-
-
-def ilike_maybe_with_none(table, column_name, values, query=None):
-    queries = []
-    values = maybe_set(values)
-    column = getattr(table, column_name)
-
-    if None in values:
-        values.remove(None)
-        queries.append(column.is_(None))
-
-    for value in values:
-        like_filter = create_ilike_filter(table, column_name, value)
-        if like_filter is not None:
-            queries.append(like_filter)
-
-    return filter_query_with_queries(queries, query)
-
-
-def prepare_column_for_filter(table, column_name, search_value, filter_name):
-    search_value = maybe_unicode(search_value)
-    if search_value:
-        column = getattr(table, column_name)
-        if not hasattr(column, 'type'):
-            clauses = getattr(column, 'clauses', None)
-            if clauses is not None:
-                column = func.concat(*clauses)
-            else:
-                column = cast(column, String)
-        elif isinstance(column.type, (Numeric, Integer, Date, DateTime)):
-            column = cast(column, String)
-
-        if table_is_postgresql(table):
-            search_value = clean_unicode(search_value).lower()
-            column = postgresql_non_ascii_and_lower(column)
-
-        if filter_name in ('like', 'ilike'):
-            search_value = u('%{like}%').format(like='%'.join(search_value.split()))
-        elif filter_name == 'rlike':
-            search_value = u('(%s)') % unicode_join('|', search_value.split())
-
-        return column.op(filter_name)(search_value)
-
-
-def create_like_filter(table, column_name, search_value):
-    return prepare_column_for_filter(table, column_name, search_value, filter_name='like')
-
-
-def create_ilike_filter(table, column_name, search_value):
-    return prepare_column_for_filter(table, column_name, search_value, filter_name='ilike')
-
-
-def create_rlike_filter(table, column_name, search_value):
-    return prepare_column_for_filter(table, column_name, search_value, filter_name='rlike')
-
-
-class Pagination(PaginationClass):
-    def __init__(
-            self,
-            query,
-            page=1,
-            limit_per_page=20,
-            count_column=None,
-            clear_group_by=False,
-            ignore_count=False,
-            extend_entitites=False):
-
-        if query is None:
-            super(Pagination, self).__init__(page=1, limit_per_page=limit_per_page)
-        else:
-            super(Pagination, self).__init__(page=page, limit_per_page=limit_per_page)
-
-            if self.limit_per_page != 'all':
-                if not ignore_count:
-                    entities = set()
-                    if not count_column or extend_entitites:
-                        # See https://bitbucket.org/zzzeek/sqlalchemy/issue/3320
-                        entities.update(d['expr'] for d in query.column_descriptions if d.get('expr') is not None)
-
-                    count_query = query
-                    if clear_group_by:
-                        count_query._group_by = []
-
-                    self.set_number_of_results(
-                        sum(r[0] for r in (
-                            count_query
-                            .with_entities(func.count(count_column or 1), *entities)
-                            .order_by(None)
-                            .all())))
-
-                end_slice = self.page * self.limit_per_page
-                start_slice = end_slice - self.limit_per_page
-                query = query.slice(start_slice, end_slice)
-
-            self.extend(query.all())
-
-            if self.limit_per_page == 'all':
-                self.set_number_of_results(len(self))
-
-
-class TablesSet(set):
-    def have(self, table):
-        return table in self
-
-    def __contains__(self, table):
-        table = getattr(table, '__table__', None)
-        if table is not None:
-            return set.__contains__(self, table)
-        else:
-            return False
-
-
-class TemporaryColumnsLabel(dict):
-    def __init__(self, options):
-        super(TemporaryColumnsLabel, self).__init__()
-        self.options = options
-
-    def get(self, name, default=None):
-        columns = {}
-        for key, column in self.items():
-            if column.name != key:
-                column = column.label(key)
-            columns[key] = column
-
-        self.options.columns = columns
-        return columns.get(name, default)
-
-    def __getitem__(self, name):
-        column = self.get(name)
-        if column is None:
-            return self.options.columns[name]
-        else:
-            return column
-
-
-class Options(dict):
-    def __missing__(self, key):
-        self[key] = {}
-        return self[key]
-
-    def clone(self):
-        new = Options()
-        new.add_columns(**self.columns)
-        return new
-
-    def add_columns(self, **columns):
-        for key, column in columns.items():
-            self.add_column(key, column)
-
-    @reify
-    def columns(self):
-        return TemporaryColumnsLabel(self)
-
-    def add_table(self, table, ignore=None, add_name=None):
-        columns = table.__dict__.keys()
-        for key in columns:
-            maybe_column = getattr(table, key)
-            if isinstance(maybe_column, (Column, InstrumentedAttribute)):
-                if not ignore or key not in ignore:
-                    if add_name:
-                        key = '%s_%s' % (add_name, key)
-                    self.add_column(key, maybe_column)
-
-    def add_column(self, key, column):
-        self.columns[key] = column
-
-    def get(self, attributes=None):
-        if not attributes:
-            attributes = self.columns.keys()
-
-        columns = Columns()
-        for attribute in set(attributes):
-            if attribute is not None and attribute in self.columns:
-                column = self.columns[attribute]
-                columns.append(column)
-                columns.tables.update(get_object_tables(column))
-
-        return columns
-
-    def structure_order_by(self, *arguments):
-        result = []
-        add_order = result.append
-        for argument in arguments:
-            if isinstance(argument, (tuple, list)):
-                column_name, reverse = argument
-            else:
-                column_name = argument
-                reverse = False
-
-            column = self.columns[column_name]
-            if reverse:
-                add_order(column.desc())
-            else:
-                add_order(column)
-
-        return result
-
-
 def get_object_tables(value):
     table = getattr(value, 'table', None)
     if table is not None:
@@ -932,253 +1479,14 @@ def get_object_tables(value):
     raise ValueError('Missing tables for %s. Check `get_object_tables` method' % value)
 
 
-class Columns(list):
-    def __init__(self, *args, **kwargs):
-        super(Columns, self).__init__(*args, **kwargs)
-        self.tables = TablesSet()
-
-
-def active_filter(tables):
-    if not is_nonstr_iter(tables):
-        tables = [tables]
-
-    and_queries = []
-    for table in tables:
-        and_queries.append(or_(table.start_date <= func.now(), table.start_date.is_(None)))
-        and_queries.append(or_(table.end_date > func.now(), table.end_date.is_(None)))
-    return and_(*and_queries)
-
-
-def inactive_filter(tables):
-    return not_(active_filter(tables))
-
-
 def date_in_period_filter(table, start_date, end_date):
     return or_(
         and_(table.start_date.is_(None), table.end_date.is_(None)),
         not_(or_(table.end_date < start_date, table.start_date > end_date)))
 
 
-def get_active_column(tables, active=True):
-    if active is None:
-        return active_filter(tables).label('active')
-    elif active:
-        return true().label('active')
-    else:
-        return false().label('active')
-
-
-def get_active_filter(tables, active=True):
-    if active:
-        return active_filter(tables)
-    else:
-        return inactive_filter(tables)
-
-
-def create_filter_by(table, column_name, values):
-    column = getattr(table, column_name)
-
-    if isinstance(values, FilterBy):
-        filter_type = values.filter_type.lower()
-
-        if filter_type == 'or':
-            or_queries = []
-            for value in values.value:
-                query = create_filter_by(table, column_name, value)
-                if query is not None:
-                    or_queries.append(query)
-
-            if len(or_queries) == 1:
-                return or_queries[0]
-            elif or_queries:
-                return or_(*or_queries)
-
-        elif filter_type == 'and':
-            and_queries = []
-            for value in values.value:
-                query = create_filter_by(table, column_name, value)
-                if query is not None:
-                    and_queries.append(query)
-
-            if len(and_queries) == 1:
-                return and_queries[0]
-            elif and_queries:
-                return and_(*and_queries)
-
-        elif filter_type in ('like', 'contém'):
-            return like_maybe_with_none(table, column_name, values.value)
-
-        elif filter_type == '>':
-            return column > values.value
-
-        elif filter_type == '>=':
-            return column >= values.value
-
-        elif filter_type == '<':
-            return column < values.value
-
-        elif filter_type == '<=':
-            return column <= values.value
-
-        elif filter_type in ('=', '=='):
-            return column == values.value
-
-        elif filter_type in ('!=', '≠'):
-            return column != values.value
-
-        else:
-            raise Error('filter_type', u('Invalid filter type %s') % values.filter_type)
-
-    elif values is drop:
-        return None
-
-    elif not is_nonstr_iter(values):
-        return column == values
-
-    else:
-        or_queries = []
-        noniter_values = set()
-        for value in values:
-            if isinstance(value, FilterBy) or is_nonstr_iter(value):
-                query = create_filter_by(table, column_name, value)
-                if query is not None:
-                    or_queries.append(query)
-            elif value is not drop:
-                noniter_values.add(value)
-        if noniter_values:
-            or_queries.append(maybe_with_none(column, noniter_values))
-
-        if len(or_queries) == 1:
-            return or_queries[0]
-        elif or_queries:
-            return or_(*or_queries)
-
-
-def do_filter_by(response, key, values, clear_response=True):
-    keep_index = set()
-    if isinstance(values, FilterBy):
-        filter_type = values.filter_type.lower()
-
-        if filter_type == 'or':
-            for value in values.value:
-                keep_index.update(do_filter_by(response, key, value, clear_response=False))
-
-        elif filter_type == 'and':
-            valid_response = list(response)
-            for value in values.value:
-                valid_index = do_filter_by(valid_response, key, value, clear_response=False)
-                if not valid_index:
-                    valid_response.clear()
-                else:
-                    for i in reversed(list(enumerate(valid_response))):
-                        if i not in valid_index:
-                            valid_response.pop(i)
-                if not valid_response:
-                    break
-
-            keep_index.update(i for i, r in enumerate(valid_response))
-
-        elif filter_type in ('like', 'contém'):
-            values = [clean_unicode(v).lower() for v in values.value.split()]
-            for i, r in enumerate(response):
-                r_value = r.get(key)
-                if not r_value:
-                    continue
-
-                r_value = clean_unicode(r_value).lower()
-                for value in values:
-                    try:
-                        ridx = r_value.index(value)
-                    except ValueError:
-                        break
-                    else:
-                        r_value = r_value[ridx + len(value):]
-                else:
-                    keep_index.add(i)
-
-        elif filter_type == '>':
-            keep_index.update(
-                i for i, r in enumerate(response)
-                if compare_values(r.get(key), values.value, '__gt__'))
-
-        elif filter_type == '>=':
-            keep_index.update(
-                i for i, r in enumerate(response)
-                if compare_values(r.get(key), values.value, '__ge__'))
-
-        elif filter_type == '<':
-            keep_index.update(
-                i for i, r in enumerate(response)
-                if compare_values(r.get(key), values.value, '__lt__'))
-
-        elif filter_type == '<=':
-            keep_index.update(
-                i for i, r in enumerate(response)
-                if compare_values(r.get(key), values.value, '__le__'))
-
-        elif filter_type in ('=', '=='):
-            keep_index.update(
-                i for i, r in enumerate(response)
-                if compare_values(r.get(key), values.value, '__eq__'))
-
-        elif filter_type in ('!=', '≠'):
-            keep_index.update(
-                i for i, r in enumerate(response)
-                if compare_values(r.get(key), values.value, '__ne__'))
-
-        else:
-            raise Error('filter_type', u('Invalid filter type %s') % values.filter_type)
-
-    elif values is drop:
-        pass
-
-    elif not is_nonstr_iter(values):
-        keep_index.update(
-            i for i, r in enumerate(response)
-            if r.get(key) == values)
-
-    else:
-        for value in values:
-            if isinstance(value, FilterBy) or is_nonstr_iter(value):
-                keep_index.update(do_filter_by(response, key, value, clear_response=False))
-            elif value is not drop:
-                keep_index.update(
-                    i for i, r in enumerate(response)
-                    if compare_values(r.get(key), value, '__eq__'))
-
-    if not clear_response:
-        return keep_index
-    elif not keep_index:
-        response.clear()
-    else:
-        for i, r in reversed(list(enumerate(response))):
-            if i not in keep_index:
-                response.pop(i)
-
-
 def new_lightweight_named_tuple(response, *new_fields):
     return lightweight_named_tuple('result', response._real_fields + tuple(new_fields))
-
-
-def get_orm_tables(database_name=None):
-    references = {}
-    for name, database in SQL_DBS.items():
-        if not database_name or name == database_name:
-            for base in database.get('bases') or []:
-                references.update(get_tables_on_registry(base._decl_class_registry))
-    return references
-
-
-def get_tables_on_registry(decl_class_registry):
-    references = {}
-    for name, table in decl_class_registry.items():
-        if name != '_sa_module_registry':
-            references[table.__tablename__] = table
-            table_alias = getattr(table, '__table_alias__', None)
-            if table_alias:
-                references.update((k, table) for k in table_alias)
-    return references
-
 
 def resolve_database_value(value):
     if isinstance(value, SQLALCHEMY_NOW_TYPE):
